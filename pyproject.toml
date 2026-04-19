@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0.3", "numpy"]
+dev = ["pytest>=9.0.3", "numpy", "scipy"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/unified_algebra"]

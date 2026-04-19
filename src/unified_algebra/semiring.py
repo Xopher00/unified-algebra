@@ -10,9 +10,10 @@ Hydra's type system.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import unified_algebra._hydra_setup  # noqa: F401 — must run before hydra imports
+from unified_algebra._hydra_setup import record_fields, string_value, float_value  # noqa: F401
 import hydra.core as core
 import hydra.dsl.terms as Terms
 
@@ -58,31 +59,16 @@ def semiring(name: str, plus: str, times: str, zero: float, one: float) -> core.
     ])
 
 
-def _record_fields(term: core.Term) -> dict[str, core.Term]:
-    """Extract a Hydra record's fields as a name -> term dict."""
-    return {f.name.value: f.term for f in term.value.fields}
-
-
-def _string_value(term: core.Term) -> str:
-    """Extract a plain string from a Hydra TermLiteral(LiteralString(...))."""
-    return term.value.value
-
-
-def _float_value(term: core.Term) -> float:
-    """Extract a float from a Hydra TermLiteral(LiteralFloat(FloatValueFloat64(...)))."""
-    return term.value.value
-
-
 def resolve_semiring(semiring_term: core.Term, backend: Backend) -> ResolvedSemiring:
     """Resolve a semiring term against a backend to get callable operations.
 
     Extracts the operation names from the Hydra record and looks them up
     in the backend to produce concrete callables for contraction.
     """
-    fields = _record_fields(semiring_term)
-    name = _string_value(fields["name"])
-    plus_name = _string_value(fields["plus"])
-    times_name = _string_value(fields["times"])
+    fields = record_fields(semiring_term)
+    name = string_value(fields["name"])
+    plus_name = string_value(fields["plus"])
+    times_name = string_value(fields["times"])
 
     return ResolvedSemiring(
         name=name,
@@ -91,30 +77,21 @@ def resolve_semiring(semiring_term: core.Term, backend: Backend) -> ResolvedSemi
         plus_elementwise=backend.elementwise(plus_name),
         plus_reduce=backend.reduce(plus_name),
         times_elementwise=backend.elementwise(times_name),
-        zero=_float_value(fields["zero"]),
-        one=_float_value(fields["one"]),
+        times_reduce=backend.reduce(times_name),
+        zero=float_value(fields["zero"]),
+        one=float_value(fields["one"]),
     )
 
 
+@dataclass(frozen=True, slots=True)
 class ResolvedSemiring:
-    """A semiring with its operations resolved against a specific backend.
-
-    This is the runtime object used by the contraction algorithm.
-    """
-    __slots__ = (
-        "name", "plus_name", "times_name",
-        "plus_elementwise", "plus_reduce", "times_elementwise",
-        "zero", "one",
-    )
-
-    def __init__(self, name, plus_name, times_name,
-                 plus_elementwise, plus_reduce, times_elementwise,
-                 zero, one):
-        self.name = name
-        self.plus_name = plus_name
-        self.times_name = times_name
-        self.plus_elementwise = plus_elementwise
-        self.plus_reduce = plus_reduce
-        self.times_elementwise = times_elementwise
-        self.zero = zero
-        self.one = one
+    """A semiring with its operations resolved against a specific backend."""
+    name: str
+    plus_name: str
+    times_name: str
+    plus_elementwise: object
+    plus_reduce: object
+    times_elementwise: object
+    times_reduce: object
+    zero: float
+    one: float

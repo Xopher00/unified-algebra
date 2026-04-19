@@ -53,6 +53,11 @@ class Backend:
     transpose: Callable = None       # (arr, perm) -> arr
     broadcast_copy: Callable = None  # (arr, shape) -> writable arr of given shape
 
+    def __post_init__(self):
+        for attr in ("expand_dims", "transpose", "broadcast_copy"):
+            if getattr(self, attr) is None:
+                raise ValueError(f"Backend '{self.name}' missing structural op: {attr}")
+
     def elementwise(self, op_name: str) -> Callable:
         """Get the elementwise form of a binary operation."""
         return self.binary_ops[op_name].elementwise
@@ -78,6 +83,7 @@ class Backend:
 def numpy_backend() -> Backend:
     """Build a backend from numpy."""
     import numpy as np
+    from scipy.special import softmax, expit
 
     return Backend(
         name="numpy",
@@ -102,8 +108,9 @@ def numpy_backend() -> Backend:
         unary_ops={
             # Activations
             "relu":     UnaryOp(fn=lambda x: np.maximum(0, x)),
-            "sigmoid":  UnaryOp(fn=lambda x: 1.0 / (1.0 + np.exp(-x))),
+            "sigmoid":  UnaryOp(fn=expit),
             "tanh":     UnaryOp(fn=np.tanh),
+            "softmax":  UnaryOp(fn=softmax),
             "softplus": UnaryOp(fn=lambda x: np.log1p(np.exp(x))),
 
             # Elementary

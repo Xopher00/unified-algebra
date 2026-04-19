@@ -1,81 +1,122 @@
-"""Morphisms: typed tensor operations registered as Hydra Primitives.
+"""Tensor equations as Hydra Primitives.
 
-``parametric_morphism`` wraps a semiring contraction (learnable weights).
-``pointwise_morphism`` wraps a unary backend op (activation function).
-Both are returned as Hydra ``Primitive`` objects ready to be inserted into a
-``Graph.primitives`` dict.
+An equation is the fundamental construct of the DSL — simultaneously a
+morphism (typed: domain → codomain) and a tensor equation (einsum +
+semiring, with optional pointwise nonlinearity).
+
+    equation()          → Hydra record term (the declaration)
+    resolve_equation()  → Hydra Primitive (the compiled callable)
+
+This follows the same pattern as semiring.py:
+    semiring()          → Hydra record term
+    resolve_semiring()  → ResolvedSemiring with callables
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import unified_algebra._hydra_setup  # noqa: F401 — must precede hydra imports
+from unified_algebra._hydra_setup import record_fields, string_value
 import hydra.core as core
-from hydra.dsl.prims import prim1, prim2
+import hydra.dsl.terms as Terms
+from hydra.dsl.prims import prim1, prim2, prim3
 
+from .semiring import resolve_semiring
 from .sort import tensor_coder
 from .contraction import compile_equation, semiring_contract
 
 if TYPE_CHECKING:
-    from hydra.graph import Primitive
-    from .semiring import ResolvedSemiring
     from .backend import Backend
 
 
-def parametric_morphism(
-    name: str,
-    equation_str: str,
-    resolved_semiring: ResolvedSemiring,
-    backend: Backend,
-) -> Primitive:
-    """Return a Hydra Primitive for a parametric (weight-bearing) morphism.
+# ---------------------------------------------------------------------------
+# Equation as Hydra record term
+# ---------------------------------------------------------------------------
 
-    The primitive takes two tensor arguments ``(x, W)`` and returns a tensor
-    computed via semiring contraction.  The equation is compiled once at
-    construction time and captured in the closure.
-
-    Args:
-        name:              identifier (becomes ``ua.morphism.<name>``).
-        equation_str:      einsum-style equation, e.g. ``"ij,j->i"``.
-        resolved_semiring: semiring with backend-resolved callables.
-        backend:           structural tensor ops (expand_dims, transpose).
-    """
-    eq = compile_equation(equation_str)
-    sr = resolved_semiring
-    coder = tensor_coder()
-
-    return prim2(
-        name=core.Name(f"ua.morphism.{name}"),
-        compute=lambda x, W: semiring_contract(eq, [W, x], sr, backend),
-        variables=[],
-        input1=coder,
-        input2=coder,
-        output=coder,
-    )
+EQUATION_TYPE_NAME = core.Name("ua.equation.Equation")
 
 
-def pointwise_morphism(
-    name: str,
-    op_name: str,
-    backend: Backend,
-) -> Primitive:
-    """Return a Hydra Primitive for a pointwise (non-parametric) morphism.
-
-    The primitive takes one tensor argument and applies a unary backend op.
+def equation(name: str, einsum: str | None,
+             domain_sort: core.Term, codomain_sort: core.Term,
+             semiring_term: core.Term | None = None,
+             nonlinearity: str | None = None,
+             inputs: tuple[str, ...] = ()) -> core.Term:
+    """Create a tensor equation as a Hydra record term.
 
     Args:
-        name:     identifier (becomes ``ua.pointwise.<name>``).
-        op_name:  key in ``backend.unary_ops``, e.g. ``"relu"``.
-        backend:  backend providing the unary callable.
+        name:           identifier (e.g. "linear1", "attention")
+        einsum:         einsum equation string, or None for pure pointwise
+        domain_sort:    sort term for input (from sort())
+        codomain_sort:  sort term for output (from sort())
+        semiring_term:  semiring term (from semiring()), required if einsum is set
+        nonlinearity:   optional pointwise op name (e.g. "relu"), applied after contraction
+        inputs:         names of upstream tensors this equation reads from
     """
-    fn = backend.unary(op_name)
+    return Terms.record(EQUATION_TYPE_NAME, [
+        Terms.field("name", Terms.string(name)),
+        Terms.field("einsum", Terms.string(einsum or "")),
+        Terms.field("domainSort", domain_sort),
+        Terms.field("codomainSort", codomain_sort),
+        Terms.field("semiring", semiring_term if semiring_term is not None else Terms.unit()),
+        Terms.field("nonlinearity", Terms.string(nonlinearity or "")),
+        Terms.field("inputs", Terms.list_([Terms.string(n) for n in inputs])),
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Resolve equation → Hydra Primitive
+# ---------------------------------------------------------------------------
+
+def resolve_equation(eq_term: core.Term, backend: Backend) -> hydra.graph.Primitive:
+    """Resolve an equation term into a Hydra Primitive.
+
+    Reads the equation's fields, resolves its semiring against the backend,
+    compiles the einsum, and produces a Primitive with the correct arity.
+    """
+    fields = record_fields(eq_term)
+    name = string_value(fields["name"])
+    einsum_str = string_value(fields["einsum"])
+    nl_str = string_value(fields["nonlinearity"])
+
+    has_einsum = bool(einsum_str)
+    has_nl = bool(nl_str)
+
     coder = tensor_coder()
 
-    return prim1(
-        name=core.Name(f"ua.pointwise.{name}"),
-        compute=lambda x: fn(x),
-        variables=[],
-        input1=coder,
-        output=coder,
-    )
+    prim_name = core.Name(f"ua.equation.{name}")
+
+    if has_einsum:
+        sr = resolve_semiring(fields["semiring"], backend)
+        eq = compile_equation(einsum_str)
+        n_inputs = len(eq.input_vars)
+        nl_fn = backend.unary(nl_str) if has_nl else None
+
+        if n_inputs == 1:
+            def compute1(a):
+                r = semiring_contract(eq, [a], sr, backend)
+                return nl_fn(r) if nl_fn else r
+            return prim1(prim_name, compute1, [], coder, coder)
+
+        elif n_inputs == 2:
+            def compute2(a, b):
+                r = semiring_contract(eq, [a, b], sr, backend)
+                return nl_fn(r) if nl_fn else r
+            return prim2(prim_name, compute2, [], coder, coder, coder)
+
+        elif n_inputs == 3:
+            def compute3(a, b, c):
+                r = semiring_contract(eq, [a, b, c], sr, backend)
+                return nl_fn(r) if nl_fn else r
+            return prim3(prim_name, compute3, [], coder, coder, coder, coder)
+
+        else:
+            raise ValueError(
+                f"Equation '{name}': einsum has {n_inputs} inputs, max supported is 3"
+            )
+
+    elif has_nl:
+        nl_fn = backend.unary(nl_str)
+        return prim1(prim_name, lambda x: nl_fn(x), [], coder, coder)
+
+    else:
+        raise ValueError(f"Equation '{name}' has neither einsum nor nonlinearity")

@@ -45,12 +45,15 @@ class TestSortConstruction:
 class TestSortTypeMapping:
 
     def test_sort_to_type(self):
-        t = sort_to_type("hidden")
+        t = sort_to_type("hidden", "real")
         assert isinstance(t, TypeVariable)
-        assert t.value == Name("ua.sort.hidden")
+        assert t.value == Name("ua.sort.hidden:real")
 
     def test_different_sorts_different_types(self):
-        assert sort_to_type("hidden") != sort_to_type("output")
+        assert sort_to_type("hidden", "real") != sort_to_type("output", "real")
+
+    def test_different_semiring_different_types(self):
+        assert sort_to_type("hidden", "real") != sort_to_type("hidden", "tropical")
 
 
 class TestTensorCoder:
@@ -116,8 +119,8 @@ class TestGraphAssembly:
         h = sort("hidden", real_sr)
         o = sort("output", real_sr)
         g = build_graph([h, o])
-        assert Name("ua.sort.hidden") in g.schema_types
-        assert Name("ua.sort.output") in g.schema_types
+        assert Name("ua.sort.hidden:real") in g.schema_types
+        assert Name("ua.sort.output:real") in g.schema_types
 
     def test_tensor_type_in_schema(self, real_sr):
         g = build_graph([sort("hidden", real_sr)])
@@ -126,4 +129,4 @@ class TestGraphAssembly:
     def test_sort_terms_in_bound_terms(self, real_sr):
         h = sort("hidden", real_sr)
         g = build_graph([h])
-        assert Name("ua.sort.hidden") in g.bound_terms
+        assert Name("ua.sort.hidden:real") in g.bound_terms

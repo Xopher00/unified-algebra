@@ -19,7 +19,7 @@ programming framework.
 
 ## Current status
 
-Phase 1–3 of the core algebra are implemented and tested (39 tests passing):
+The core algebra is implemented and tested (57 tests passing):
 
 - **Backend** — abstraction over numpy/PyTorch providing binary ops (elementwise + reduction),
   unary ops, structural ops, and constants. Users can add custom ops at runtime.
@@ -27,12 +27,15 @@ Phase 1–3 of the core algebra are implemented and tested (39 tests passing):
   operations (⊕, ⊗) and their identities; the backend provides the implementations.
 - **Contraction** — generalised einsum over arbitrary semirings. Parses an equation string,
   aligns tensors via broadcasting, applies ⊗ elementwise, reduces contracted axes with ⊕.
-- **Sorts** — named tensor types bound to a semiring, mapped to Hydra `TypeVariable`s.
-  Includes a tensor `TermCoder` for lossless numpy↔Hydra round-trips and a `build_graph`
-  function for assembling Hydra graphs with sorts registered as schema types.
-- **Morphisms** — parametric (semiring contraction with weights) and non-parametric
-  (pointwise activation functions), both registered as Hydra `Primitive`s and callable
-  through Hydra's `reduce_term` evaluator.
+- **Sorts** — named tensor types bound to a semiring with identity encoded in Hydra
+  `TypeVariable`s (`ua.sort.hidden:real`). Includes a tensor `TermCoder` for lossless
+  numpy↔Hydra round-trips and sort/rank junction checking at composition boundaries.
+- **Equations** — the unified construct: simultaneously a morphism (typed domain→codomain)
+  and a tensor equation (einsum + semiring + optional nonlinearity). Variable arity.
+  Registered as Hydra `Primitive`s via `prim1`/`prim2`/`prim3` and callable through
+  `reduce_term`.
+- **Graph assembly** — DAG-based equation wiring with topological ordering, cycle detection,
+  sort junction validation, and rank checking. Fan-out and diamond patterns supported.
 
 ## Installation
 

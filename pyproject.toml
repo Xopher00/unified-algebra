@@ -6,16 +6,20 @@ build-backend = "hatchling.build"
 name = "unified-algebra"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = [
-    "hydra",  # install from CategoricalData/hydra: pip install -e ./hydra/heads/python/
-]
+dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0.3"]
+dev = ["pytest>=9.0.3", "numpy"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/unified_algebra"]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = [
+    "src",
+    "../hydra/dist/python/hydra-kernel/src/main/python",
+]

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from unified_algebra.utils import record_fields, string_value
+from .utils import record_fields, string_value
 import hydra.core as core
 import hydra.dsl.terms as Terms
 import hydra.graph
@@ -86,11 +86,29 @@ def is_batched(sort_term: core.Term) -> bool:
 
 def sort_type_from_term(sort_term: core.Term) -> core.Type:
     """Extract the Hydra Type for a sort from its record term."""
+    if is_product_sort(sort_term):
+        elements = product_sort_elements(sort_term)
+        names = [sort_type_from_term(e).value.value for e in elements]
+        return core.TypeVariable(core.Name(f"ua.sort.product:({'*'.join(names)})"))
     fields = record_fields(sort_term)
     name = string_value(fields["name"])
     sr_name = string_value(record_fields(fields["semiring"])["name"])
     batched = _is_batched_field(fields)
     return sort_to_type(name, sr_name, batched)
+
+
+def _check_sort(
+    eq_terms_by_name: dict[str, core.Term],
+    eq_name: str,
+    field: str,
+    expected_sort: core.Term,
+    label: str,
+) -> None:
+    """Assert that an equation's sort field matches an expected sort."""
+    actual = sort_type_from_term(record_fields(eq_terms_by_name[eq_name])[field])
+    expected = sort_type_from_term(expected_sort)
+    if actual != expected:
+        raise TypeError(f"{label}: {actual.value.value!r} != {expected.value.value!r}")
 
 
 def check_sort_junction(upstream_eq: core.Term, downstream_eq: core.Term) -> None:
@@ -185,56 +203,108 @@ def check_sort_compatibility(sort_a: core.Term, sort_b: core.Term) -> bool:
 # Tensor TermCoder
 # ---------------------------------------------------------------------------
 
-def tensor_coder() -> hydra.graph.TermCoder:
-    """Create a TermCoder that bridges numpy arrays and Hydra Terms.
+from ._coders import tensor_coder  # noqa: F401
+from hydra.extract.core import binary as _extract_binary
 
-    Wire format: <dtype>\\x00<dim0>,<dim1>,...\\x00<raw bytes>
-    Uses a generic NDArray type — for sort-specific types, use sort_coder().
+
+def sort_coder(sort_term: core.Term, backend) -> hydra.graph.TermCoder:
+    """Create a TermCoder with the sort's TypeVariable.
+
+    Backend provides from_wire/to_wire for array construction.
+    For product sorts, dispatches to product_sort_coder().
     """
-    return hydra.graph.TermCoder(
-        type=core.TypeVariable(core.Name("ua.tensor.NDArray")),
-        encode=_tensor_encode,
-        decode=_tensor_decode,
-    )
+    if is_product_sort(sort_term):
+        return product_sort_coder(sort_term, backend)
 
+    fw = backend.from_wire
+    tw = backend.to_wire
 
-def sort_coder(sort_term: core.Term) -> hydra.graph.TermCoder:
-    """Create a TermCoder with a sort-specific Hydra type.
+    def encode(cx, graph, term):
+        result = _extract_binary(graph, term)
+        match result:
+            case Right(value=raw): pass
+            case _: raw = term.value.value
+        return Right(fw(raw))
 
-    Same encode/decode as tensor_coder(), but the type is the sort's
-    TypeVariable (e.g. ua.sort.hidden:real) rather than the generic NDArray.
-    This lets Hydra's type checker distinguish primitives operating on
-    different sorts.
-    """
+    def decode(cx, arr):
+        return Right(Terms.binary(tw(arr)))
+
     return hydra.graph.TermCoder(
         type=sort_type_from_term(sort_term),
-        encode=_tensor_encode,
-        decode=_tensor_decode,
+        encode=encode,
+        decode=decode,
     )
 
 
-def _tensor_encode(cx, graph, term):
-    """Term -> ndarray."""
-    import numpy as np
-    raw = term.value.value  # TermLiteral(LiteralBinary(bytes))
-    i = raw.index(0)
-    j = raw.index(0, i + 1)
-    dtype = raw[:i].decode()
-    shape_str = raw[i + 1:j].decode()
-    shape = tuple(int(x) for x in shape_str.split(",") if x)
-    data = raw[j + 1:]
-    return Right(np.frombuffer(data, dtype=dtype).reshape(shape))
+# ---------------------------------------------------------------------------
+# Product sorts
+# ---------------------------------------------------------------------------
+
+PRODUCT_SORT_TYPE_NAME = core.Name("ua.sort.Product")
 
 
-def _tensor_decode(cx, arr):
-    """ndarray -> Term."""
-    import numpy as np
-    a = np.ascontiguousarray(arr)
-    hdr = (
-        a.dtype.str.encode()
-        + b"\x00"
-        + ",".join(str(s) for s in a.shape).encode()
-        + b"\x00"
-    )
-    return Right(Terms.binary(hdr + a.tobytes()))
+def product_sort(sorts: list[core.Term]) -> core.Term:
+    """Create a product sort — a typed pair/tuple of sorts.
+
+    Product sorts represent tensor tuples: morphisms that produce or consume
+    multiple tensors simultaneously, typed by a right-nested pair of component
+    sorts.
+
+    Args:
+        sorts: list of at least 2 component sort terms (from sort()).
+
+    Returns:
+        A Hydra TermRecord with type name ua.sort.Product and a 'sorts' field
+        containing the list of component sort terms.
+    """
+    if len(sorts) < 2:
+        raise ValueError("Product sort requires at least 2 component sorts")
+    return Terms.record(PRODUCT_SORT_TYPE_NAME, [
+        Terms.field("sorts", Terms.list_(sorts)),
+    ])
+
+
+def is_product_sort(sort_term: core.Term) -> bool:
+    """Check if a sort term is a product sort.
+
+    Uses the record's type_name for a precise check: product sorts are
+    TermRecord(Record(type_name=PRODUCT_SORT_TYPE_NAME, ...)).
+    """
+    try:
+        return (
+            isinstance(sort_term, core.TermRecord)
+            and sort_term.value.type_name == PRODUCT_SORT_TYPE_NAME
+        )
+    except (AttributeError, TypeError):
+        return False
+
+
+def product_sort_elements(sort_term: core.Term) -> list[core.Term]:
+    """Extract component sorts from a product sort.
+
+    Args:
+        sort_term: a product sort term (produced by product_sort()).
+
+    Returns:
+        List of component sort terms in declaration order.
+
+    Raises:
+        KeyError: if sort_term is not a product sort.
+    """
+    fields = record_fields(sort_term)
+    sorts_list = fields["sorts"]
+    # TermList.value is a tuple of Terms
+    return list(sorts_list.value)
+
+
+def product_sort_coder(sort_term: core.Term, backend):
+    """Create a composite TermCoder for a product sort."""
+    from hydra.dsl.prims import pair as pair_coder
+    elements = product_sort_elements(sort_term)
+    coders = [sort_coder(s, backend) for s in elements]
+    # Right-nest: [a, b, c] -> pair(a, pair(b, c))
+    result = coders[-1]
+    for c in reversed(coders[:-1]):
+        result = pair_coder(c, result)
+    return result
 

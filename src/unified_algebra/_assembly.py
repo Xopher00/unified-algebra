@@ -17,13 +17,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from unified_algebra.utils import record_fields, string_value
+from .utils import record_fields, string_value, eq_name, lens_fields
 from .sort import sort_type_from_term
 from .morphism import resolve_equation, resolve_list_merge
-from .composition import path, fan, validate_path, validate_fan
-from .recursion import fold, unfold, _unfold_n_primitive, validate_fold, validate_unfold
-from .lens import validate_lens, lens_path
-from .validation import _eq_name
+from .composition import path, fan
+from .composition import validate_lens, lens_path
+from .recursion import fold, unfold, _unfold_n_primitive
+from .recursion import fixpoint, _fixpoint_primitive
+from ._lens_threading import _lens_fwd_primitive, _lens_bwd_primitive
+from .validation import validate_path, validate_fan, validate_fold, validate_unfold, validate_fixpoint
 
 if TYPE_CHECKING:
     import hydra.core as core
@@ -57,9 +59,9 @@ def _resolve_all_primitives(
     from hydra.sources.libraries import standard_library
     primitives = dict(standard_library())
 
-    eq_by_name: dict[str, core.Term] = {_eq_name(eq): eq for eq in eq_terms}
+    eq_by_name: dict[str, core.Term] = {eq_name(eq): eq for eq in eq_terms}
     for eq_term in eq_terms:
-        name = _eq_name(eq_term)
+        name = eq_name(eq_term)
         if name in merge_names:
             prim = resolve_list_merge(eq_term, backend)
         else:
@@ -141,10 +143,15 @@ def _build_lenses(
     lens_paths_specs: list[tuple] | None,
     eq_by_name: dict[str, core.Term],
     bound_terms: dict,
+    primitives: dict | None = None,
 ) -> None:
     """Validate lenses and build bidirectional path terms. Mutates bound_terms.
 
     Builds lens_by_name lookup internally before processing lens_paths_specs.
+
+    For lenses with residual_sort, registers ua.prim.lens_fwd and ua.prim.lens_bwd
+    in primitives before building the terms. The primitives
+    dict must be provided when any lens with residual_sort is used in lens_paths.
     """
     import hydra.core as core
     lens_by_name: dict[str, core.Term] = {}
@@ -158,11 +165,42 @@ def _build_lenses(
     if lens_paths_specs:
         for (lpname, lp_lens_names, domain_sort, codomain_sort, *rest) in lens_paths_specs:
             lp_params = rest[0] if rest else None
+
+            # Detect whether any lens in this path has a residual_sort.
+            def _has_residual_sort(lname: str) -> bool:
+                lf = lens_fields(lens_by_name[lname])
+                rs = lf.get("residualSort")
+                return rs is not None and not isinstance(rs, core.TermUnit)
+            has_residual = any(_has_residual_sort(ln) for ln in lp_lens_names)
+
+            if has_residual and primitives is not None:
+                # Register optic primitives on first encounter.
+                lens_fwd_prim = _lens_fwd_primitive()
+                lens_bwd_prim = _lens_bwd_primitive()
+                primitives.setdefault(lens_fwd_prim.name, lens_fwd_prim)
+                primitives.setdefault(lens_bwd_prim.name, lens_bwd_prim)
+
             (fwd_name, fwd_term), (bwd_name, bwd_term) = lens_path(
                 lpname, lp_lens_names, lens_by_name, domain_sort, codomain_sort, lp_params
             )
             bound_terms[fwd_name] = fwd_term
             bound_terms[bwd_name] = bwd_term
+
+
+def _build_fixpoints(
+    fixpoints_specs: list[tuple] | None,
+    eq_by_name: dict[str, core.Term],
+    primitives: dict,
+    bound_terms: dict,
+) -> None:
+    """Validate and build fixpoint terms. Mutates primitives and bound_terms."""
+    if fixpoints_specs:
+        for (fname, step_name, pred_name, epsilon, max_iter, domain_sort) in fixpoints_specs:
+            validate_fixpoint(eq_by_name, step_name, pred_name, domain_sort)
+            fp_prim = _fixpoint_primitive(epsilon, max_iter)
+            primitives[fp_prim.name] = fp_prim
+            term_name, term = fixpoint(fname, step_name, pred_name, epsilon, max_iter, domain_sort)
+            bound_terms[term_name] = term
 
 
 def _collect_sorts(

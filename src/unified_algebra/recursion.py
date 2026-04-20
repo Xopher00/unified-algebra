@@ -17,13 +17,10 @@ step function term is applied at every recursive step.
 
 from __future__ import annotations
 
-from unified_algebra.utils import record_fields, string_value
 import hydra.core as core
 import hydra.dsl.terms as Terms
 import hydra.graph
 from hydra.dsl import prims
-
-from .sort import sort_type_from_term
 
 
 # ---------------------------------------------------------------------------
@@ -51,14 +48,7 @@ def fold(
         The lambda term is: λseq. foldl(step, init, seq)
     """
     step_fn = Terms.var(f"ua.equation.{step_name}")
-
-    body = Terms.apply(
-        Terms.apply(
-            Terms.apply(Terms.var("hydra.lib.lists.foldl"), step_fn),
-            init_term,
-        ),
-        Terms.var("seq"),
-    )
+    body = Terms.apply_all(Terms.var("hydra.lib.lists.foldl"), [step_fn, init_term, Terms.var("seq")])
     term = Terms.lambda_("seq", body)
     return (core.Name(f"ua.fold.{name}"), term)
 
@@ -124,77 +114,78 @@ def unfold(
         The lambda term is: λstate. unfold_n(step, n, state)
     """
     step_fn = Terms.var(f"ua.equation.{step_name}")
-    n_term = Terms.int32(n_steps)
-
-    body = Terms.apply(
-        Terms.apply(
-            Terms.apply(Terms.var("ua.prim.unfold_n"), step_fn),
-            n_term,
-        ),
-        Terms.var("state"),
-    )
+    body = Terms.apply_all(Terms.var("ua.prim.unfold_n"), [step_fn, Terms.int32(n_steps), Terms.var("state")])
     term = Terms.lambda_("state", body)
     return (core.Name(f"ua.unfold.{name}"), term)
 
 
+
+
 # ---------------------------------------------------------------------------
-# Validation
+# Fixpoint iteration — custom higher-order Primitive
 # ---------------------------------------------------------------------------
 
-def validate_fold(
-    eq_terms_by_name: dict[str, core.Term],
-    step_name: str,
-    domain_sort: core.Term,
-    state_sort: core.Term,
-) -> None:
-    """Validate sort junctions for a fold.
+def _fixpoint_primitive(epsilon: float, max_iter: int) -> hydra.graph.Primitive:
+    """Create the ua.prim.fixpoint higher-order Primitive.
 
-    Checks:
-    1. Step equation exists
-    2. Step's output sort matches state_sort (recurrence)
+    Signature: (state → state) → (state → float32) → state → pair(state, int32)
+
+    Iterates a step function until the predicate returns a value <= epsilon,
+    or max_iter is reached. Returns (final_state, iteration_count).
+    Epsilon and max_iter are baked into the closure at resolution time.
     """
-    if step_name not in eq_terms_by_name:
-        raise ValueError(f"Fold step equation '{step_name}' not found")
+    from hydra.sources.libraries import fun
 
-    step_fields = record_fields(eq_terms_by_name[step_name])
-    step_codomain = sort_type_from_term(step_fields["codomainSort"])
-    state_type = sort_type_from_term(state_sort)
-    if step_codomain != state_type:
-        raise TypeError(
-            f"Fold step '{step_name}' codomain {step_codomain.value.value!r} != "
-            f"state sort {state_type.value.value!r}"
-        )
+    prim_name = core.Name("ua.prim.fixpoint")
+    a = prims.variable("a")
+    _a = prims.v("a")
+
+    def compute(step, pred, init):
+        state = init
+        for i in range(max_iter):
+            residual = pred(state)
+            if residual <= epsilon:
+                return (state, i)
+            state = step(state)
+        return (state, max_iter)
+
+    return prims.prim3(
+        prim_name, compute, [_a],
+        fun(a, a),                          # step: a → a
+        fun(a, prims.float32()),            # pred: a → float32
+        a,                                  # init state
+        prims.pair(a, prims.int32()),       # output: pair(final_state, iterations)
+    )
 
 
-def validate_unfold(
-    eq_terms_by_name: dict[str, core.Term],
+def fixpoint(
+    name: str,
     step_name: str,
+    predicate_name: str,
+    epsilon: float,
+    max_iter: int,
     domain_sort: core.Term,
-    state_sort: core.Term,
-) -> None:
-    """Validate sort junctions for an unfold.
+) -> tuple[core.Name, core.Term]:
+    """Build a fixpoint iteration as a Hydra lambda term.
 
-    Checks:
-    1. Step equation exists
-    2. Step's input sort matches domain_sort (state recurrence)
-    3. Step's output sort matches domain_sort (state recurrence)
+    Args:
+        name:            identifier (e.g. "converge")
+        step_name:       name of a 1-input equation: step(state) → new_state
+        predicate_name:  name of a 1-input equation: pred(state) → float32 residual
+        epsilon:         convergence threshold (iterate until pred(state) <= epsilon)
+        max_iter:        maximum iterations (safety bound)
+        domain_sort:     sort term for the state
+
+    Returns:
+        (Name("ua.fixpoint.<name>"), lambda_term)
+        The lambda term is: λstate. fixpoint(step, pred, state)
+        Output is a pair: (final_state, iteration_count)
     """
-    if step_name not in eq_terms_by_name:
-        raise ValueError(f"Unfold step equation '{step_name}' not found")
+    step_fn = Terms.var(f"ua.equation.{step_name}")
+    pred_fn = Terms.var(f"ua.equation.{predicate_name}")
+    body = Terms.apply_all(Terms.var("ua.prim.fixpoint"), [step_fn, pred_fn, Terms.var("state")])
+    term = Terms.lambda_("state", body)
+    return (core.Name(f"ua.fixpoint.{name}"), term)
 
-    step_fields = record_fields(eq_terms_by_name[step_name])
 
-    step_domain = sort_type_from_term(step_fields["domainSort"])
-    domain_type = sort_type_from_term(domain_sort)
-    if step_domain != domain_type:
-        raise TypeError(
-            f"Unfold step '{step_name}' domain {step_domain.value.value!r} != "
-            f"state sort {domain_type.value.value!r}"
-        )
 
-    step_codomain = sort_type_from_term(step_fields["codomainSort"])
-    if step_codomain != domain_type:
-        raise TypeError(
-            f"Unfold step '{step_name}' codomain {step_codomain.value.value!r} != "
-            f"state sort {domain_type.value.value!r}"
-        )

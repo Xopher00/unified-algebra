@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from unified_algebra.utils import record_fields, string_value, float_value  # noqa: F401
+from .utils import record_fields, string_value, float_value  # noqa: F401
 import hydra.core as core
 import hydra.dsl.terms as Terms
 
@@ -32,23 +32,27 @@ SEMIRING_TYPE_NAME = core.Name("ua.semiring.Semiring")
 # Semiring construction
 # ---------------------------------------------------------------------------
 
-def semiring(name: str, plus: str, times: str, zero: float, one: float) -> core.Term:
+def semiring(name: str, plus: str, times: str, zero: float, one: float,
+             residual: str | None = None) -> core.Term:
     """Create a semiring as a Hydra record term.
 
     Args:
-        name:  identifier for this semiring (e.g. "real", "tropical")
-        plus:  name of the ⊕ binary op in the backend (e.g. "add", "minimum")
-        times: name of the ⊗ binary op in the backend (e.g. "multiply", "add")
-        zero:  additive identity
-        one:   multiplicative identity
+        name:     identifier for this semiring (e.g. "real", "tropical")
+        plus:     name of the ⊕ binary op in the backend (e.g. "add", "minimum")
+        times:    name of the ⊗ binary op in the backend (e.g. "multiply", "add")
+        zero:     additive identity
+        one:      multiplicative identity
+        residual: optional name of the ⊘ binary op (right adjoint of ⊗).
+                  Satisfies: a ⊗ b ≤ c ⟺ b ≤ a ⊘ c.
+                  Examples: "divide" for real, "subtract" for tropical.
 
     Returns:
         A Hydra TermRecord representing the semiring.
 
     Example:
-        real = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-        tropical = semiring("tropical", plus="minimum", times="add", zero=float('inf'), one=0.0)
-        fuzzy = semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0)
+        real = semiring("real", plus="add", times="multiply", residual="divide", zero=0.0, one=1.0)
+        tropical = semiring("tropical", plus="minimum", times="add", residual="subtract", zero=float('inf'), one=0.0)
+        fuzzy = semiring("fuzzy", plus="maximum", times="minimum", residual="implies", zero=0.0, one=1.0)
     """
     return Terms.record(SEMIRING_TYPE_NAME, [
         Terms.field("name", Terms.string(name)),
@@ -56,6 +60,7 @@ def semiring(name: str, plus: str, times: str, zero: float, one: float) -> core.
         Terms.field("times", Terms.string(times)),
         Terms.field("zero", Terms.float64(zero)),
         Terms.field("one", Terms.float64(one)),
+        Terms.field("residual", Terms.string(residual or "")),
     ])
 
 
@@ -69,6 +74,11 @@ def resolve_semiring(semiring_term: core.Term, backend: Backend) -> ResolvedSemi
     name = string_value(fields["name"])
     plus_name = string_value(fields["plus"])
     times_name = string_value(fields["times"])
+    residual_name = string_value(fields.get("residual", Terms.string("")))
+
+    residual_elementwise = None
+    if residual_name:
+        residual_elementwise = backend.elementwise(residual_name)
 
     return ResolvedSemiring(
         name=name,
@@ -80,6 +90,8 @@ def resolve_semiring(semiring_term: core.Term, backend: Backend) -> ResolvedSemi
         times_reduce=backend.reduce(times_name),
         zero=float_value(fields["zero"]),
         one=float_value(fields["one"]),
+        residual_name=residual_name or None,
+        residual_elementwise=residual_elementwise,
     )
 
 
@@ -95,3 +107,5 @@ class ResolvedSemiring:
     times_reduce: object
     zero: float
     one: float
+    residual_name: str | None = None
+    residual_elementwise: object | None = None

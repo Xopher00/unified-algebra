@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from unified_algebra.utils import record_fields, string_value
+from .utils import record_fields, string_value
 import hydra.core as core
 import hydra.dsl.terms as Terms
 from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
@@ -127,8 +127,8 @@ def _resolve_fields(eq_term: core.Term, backend: "Backend"):
     has_nl = bool(nl_str)
     nl_fn = backend.unary(nl_str) if has_nl else None
 
-    in_coder = sort_coder(fields["domainSort"])
-    out_coder = sort_coder(fields["codomainSort"])
+    in_coder = sort_coder(fields["domainSort"], backend)
+    out_coder = sort_coder(fields["codomainSort"], backend)
     prim_name = core.Name(f"ua.equation.{name}")
 
     sr = None
@@ -138,6 +138,19 @@ def _resolve_fields(eq_term: core.Term, backend: "Backend"):
         eq = compile_equation(einsum_str)
 
     return fields, name, einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq
+
+
+def _make_prim(prim_name, compute, coders, out_coder):
+    """Dispatch a compute closure + coder list to prim1/prim2/prim3."""
+    n = len(coders)
+    if n == 1:
+        return prim1(prim_name, lambda a: compute(a), [], coders[0], out_coder)
+    elif n == 2:
+        return prim2(prim_name, lambda a, b: compute(a, b), [], coders[0], coders[1], out_coder)
+    elif n == 3:
+        return prim3(prim_name, lambda a, b, c: compute(a, b, c), [], coders[0], coders[1], coders[2], out_coder)
+    else:
+        raise ValueError(f"Primitive '{prim_name.value}': arity {n} exceeds max 3")
 
 
 # ---------------------------------------------------------------------------
@@ -167,67 +180,32 @@ def resolve_equation(eq_term: core.Term, backend: Backend) -> hydra.graph.Primit
 
     if has_einsum:
         n_inputs = len(eq.input_vars)
-
-        total_arity = n_params + n_inputs
-        if total_arity > 3:
-            raise ValueError(
-                f"Equation '{name}': total arity {total_arity} "
-                f"({n_params} params + {n_inputs} tensor inputs) exceeds max 3"
-            )
-
-        if n_params == 0:
-            if n_inputs == 1:
-                def compute1(a):
-                    r = semiring_contract(eq, [a], sr, backend)
-                    return nl_fn(r) if nl_fn else r
-                return prim1(prim_name, compute1, [], in_coder, out_coder)
-
-            elif n_inputs == 2:
-                def compute2(a, b):
-                    r = semiring_contract(eq, [a, b], sr, backend)
-                    return nl_fn(r) if nl_fn else r
-                return prim2(prim_name, compute2, [], in_coder, in_coder, out_coder)
-
-            elif n_inputs == 3:
-                def compute3(a, b, c):
-                    r = semiring_contract(eq, [a, b, c], sr, backend)
-                    return nl_fn(r) if nl_fn else r
-                return prim3(prim_name, compute3, [], in_coder, in_coder, in_coder, out_coder)
-
-        elif n_params == 1 and n_inputs == 1:
-            def compute_p1_t1(p, a):
-                r = semiring_contract(eq, [a], sr, backend)
-                return nl_fn(r, p) if nl_fn else r
-            return prim2(prim_name, compute_p1_t1, [], float32_coder(), in_coder, out_coder)
-
-        elif n_params == 1 and n_inputs == 2:
-            def compute_p1_t2(p, a, b):
-                r = semiring_contract(eq, [a, b], sr, backend)
-                return nl_fn(r, p) if nl_fn else r
-            return prim3(prim_name, compute_p1_t2, [], float32_coder(), in_coder, in_coder, out_coder)
-
-        elif n_params == 2 and n_inputs == 1:
-            def compute_p2_t1(p1, p2, a):
-                r = semiring_contract(eq, [a], sr, backend)
-                return nl_fn(r, p1, p2) if nl_fn else r
-            return prim3(prim_name, compute_p2_t1, [], float32_coder(), float32_coder(), in_coder, out_coder)
-
-        raise ValueError(
-            f"Equation '{name}': einsum has {n_inputs} inputs, max supported is 3"
-        )
-
     elif has_nl:
-        if n_params == 0:
-            return prim1(prim_name, lambda x: nl_fn(x), [], in_coder, out_coder)
-        elif n_params == 1:
-            return prim2(prim_name, lambda p, x: nl_fn(x, p), [], float32_coder(), in_coder, out_coder)
-        elif n_params == 2:
-            return prim3(prim_name, lambda p1, p2, x: nl_fn(x, p1, p2), [], float32_coder(), float32_coder(), in_coder, out_coder)
-        else:
-            raise ValueError(f"Equation '{name}': too many param_slots ({n_params}), max 2 for pointwise")
-
+        n_inputs = 1
     else:
         raise ValueError(f"Equation '{name}' has neither einsum nor nonlinearity")
+
+    total_arity = n_params + n_inputs
+    if total_arity > 3:
+        raise ValueError(
+            f"Equation '{name}': total arity {total_arity} "
+            f"({n_params} params + {n_inputs} tensor inputs) exceeds max 3"
+        )
+
+    # Build compute closure: params come first, then tensor inputs
+    def _compute(*args):
+        params_args = args[:n_params]
+        tensor_args = list(args[n_params:])
+        if has_einsum:
+            r = semiring_contract(eq, tensor_args, sr, backend)
+        else:
+            r = tensor_args[0]
+        if nl_fn:
+            return nl_fn(r, *params_args) if params_args else nl_fn(r)
+        return r
+
+    coders = [float32_coder()] * n_params + [in_coder] * n_inputs
+    return _make_prim(prim_name, _compute, coders, out_coder)
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +228,6 @@ def resolve_list_merge(eq_term: core.Term, backend: Backend) -> hydra.graph.Prim
         n_inputs = len(eq.input_vars)
 
         if n_inputs == 2:
-            # Binary combiner: fold pairwise over the list
             def compute_list_merge(tensors):
                 result = tensors[0]
                 for t in tensors[1:]:
@@ -259,34 +236,26 @@ def resolve_list_merge(eq_term: core.Term, backend: Backend) -> hydra.graph.Prim
                     result = nl_fn(result)
                 return result
         elif n_inputs == 1:
-            # Unary merge (identity/transform): apply to single element
             def compute_list_merge(tensors):
                 if len(tensors) != 1:
-                    raise ValueError(
-                        f"Unary merge '{name}' expects 1-element list, got {len(tensors)}"
-                    )
+                    raise ValueError(f"Unary merge '{name}' expects 1-element list, got {len(tensors)}")
                 result = semiring_contract(eq, [tensors[0]], sr, backend)
                 if nl_fn:
                     result = nl_fn(result)
                 return result
         else:
-            raise ValueError(
-                f"List-merge equation '{name}': einsum must have 1 or 2 inputs, "
-                f"got {n_inputs}"
-            )
+            raise ValueError(f"List-merge equation '{name}': einsum must have 1 or 2 inputs, got {n_inputs}")
 
-        return prim1(prim_name, compute_list_merge, [], list_coder(in_coder), out_coder)
+        return _make_prim(prim_name, compute_list_merge, [list_coder(in_coder)], out_coder)
 
     elif has_nl:
-        # Pointwise-only merge: apply nonlinearity after summing the list
-        # This is unusual but supported — e.g. merge by averaging then applying relu
         def compute_list_nl(tensors):
             result = tensors[0]
             for t in tensors[1:]:
-                result = result + t  # default: elementwise add
+                result = result + t
             return nl_fn(result)
 
-        return prim1(prim_name, compute_list_nl, [], list_coder(in_coder), out_coder)
+        return _make_prim(prim_name, compute_list_nl, [list_coder(in_coder)], out_coder)
 
     else:
         raise ValueError(f"List-merge equation '{name}' has neither einsum nor nonlinearity")

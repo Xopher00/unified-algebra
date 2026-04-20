@@ -30,11 +30,11 @@ from unified_algebra.sort import sort, tensor_coder, sort_coder
 from unified_algebra.morphism import equation, resolve_equation
 from unified_algebra.composition import path, fan
 from unified_algebra.graph import build_graph, assemble_graph
-from unified_algebra.lens import (
-    lens, validate_lens, lens_path, lens_fan,
-    LENS_TYPE_NAME, _lens_fields,
+from unified_algebra.composition import (
+    lens, validate_lens, lens_path,
+    LENS_TYPE_NAME,
 )
-from unified_algebra.utils import record_fields, string_value
+from unified_algebra.utils import record_fields, string_value, lens_fields
 
 
 # ---------------------------------------------------------------------------
@@ -119,19 +119,19 @@ class TestLensDeclaration:
     def test_lens_record_name_field(self):
         """The 'name' field of the lens record matches the given name."""
         l = lens("my_lens", "forward_eq", "backward_eq")
-        lf = _lens_fields(l)
+        lf = lens_fields(l)
         assert lf["name"] == "my_lens"
 
     def test_lens_record_forward_field(self):
         """The 'forward' field stores the forward equation name."""
         l = lens("linear", "linear_fwd", "linear_bwd")
-        lf = _lens_fields(l)
+        lf = lens_fields(l)
         assert lf["forward"] == "linear_fwd"
 
     def test_lens_record_backward_field(self):
         """The 'backward' field stores the backward equation name."""
         l = lens("linear", "linear_fwd", "linear_bwd")
-        lf = _lens_fields(l)
+        lf = lens_fields(l)
         assert lf["backward"] == "linear_bwd"
 
     def test_lens_without_residual_stores_unit(self):
@@ -584,7 +584,7 @@ class TestLensSemiringPolymorphism:
         eq_fwd = equation("tp_fwd", "i->j", tropic_sort, tropic_sort, tropical_sr)
         eq_bwd = equation("tp_bwd", "j->i", tropic_sort, tropic_sort, tropical_sr)
         l = lens("tropical_lens", "tp_fwd", "tp_bwd")
-        lf = _lens_fields(l)
+        lf = lens_fields(l)
         assert lf["name"] == "tropical_lens"
         assert lf["forward"] == "tp_fwd"
         assert lf["backward"] == "tp_bwd"

@@ -16,7 +16,8 @@ from unified_algebra.semiring import semiring
 from unified_algebra.sort import sort, tensor_coder, sort_coder
 from unified_algebra.graph import build_graph, assemble_graph, rebind_hyperparams
 from unified_algebra.morphism import equation, resolve_equation, resolve_list_merge
-from unified_algebra.composition import path, fan, validate_path, validate_fan
+from unified_algebra.composition import path, fan
+from unified_algebra.validation import validate_path, validate_fan
 
 
 # ---------------------------------------------------------------------------

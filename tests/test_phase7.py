@@ -14,7 +14,8 @@ from unified_algebra.backend import numpy_backend
 from unified_algebra.semiring import semiring
 from unified_algebra.sort import sort, tensor_coder
 from unified_algebra.morphism import equation, resolve_equation
-from unified_algebra.recursion import fold, unfold, validate_fold, validate_unfold, _unfold_n_primitive
+from unified_algebra.recursion import fold, unfold, _unfold_n_primitive
+from unified_algebra.validation import validate_fold, validate_unfold
 from unified_algebra.graph import build_graph, assemble_graph
 
 

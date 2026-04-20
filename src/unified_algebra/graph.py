@@ -13,7 +13,8 @@ from .sort import sort_type_from_term
 from .validation import resolve_dag, validate_pipeline, ua_primitives
 from ._assembly import (
     _collect_merge_names, _resolve_all_primitives, _register_hyperparams,
-    _build_paths, _build_fans, _build_recursion, _build_lenses, _collect_sorts,
+    _build_paths, _build_fans, _build_recursion, _build_lenses,
+    _build_fixpoints, _collect_sorts,
 )
 
 if TYPE_CHECKING:
@@ -67,6 +68,16 @@ class LensPathSpec(NamedTuple):
     lens_names: list[str]
     domain_sort: object  # core.Term
     codomain_sort: object  # core.Term
+
+
+class FixpointSpec(NamedTuple):
+    """Convenience spec for a fixpoint iteration."""
+    name: str
+    step_name: str
+    predicate_name: str
+    epsilon: float
+    max_iter: int
+    domain_sort: object  # core.Term
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +172,7 @@ def assemble_graph(
     hyperparams: dict[str, core.Term] | None = None,
     lenses: list[core.Term] | None = None,
     lens_paths: list[tuple[str, list[str], core.Term, core.Term]] | None = None,
+    fixpoints: list[tuple[str, str, str, float, int, core.Term]] | None = None,
 ) -> hydra.graph.Graph:
     """Resolve equation terms and assemble a Hydra Graph.
 
@@ -201,7 +213,8 @@ def assemble_graph(
     _build_paths(paths, eq_by_name, bound_terms)
     _build_fans(fans, eq_by_name, bound_terms)
     _build_recursion(folds, unfolds, eq_by_name, primitives, bound_terms)
-    _build_lenses(lenses, lens_paths, eq_by_name, bound_terms)
+    _build_lenses(lenses, lens_paths, eq_by_name, bound_terms, primitives)
+    _build_fixpoints(fixpoints, eq_by_name, primitives, bound_terms)
 
     all_sorts = _collect_sorts(eq_terms, extra_sorts)
     return build_graph(all_sorts, primitives=primitives, bound_terms=bound_terms)

@@ -24,7 +24,8 @@ from unified_algebra.sort import (
 from unified_algebra.morphism import (
     equation, resolve_equation, resolve_list_merge, _prepend_batch_dim,
 )
-from unified_algebra.composition import path, fan, validate_path, validate_fan
+from unified_algebra.composition import path, fan
+from unified_algebra.validation import validate_path, validate_fan
 from unified_algebra.graph import build_graph, assemble_graph
 
 

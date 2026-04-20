@@ -85,3 +85,115 @@ class TestFuzzySemiring:
         # Y_0 = max(min(0.8,0.6), min(0.3,0.7)) = max(0.6, 0.3) = 0.6
         # Y_1 = max(min(0.2,0.6), min(0.9,0.7)) = max(0.2, 0.7) = 0.7
         np.testing.assert_allclose(result, np.array([0.6, 0.7]))
+
+
+class TestBlockedContraction:
+    """Blocked semiring_contract: results must be numerically identical to
+    the unblocked path for all three semirings."""
+
+    # ------------------------------------------------------------------
+    # Real semiring
+    # ------------------------------------------------------------------
+
+    def test_real_matvec_block2(self, real, backend):
+        """Matrix-vector product blocked at size 2 matches unblocked."""
+        eq = compile_equation("ij,j->i")
+        W = np.random.default_rng(0).random((4, 6))
+        x = np.random.default_rng(1).random((6,))
+        expected = semiring_contract(eq, [W, x], real, backend)
+        result = semiring_contract(eq, [W, x], real, backend, block_size=2)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_real_matvec_block1(self, real, backend):
+        """block_size=1 (extreme: one element at a time) still correct."""
+        eq = compile_equation("ij,j->i")
+        W = np.random.default_rng(2).random((3, 5))
+        x = np.random.default_rng(3).random((5,))
+        expected = semiring_contract(eq, [W, x], real, backend)
+        result = semiring_contract(eq, [W, x], real, backend, block_size=1)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_real_matmul_block3(self, real, backend):
+        """Matrix-matrix product with two reduction dims is blocked correctly."""
+        eq = compile_equation("ij,jk->ik")
+        A = np.random.default_rng(4).random((3, 8))
+        B = np.random.default_rng(5).random((8, 4))
+        expected = semiring_contract(eq, [A, B], real, backend)
+        result = semiring_contract(eq, [A, B], real, backend, block_size=3)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_real_block_larger_than_axis_is_noop(self, real, backend):
+        """block_size > reduction axis size takes the fast path; result identical."""
+        eq = compile_equation("ij,j->i")
+        W = np.random.default_rng(6).random((4, 3))
+        x = np.random.default_rng(7).random((3,))
+        expected = semiring_contract(eq, [W, x], real, backend)
+        # block_size=100 >> axis size 3 — should fall through to _contract_full
+        result = semiring_contract(eq, [W, x], real, backend, block_size=100)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    # ------------------------------------------------------------------
+    # Tropical semiring
+    # ------------------------------------------------------------------
+
+    def test_tropical_matvec_block2(self, tropical, backend):
+        """Tropical (min-plus) blocked at 2 matches unblocked."""
+        eq = compile_equation("ij,j->i")
+        W = np.random.default_rng(8).random((4, 6))
+        x = np.random.default_rng(9).random((6,))
+        expected = semiring_contract(eq, [W, x], tropical, backend)
+        result = semiring_contract(eq, [W, x], tropical, backend, block_size=2)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_tropical_matvec_block1(self, tropical, backend):
+        """Tropical block_size=1 is still correct."""
+        eq = compile_equation("ij,j->i")
+        W = np.random.default_rng(10).random((3, 5))
+        x = np.random.default_rng(11).random((5,))
+        expected = semiring_contract(eq, [W, x], tropical, backend)
+        result = semiring_contract(eq, [W, x], tropical, backend, block_size=1)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    # ------------------------------------------------------------------
+    # Fuzzy semiring
+    # ------------------------------------------------------------------
+
+    def test_fuzzy_matvec_block2(self, fuzzy, backend):
+        """Fuzzy (max-min) blocked at 2 matches unblocked."""
+        eq = compile_equation("ij,j->i")
+        W = np.random.default_rng(12).random((4, 6))
+        x = np.random.default_rng(13).random((6,))
+        expected = semiring_contract(eq, [W, x], fuzzy, backend)
+        result = semiring_contract(eq, [W, x], fuzzy, backend, block_size=2)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_fuzzy_matvec_block1(self, fuzzy, backend):
+        """Fuzzy block_size=1 is still correct."""
+        eq = compile_equation("ij,j->i")
+        W = np.random.default_rng(14).random((3, 5))
+        x = np.random.default_rng(15).random((5,))
+        expected = semiring_contract(eq, [W, x], fuzzy, backend)
+        result = semiring_contract(eq, [W, x], fuzzy, backend, block_size=1)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+
+    def test_no_reduction_dims_block_ignored(self, real, backend):
+        """When there are no reduced vars (output = all inputs), block_size is irrelevant."""
+        # "ij->ij" — no reduction; result is just the input tensor
+        eq = compile_equation("ij->ij")
+        A = np.random.default_rng(16).random((3, 4))
+        expected = semiring_contract(eq, [A], real, backend)
+        result = semiring_contract(eq, [A], real, backend, block_size=1)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_block_size_none_unchanged(self, real, backend):
+        """Passing block_size=None leaves behaviour identical to the original."""
+        eq = compile_equation("ij,j->i")
+        W = np.random.default_rng(17).random((4, 5))
+        x = np.random.default_rng(18).random((5,))
+        expected = semiring_contract(eq, [W, x], real, backend)
+        result = semiring_contract(eq, [W, x], real, backend, block_size=None)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)

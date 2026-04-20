@@ -6,19 +6,67 @@ Hydra Graph construction from resolved equations.
 
 from __future__ import annotations
 
-from collections import deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
-from unified_algebra.utils import record_fields, string_value
-from .sort import sort_type_from_term, check_sort_junction, check_rank_junction, build_graph
-from .morphism import resolve_equation
-from .composition import path, fan, validate_path, validate_fan
-from .recursion import fold, unfold, _unfold_n_primitive, validate_fold, validate_unfold
+from hydra.dsl.python import FrozenDict
+from .sort import sort_type_from_term
+from .validation import resolve_dag, validate_pipeline, ua_primitives
+from ._assembly import (
+    _collect_merge_names, _resolve_all_primitives, _register_hyperparams,
+    _build_paths, _build_fans, _build_recursion, _build_lenses, _collect_sorts,
+)
 
 if TYPE_CHECKING:
     import hydra.core as core
     import hydra.graph
     from .backend import Backend
+
+
+# ---------------------------------------------------------------------------
+# NamedTuple spec types
+# ---------------------------------------------------------------------------
+
+class PathSpec(NamedTuple):
+    """Convenience spec for a sequential path composition."""
+    name: str
+    eq_names: list[str]
+    domain_sort: object  # core.Term
+    codomain_sort: object  # core.Term
+
+
+class FanSpec(NamedTuple):
+    """Convenience spec for a parallel fan composition."""
+    name: str
+    branch_names: list[str]
+    merge_name: str
+    domain_sort: object  # core.Term
+    codomain_sort: object  # core.Term
+
+
+class FoldSpec(NamedTuple):
+    """Convenience spec for a fold (catamorphism)."""
+    name: str
+    step_name: str
+    init_term: object  # core.Term
+    domain_sort: object  # core.Term
+    state_sort: object  # core.Term
+
+
+class UnfoldSpec(NamedTuple):
+    """Convenience spec for an unfold (anamorphism)."""
+    name: str
+    step_name: str
+    n_steps: int
+    domain_sort: object  # core.Term
+    state_sort: object  # core.Term
+
+
+class LensPathSpec(NamedTuple):
+    """Convenience spec for a bidirectional lens path."""
+    name: str
+    lens_names: list[str]
+    domain_sort: object  # core.Term
+    codomain_sort: object  # core.Term
 
 
 # ---------------------------------------------------------------------------
@@ -49,105 +97,58 @@ def type_check_term(
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Graph construction
 # ---------------------------------------------------------------------------
 
-def _eq_name(eq_term: core.Term) -> str:
-    return string_value(record_fields(eq_term)["name"])
+def build_graph(
+    sort_terms: list[core.Term],
+    primitives: dict | None = None,
+    bound_terms: dict | None = None,
+) -> hydra.graph.Graph:
+    """Assemble a Hydra Graph with sorts registered as schema_types.
 
-
-def _eq_inputs(eq_term: core.Term) -> list[str]:
-    inputs_term = record_fields(eq_term)["inputs"]
-    return [string_value(t) for t in inputs_term.value]
-
-
-def _any_has_inputs(eq_terms: list[core.Term]) -> bool:
-    return any(_eq_inputs(eq) for eq in eq_terms)
-
-
-# ---------------------------------------------------------------------------
-# DAG resolution
-# ---------------------------------------------------------------------------
-
-def resolve_dag(eq_terms: list[core.Term]) -> list[tuple[core.Term, core.Term, int]]:
-    """Return all (upstream, downstream, input_slot) edges in topological order.
-
-    Raises ValueError on cycles.
+    Args:
+        sort_terms:  list of sort record terms (from sort())
+        primitives:  optional dict of Name -> Primitive (for Phase 3+)
+        bound_terms: optional dict of Name -> Term
     """
-    by_name = {_eq_name(eq): eq for eq in eq_terms}
+    import hydra.core as core
+    import hydra.graph
+    from hydra.dsl.python import FrozenDict, Nothing
 
-    edges = []
-    in_degree = {_eq_name(eq): 0 for eq in eq_terms}
-    children = {_eq_name(eq): [] for eq in eq_terms}
+    schema = {}
+    terms = dict(bound_terms or {})
 
-    for eq in eq_terms:
-        name = _eq_name(eq)
-        for slot, inp in enumerate(_eq_inputs(eq)):
-            if inp in by_name:
-                edges.append((by_name[inp], eq, slot))
-                children[inp].append(name)
-                in_degree[name] += 1
+    # Register the tensor type
+    tensor_name = core.Name("ua.tensor.NDArray")
+    schema[tensor_name] = core.TypeScheme(
+        (), core.TypeVariable(tensor_name), Nothing()
+    )
 
-    # Kahn's topological sort
-    queue = deque(n for n, d in in_degree.items() if d == 0)
-    order = []
-    while queue:
-        node = queue.popleft()
-        order.append(node)
-        for child in children[node]:
-            in_degree[child] -= 1
-            if in_degree[child] == 0:
-                queue.append(child)
+    # Register each sort with semiring identity (and batched flag) in the type
+    for st in sort_terms:
+        sort_type = sort_type_from_term(st)
+        sort_type_name = sort_type.value  # core.Name
+        schema[sort_type_name] = core.TypeScheme(
+            (), core.TypeVariable(sort_type_name), Nothing()
+        )
+        terms[sort_type_name] = st
 
-    if len(order) != len(eq_terms):
-        raise ValueError("Cycle detected in equation DAG")
-
-    return edges
-
-
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
-
-def _validate_dag(eq_terms: list[core.Term]) -> None:
-    edges = resolve_dag(eq_terms)
-    for upstream, downstream, slot in edges:
-        check_sort_junction(upstream, downstream)
-        check_rank_junction(upstream, downstream, slot)
-
-
-def validate_pipeline(eq_terms: list[core.Term]) -> None:
-    """Check sort and rank junctions across equations.
-
-    Linear mode: when no equation declares inputs, validates consecutive pairs.
-    DAG mode: when any equation declares inputs, resolves the full DAG.
-    """
-    if _any_has_inputs(eq_terms):
-        _validate_dag(eq_terms)
-    else:
-        for upstream, downstream in zip(eq_terms, eq_terms[1:]):
-            check_sort_junction(upstream, downstream)
+    return hydra.graph.Graph(
+        bound_terms=FrozenDict(terms),
+        bound_types=FrozenDict({}),
+        class_constraints=FrozenDict({}),
+        lambda_variables=frozenset(),
+        metadata=FrozenDict({}),
+        primitives=FrozenDict(primitives or {}),
+        schema_types=FrozenDict(schema),
+        type_variables=frozenset(),
+    )
 
 
 # ---------------------------------------------------------------------------
-# Graph assembly
+# Public orchestrator
 # ---------------------------------------------------------------------------
-
-def ua_primitives(
-    eq_terms: list[core.Term],
-    backend: Backend,
-) -> dict[core.Name, hydra.graph.Primitive]:
-    """Resolve all equation terms into Hydra Primitives.
-
-    Follows the same pattern as hydra.sources.libraries.standard_library():
-    returns a dict of Name → Primitive, separate from graph assembly.
-    """
-    primitives = {}
-    for eq_term in eq_terms:
-        prim = resolve_equation(eq_term, backend)
-        primitives[prim.name] = prim
-    return primitives
-
 
 def assemble_graph(
     eq_terms: list[core.Term],
@@ -157,12 +158,15 @@ def assemble_graph(
     fans: list[tuple[str, list[str], str, core.Term, core.Term]] | None = None,
     folds: list[tuple[str, str, core.Term, core.Term, core.Term]] | None = None,
     unfolds: list[tuple[str, str, int, core.Term, core.Term]] | None = None,
+    hyperparams: dict[str, core.Term] | None = None,
+    lenses: list[core.Term] | None = None,
+    lens_paths: list[tuple[str, list[str], core.Term, core.Term]] | None = None,
 ) -> hydra.graph.Graph:
     """Resolve equation terms and assemble a Hydra Graph.
 
     Validates sort/rank junctions, resolves each equation into a Primitive,
-    builds lambda terms for paths/fans/folds/unfolds, collects all sorts,
-    and builds the Graph with Hydra's standard library included.
+    builds lambda terms for paths/fans/folds/unfolds/lens_paths, collects all
+    sorts, and builds the Graph with Hydra's standard library included.
 
     Args:
         eq_terms:    list of equation record terms
@@ -172,56 +176,69 @@ def assemble_graph(
         fans:        list of (name, branch_names, merge_name, domain_sort, codomain_sort)
         folds:       list of (name, step_name, init_term, domain_sort, state_sort)
         unfolds:     list of (name, step_name, n_steps, domain_sort, state_sort)
+        hyperparams: dict of param_name → scalar Term (e.g. {"temperature": Terms.float32(1.0)})
+        lenses:      list of lens record terms (from lens())
+        lens_paths:  list of (name, lens_names, domain_sort, codomain_sort[, params])
+                     Each entry produces two bound_terms: "ua.path.<name>.fwd" and
+                     "ua.path.<name>.bwd".
     """
+    # Ordering invariants:
+    # 1. Pipeline validation first (catches sort/rank errors early)
+    # 2. merge_names collected from fans BEFORE equation resolution
+    #    (determines resolve_equation vs resolve_list_merge dispatch)
+    # 3. eq_by_name built during resolution, shared by all composition builders
+    # 4. lens_by_name built inside _build_lenses BEFORE lens_paths processing
+
     validate_pipeline(eq_terms)
 
-    # Assemble primitives: Hydra standard library + UA equations
-    from hydra.sources.libraries import standard_library
-    primitives = dict(standard_library())
-    primitives.update(ua_primitives(eq_terms, backend))
+    merge_names = _collect_merge_names(fans)
+    primitives, eq_by_name = _resolve_all_primitives(eq_terms, backend, merge_names)
 
-    # Build equation lookup for composition validation
-    eq_by_name = {_eq_name(eq): eq for eq in eq_terms}
-
-    # Build bound_terms for compositions
+    import hydra.core as core
     bound_terms: dict[core.Name, core.Term] = {}
 
-    if paths:
-        for (pname, eq_names, domain_sort, codomain_sort, *rest) in paths:
-            params = rest[0] if rest else None
-            validate_path(eq_by_name, eq_names, domain_sort, codomain_sort)
-            term_name, term = path(pname, eq_names, domain_sort, codomain_sort, params)
-            bound_terms[term_name] = term
+    _register_hyperparams(hyperparams, bound_terms)
+    _build_paths(paths, eq_by_name, bound_terms)
+    _build_fans(fans, eq_by_name, bound_terms)
+    _build_recursion(folds, unfolds, eq_by_name, primitives, bound_terms)
+    _build_lenses(lenses, lens_paths, eq_by_name, bound_terms)
 
-    if fans:
-        for (fname, branch_names, merge_name, domain_sort, codomain_sort) in fans:
-            validate_fan(eq_by_name, branch_names, merge_name, domain_sort, codomain_sort)
-            term_name, term = fan(fname, branch_names, merge_name, domain_sort, codomain_sort)
-            bound_terms[term_name] = term
-
-    if unfolds:
-        unfold_prim = _unfold_n_primitive()
-        primitives[unfold_prim.name] = unfold_prim
-
-    if folds:
-        for (fname, step_name, init_term, domain_sort, state_sort) in folds:
-            validate_fold(eq_by_name, step_name, domain_sort, state_sort)
-            term_name, term = fold(fname, step_name, init_term, domain_sort, state_sort)
-            bound_terms[term_name] = term
-
-    if unfolds:
-        for (uname, step_name, n_steps, domain_sort, state_sort) in unfolds:
-            validate_unfold(eq_by_name, step_name, domain_sort, state_sort)
-            term_name, term = unfold(uname, step_name, n_steps, domain_sort, state_sort)
-            bound_terms[term_name] = term
-
-    seen_sorts: dict[str, core.Term] = {}
-    for eq_term in eq_terms:
-        fields = record_fields(eq_term)
-        for key in ("domainSort", "codomainSort"):
-            st = fields[key]
-            type_key = sort_type_from_term(st).value.value
-            seen_sorts.setdefault(type_key, st)
-
-    all_sorts = list(seen_sorts.values()) + list(extra_sorts or [])
+    all_sorts = _collect_sorts(eq_terms, extra_sorts)
     return build_graph(all_sorts, primitives=primitives, bound_terms=bound_terms)
+
+
+# ---------------------------------------------------------------------------
+# Hyperparameter rebinding
+# ---------------------------------------------------------------------------
+
+def rebind_hyperparams(
+    graph: hydra.graph.Graph,
+    updates: dict[str, core.Term],
+) -> hydra.graph.Graph:
+    """Return a new Graph with updated hyperparameter bound_terms.
+
+    Does NOT re-resolve primitives — just swaps the bound_term values.
+    Cheap operation (dict copy, not recompilation).
+
+    Args:
+        graph:   existing Hydra Graph
+        updates: dict of param_name → new scalar Term
+                 (keys without "ua.param." prefix — it's added automatically)
+    """
+    import hydra.core as core
+    import hydra.graph as hgraph
+
+    new_terms = dict(graph.bound_terms)
+    for key, val in updates.items():
+        new_terms[core.Name(f"ua.param.{key}")] = val
+
+    return hgraph.Graph(
+        bound_terms=FrozenDict(new_terms),
+        bound_types=graph.bound_types,
+        class_constraints=graph.class_constraints,
+        lambda_variables=graph.lambda_variables,
+        metadata=graph.metadata,
+        primitives=graph.primitives,
+        schema_types=graph.schema_types,
+        type_variables=graph.type_variables,
+    )

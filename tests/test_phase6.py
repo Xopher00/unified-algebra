@@ -12,10 +12,10 @@ from hydra.reduction import reduce_term
 
 from unified_algebra.backend import numpy_backend
 from unified_algebra.semiring import semiring
-from unified_algebra.sort import sort, tensor_coder, build_graph
-from unified_algebra.morphism import equation, resolve_equation
+from unified_algebra.sort import sort, tensor_coder
+from unified_algebra.graph import build_graph, assemble_graph
+from unified_algebra.morphism import equation, resolve_equation, resolve_list_merge
 from unified_algebra.composition import path, fan, validate_path, validate_fan
-from unified_algebra.graph import assemble_graph
 
 
 # ---------------------------------------------------------------------------
@@ -312,9 +312,11 @@ class TestFanStructure:
         with pytest.raises(ValueError, match="at least one branch"):
             fan("bad", [], "m", hidden, hidden)
 
-    def test_fan_too_many_branches_raises(self, hidden):
-        with pytest.raises(ValueError, match="max supported is 3"):
-            fan("bad", ["a", "b", "c", "d"], "m", hidden, hidden)
+    def test_fan_many_branches_allowed(self, hidden):
+        """Fan arity is unbounded — list-based merge handles any branch count."""
+        _, term = fan("wide", ["a", "b", "c", "d", "e"], "m", hidden, hidden)
+        # Should not raise — produces a valid lambda term
+        assert term is not None
 
 
 # ---------------------------------------------------------------------------
@@ -355,15 +357,17 @@ class TestFanValidation:
 class TestFanReduce:
 
     def test_two_branch_fan(self, cx, real_sr, hidden, backend, coder):
-        """Fan: merge(relu(x), tanh(x)) where merge is einsum "i,i->i" (Hadamard)."""
+        """Fan: merge([relu(x), tanh(x)]) where merge is einsum "i,i->i" (Hadamard)."""
         eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
         eq_merge = equation("merge", "i,i->i", hidden, hidden, real_sr)
 
         prims = {}
-        for eq in [eq_relu, eq_tanh, eq_merge]:
+        for eq in [eq_relu, eq_tanh]:
             p = resolve_equation(eq, backend)
             prims[p.name] = p
+        # Merge is resolved as list-merge (prim1 over list<tensor>)
+        prims[resolve_list_merge(eq_merge, backend).name] = resolve_list_merge(eq_merge, backend)
 
         f_name, f_term = fan("res", ["relu", "tanh"], "merge", hidden, hidden)
 
@@ -379,14 +383,6 @@ class TestFanReduce:
             cx, graph, apply(var("ua.fan.res"), x_enc)
         ))
 
-        # Relative oracle
-        relu_out = assert_reduce_ok(cx, graph, apply(var("ua.equation.relu"), x_enc))
-        tanh_out = assert_reduce_ok(cx, graph, apply(var("ua.equation.tanh"), x_enc))
-        chained = decode_term(coder, assert_reduce_ok(
-            cx, graph, apply(apply(var("ua.equation.merge"), relu_out), tanh_out)
-        ))
-        np.testing.assert_allclose(out, chained)
-
         # Independent numpy oracle: "i,i->i" with times=multiply → Hadamard product
         np.testing.assert_allclose(out, np.maximum(0, x) * np.tanh(x))
 
@@ -396,9 +392,11 @@ class TestFanReduce:
         eq_ident = equation("ident", "i->i", hidden, hidden, real_sr)
 
         prims = {}
-        for eq in [eq_relu, eq_ident]:
-            p = resolve_equation(eq, backend)
-            prims[p.name] = p
+        p = resolve_equation(eq_relu, backend)
+        prims[p.name] = p
+        # Merge is resolved as list-merge (unary: 1-element list passthrough)
+        p = resolve_list_merge(eq_ident, backend)
+        prims[p.name] = p
 
         f_name, f_term = fan("single", ["relu"], "ident", hidden, hidden)
 
@@ -453,7 +451,7 @@ class TestAssembleWithComposition:
         np.testing.assert_allclose(out, expected)
 
     def test_assemble_with_fan(self, cx, real_sr, hidden, backend, coder):
-        """assemble_graph with a fan: verify via individual primitive calls."""
+        """assemble_graph with a fan: merge([relu(x), tanh(x)]) = Hadamard product."""
         eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
         eq_merge = equation("merge", "i,i->i", hidden, hidden, real_sr)
@@ -466,21 +464,18 @@ class TestAssembleWithComposition:
         x = np.array([-1.0, 0.0, 1.0])
         x_enc = encode_array(coder, x)
 
-        # Ground truth: branches + merge individually
-        relu_out = assert_reduce_ok(cx, graph, apply(var("ua.equation.relu"), x_enc))
-        tanh_out = assert_reduce_ok(cx, graph, apply(var("ua.equation.tanh"), x_enc))
-        expected = decode_term(coder, assert_reduce_ok(
-            cx, graph, apply(apply(var("ua.equation.merge"), relu_out), tanh_out)
-        ))
-
         # Via fan
         out = decode_term(coder, assert_reduce_ok(
             cx, graph, apply(var("ua.fan.res"), x_enc)
         ))
-        np.testing.assert_allclose(out, expected)
+
+        # Numpy oracle: "i,i->i" with real semiring times=multiply → Hadamard
+        np.testing.assert_allclose(out, np.maximum(0, x) * np.tanh(x))
 
     def test_assemble_mixed(self, cx, real_sr, hidden, backend, coder):
         """assemble_graph with both a path and a fan in the same graph."""
+        from scipy.special import expit
+
         eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
         eq_sig = equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
@@ -495,26 +490,17 @@ class TestAssembleWithComposition:
         x = np.array([-1.0, 0.0, 1.0])
         x_enc = encode_array(coder, x)
 
-        # Path ground truth
-        s1 = assert_reduce_ok(cx, graph, apply(var("ua.equation.relu"), x_enc))
-        path_expected = decode_term(coder, assert_reduce_ok(
-            cx, graph, apply(var("ua.equation.tanh"), s1)
-        ))
+        # Path: tanh(relu(x))
         path_out = decode_term(coder, assert_reduce_ok(
             cx, graph, apply(var("ua.path.act"), x_enc)
         ))
-        np.testing.assert_allclose(path_out, path_expected)
+        np.testing.assert_allclose(path_out, np.tanh(np.maximum(0, x)))
 
-        # Fan ground truth
-        relu_out = assert_reduce_ok(cx, graph, apply(var("ua.equation.relu"), x_enc))
-        sig_out = assert_reduce_ok(cx, graph, apply(var("ua.equation.sigmoid"), x_enc))
-        fan_expected = decode_term(coder, assert_reduce_ok(
-            cx, graph, apply(apply(var("ua.equation.merge"), relu_out), sig_out)
-        ))
+        # Fan: relu(x) * sigmoid(x)  (Hadamard via "i,i->i")
         fan_out = decode_term(coder, assert_reduce_ok(
             cx, graph, apply(var("ua.fan.split"), x_enc)
         ))
-        np.testing.assert_allclose(fan_out, fan_expected)
+        np.testing.assert_allclose(fan_out, np.maximum(0, x) * expit(x))
 
 
 # ---------------------------------------------------------------------------
@@ -535,9 +521,12 @@ class TestNesting:
         eq_merge = equation("merge", "i,i->i", hidden, hidden, real_sr)
 
         prims = {}
-        for eq in [eq_relu, eq_tanh, eq_sig, eq_merge]:
+        for eq in [eq_relu, eq_tanh, eq_sig]:
             p = resolve_equation(eq, backend)
             prims[p.name] = p
+        # Merge resolved as list-merge for fan compatibility
+        p = resolve_list_merge(eq_merge, backend)
+        prims[p.name] = p
 
         f_name, f_term = fan("split", ["relu", "tanh"], "merge", hidden, hidden)
 
@@ -633,13 +622,16 @@ class TestThreeBranchFan:
         eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
         eq_sig = equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
-        # 3-input merge via einsum "i,i,i->i" (triple Hadamard product)
-        eq_merge3 = equation("merge3", "i,i,i->i", hidden, hidden, real_sr)
+        # Binary merge via "i,i->i" — folded over 3 branches (triple Hadamard)
+        eq_merge3 = equation("merge3", "i,i->i", hidden, hidden, real_sr)
 
         prims = {}
-        for eq in [eq_relu, eq_tanh, eq_sig, eq_merge3]:
+        for eq in [eq_relu, eq_tanh, eq_sig]:
             p = resolve_equation(eq, backend)
             prims[p.name] = p
+        # Merge resolved as list-merge
+        p = resolve_list_merge(eq_merge3, backend)
+        prims[p.name] = p
 
         f_name, f_term = fan(
             "triple", ["relu", "tanh", "sigmoid"], "merge3", hidden, hidden
@@ -657,17 +649,7 @@ class TestThreeBranchFan:
             cx, graph, apply(var("ua.fan.triple"), x_enc)
         ))
 
-        # Relative oracle: call merge3(relu(x), tanh(x), sigmoid(x)) directly
-        relu_out = assert_reduce_ok(cx, graph, apply(var("ua.equation.relu"), x_enc))
-        tanh_out = assert_reduce_ok(cx, graph, apply(var("ua.equation.tanh"), x_enc))
-        sig_out = assert_reduce_ok(cx, graph, apply(var("ua.equation.sigmoid"), x_enc))
-        chained = decode_term(coder, assert_reduce_ok(
-            cx, graph,
-            apply(apply(apply(var("ua.equation.merge3"), relu_out), tanh_out), sig_out)
-        ))
-        np.testing.assert_allclose(out, chained)
-
-        # Independent numpy oracle: triple Hadamard product
+        # Independent numpy oracle: triple Hadamard product (fold of binary multiply)
         from scipy.special import expit
         np.testing.assert_allclose(
             out, np.maximum(0, x) * np.tanh(x) * expit(x), rtol=1e-6

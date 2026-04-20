@@ -99,7 +99,13 @@ def compile_equation(equation: str) -> Equation:
 # Contraction execution
 # ---------------------------------------------------------------------------
 
-def semiring_contract(equation: Equation, args, sr: ResolvedSemiring, backend: Backend):
+def semiring_contract(
+    equation: Equation,
+    args,
+    sr: ResolvedSemiring,
+    backend: Backend,
+    block_size: int | None = None,
+):
     """Execute a semiring contraction.
 
     Args:
@@ -107,9 +113,48 @@ def semiring_contract(equation: Equation, args, sr: ResolvedSemiring, backend: B
         args: input tensors
         sr: resolved semiring (callbacks already resolved)
         backend: provides structural tensor ops (expand_dims, transpose)
+        block_size: when set, the first reduced variable is sliced into chunks
+            of at most this many elements, and partial results are accumulated
+            with ⊕_elementwise.  None (the default) uses the existing single-
+            pass code path.  The result is numerically identical to the
+            unblocked version because ⊕ is associative.
     """
     equation.validate(args)
 
+    reduced_vars = equation.reduced_vars
+
+    # Fast path: no blocking requested, or no reduction dimensions at all.
+    if block_size is None or not reduced_vars:
+        return _contract_full(equation, args, sr, backend)
+
+    # Determine the size of the first reduced variable so we can decide
+    # whether blocking is actually needed.
+    first_reduced_var = reduced_vars[0]
+    first_reduced_size = args[
+        equation.var_locations[first_reduced_var][0][0]
+    ].shape[equation.var_locations[first_reduced_var][0][1]]
+
+    if first_reduced_size <= block_size:
+        # All reduction fits in one block — no splitting needed.
+        return _contract_full(equation, args, sr, backend)
+
+    # Blocked path: slice the first reduced variable into chunks and
+    # accumulate partial contractions with ⊕_elementwise.
+    accumulator = None
+    for start in range(0, first_reduced_size, block_size):
+        end = min(start + block_size, first_reduced_size)
+        sliced_args = _slice_args(args, equation, first_reduced_var, start, end)
+        partial = _contract_full(equation, sliced_args, sr, backend)
+        if accumulator is None:
+            accumulator = partial
+        else:
+            accumulator = sr.plus_elementwise(accumulator, partial)
+
+    return accumulator
+
+
+def _contract_full(equation: Equation, args, sr: ResolvedSemiring, backend: Backend):
+    """Single-pass contraction — the original algorithm."""
     # Target dim order: output_vars ++ reduced_vars
     all_target_vars = equation.output_vars + equation.reduced_vars
 
@@ -125,6 +170,27 @@ def semiring_contract(equation: Equation, args, sr: ResolvedSemiring, backend: B
 
     # Reduce contracted dims with ⊕
     return sr.plus_reduce(term, equation.reduced_dims)
+
+
+def _slice_args(args, equation: Equation, reduced_var: int, start: int, end: int):
+    """Return a new args list where every occurrence of *reduced_var* is sliced
+    to the index range [start:end] along its corresponding dimension.
+
+    All other dimensions of each argument tensor are left unchanged.
+    """
+    sliced = []
+    for arg, arg_vars in zip(args, equation.input_vars):
+        if reduced_var in arg_vars:
+            # Build a slice tuple: ':' for every dim except the reduced one.
+            dim = arg_vars.index(reduced_var)
+            idx = tuple(
+                slice(start, end) if d == dim else slice(None)
+                for d in range(len(arg_vars))
+            )
+            sliced.append(arg[idx])
+        else:
+            sliced.append(arg)
+    return sliced
 
 
 def _align_tensor(tensor, tensor_vars, target_vars, backend):

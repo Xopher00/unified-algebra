@@ -81,21 +81,19 @@ def fan(
 
     Returns:
         (Name("ua.fan.<name>"), lambda_term)
-        The lambda term is: lx. merge(b1(x))(b2(x))...  (curried)
+        The lambda term is: λx. merge([b1(x), b2(x), ..., bn(x)])
+        The merge equation is resolved as a list-consuming prim1.
     """
     if not branch_names:
         raise ValueError(f"Fan '{name}' must have at least one branch")
-    if len(branch_names) > 3:
-        raise ValueError(
-            f"Fan '{name}' has {len(branch_names)} branches, max supported is 3"
-        )
 
-    body: core.Term = Terms.var(f"ua.equation.{merge_name}")
-    for bname in branch_names:
-        branch_result = Terms.apply(
-            Terms.var(f"ua.equation.{bname}"), Terms.var("x")
-        )
-        body = Terms.apply(body, branch_result)
+    # Build list of branch results applied to input
+    branch_results = [
+        Terms.apply(Terms.var(f"ua.equation.{bname}"), Terms.var("x"))
+        for bname in branch_names
+    ]
+    list_term = Terms.list_(branch_results)
+    body = Terms.apply(Terms.var(f"ua.equation.{merge_name}"), list_term)
 
     term = Terms.lambda_("x", body)
     return (core.Name(f"ua.fan.{name}"), term)
@@ -171,9 +169,8 @@ def validate_fan(
             )
 
     # Check branch codomains match merge's domain
-    merge_domain = sort_type_from_term(
-        record_fields(eq_terms_by_name[merge_name])["domainSort"]
-    )
+    merge_fields = record_fields(eq_terms_by_name[merge_name])
+    merge_domain = sort_type_from_term(merge_fields["domainSort"])
     for bname in branch_names:
         branch_codomain = sort_type_from_term(
             record_fields(eq_terms_by_name[bname])["codomainSort"]
@@ -184,9 +181,7 @@ def validate_fan(
                 f"merge '{merge_name}' domain {merge_domain.value.value!r}"
             )
 
-    merge_codomain = sort_type_from_term(
-        record_fields(eq_terms_by_name[merge_name])["codomainSort"]
-    )
+    merge_codomain = sort_type_from_term(merge_fields["codomainSort"])
     fan_codomain = sort_type_from_term(codomain_sort)
     if merge_codomain != fan_codomain:
         raise TypeError(

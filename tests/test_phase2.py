@@ -6,8 +6,9 @@ import pytest
 from unified_algebra.semiring import semiring
 from unified_algebra.sort import (
     sort, sort_to_type, check_sort_compatibility,
-    tensor_coder, build_graph,
+    tensor_coder,
 )
+from unified_algebra.graph import build_graph
 from hydra.core import Name, TypeVariable
 
 

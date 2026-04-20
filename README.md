@@ -1,101 +1,136 @@
 # unified-algebra
 
-A domain-specific language for expressing any machine learning architecture,
-based on ideas from category theory.
-
-Architectures are written as morphisms between typed tensors. The algebra of
-composition is parameterised by a semiring V — changing V changes what
-computation means (real arithmetic, tropical, fuzzy, probabilistic, etc.).
-Built on the [Hydra](https://github.com/CategoricalData/hydra) functional
-programming framework.
+A Python DSL for expressing any machine learning architecture as morphisms
+between typed tensors. The algebra is parameterised by a semiring V — swapping
+V changes the semantics (real arithmetic, tropical/max-plus, fuzzy,
+probabilistic, etc.). The DSL compiles to
+[Hydra](https://github.com/CategoricalData/hydra) terms/types directly — there
+is no separate AST or translation layer.
 
 ## Goals
 
-- Any ML architecture expressible in a compact declarative `.ua` source file
+- Any ML architecture expressible as compositions of typed tensor equations
 - Hydra-first: DSL terms and types are Hydra `Term`/`Type` — one AST, no translation layer
 - Backend-agnostic: same architecture runs on numpy, PyTorch, or JAX
 - Semiring-parameterised: swap V to change semantics without changing the architecture
-- Batch and streaming evaluation modes
+- Bidirectional: lenses pair forward and backward equations for gradient computation, path recovery, or any semiring-parameterised adjoint
 
 ## Current status
 
-The core algebra is implemented and tested (57 tests passing):
+197 tests passing across 10 phases:
 
 - **Backend** — abstraction over numpy/PyTorch providing binary ops (elementwise + reduction),
-  unary ops, structural ops, and constants. Users can add custom ops at runtime.
-- **Semiring** — user-defined semirings as Hydra record terms. The user names two binary
-  operations (⊕, ⊗) and their identities; the backend provides the implementations.
-- **Contraction** — generalised einsum over arbitrary semirings. Parses an equation string,
-  aligns tensors via broadcasting, applies ⊗ elementwise, reduces contracted axes with ⊕.
-- **Sorts** — named tensor types bound to a semiring with identity encoded in Hydra
-  `TypeVariable`s (`ua.sort.hidden:real`). Includes a tensor `TermCoder` for lossless
-  numpy↔Hydra round-trips and sort/rank junction checking at composition boundaries.
-- **Equations** — the unified construct: simultaneously a morphism (typed domain→codomain)
-  and a tensor equation (einsum + semiring + optional nonlinearity). Variable arity.
-  Registered as Hydra `Primitive`s via `prim1`/`prim2`/`prim3` and callable through
-  `reduce_term`.
-- **Graph assembly** — DAG-based equation wiring with topological ordering, cycle detection,
-  sort junction validation, and rank checking. Fan-out and diamond patterns supported.
+  unary ops, structural ops. Users can extend with custom ops at runtime.
+- **Semiring** — user-defined semirings as Hydra record terms (real, tropical, fuzzy, logaddexp, etc.).
+- **Contraction** — generalised einsum over arbitrary semirings with optional blocked
+  (chunked) execution for memory efficiency.
+- **Sorts** — named tensor types bound to a semiring, with optional batching (`sort("hidden", sr, batched=True)`).
+  Batch dimensions are auto-prepended at resolution time. Sort/rank junction checking at composition boundaries.
+- **Equations** — the unified construct: simultaneously a morphism and a tensor equation.
+  Supports `param_slots` for user-defined parametric nonlinearities (e.g. temperature-scaled softplus).
+- **Composition** — sequential (`path`) and parallel (`fan`, list-based, unbounded arity).
+  Validated for sort junction consistency.
+- **Recursion** — fold (catamorphism) via Hydra's `foldl`, unfold (anamorphism) via custom `unfold_n`.
+  Weight tying is automatic.
+- **Lenses** — bidirectional morphisms pairing forward and backward equations.
+  `lens_path` composes forward left-to-right, backward right-to-left. Semiring-agnostic.
+- **Dynamic hyperparameters** — named bound terms rebindable between reductions via `rebind_hyperparams`.
+- **Graph assembly** — DAG wiring with topological ordering, cycle detection,
+  sort/rank junction validation. Fan-out and diamond patterns supported.
 
 ## Installation
 
-Requires Python 3.12+ and [Hydra](https://github.com/CategoricalData/hydra)
-(CategoricalData — not the Facebook config framework):
+Requires Python 3.12+. Hydra is fetched automatically as a dependency.
 
 ```bash
-git clone https://github.com/CategoricalData/hydra
 git clone https://github.com/Xopher00/unified-algebra
-pip install -e "unified-algebra[dev]"
+cd unified-algebra
+uv pip install -e ".[dev]"
 ```
 
 ## Usage
 
 ```python
 import numpy as np
-from unified_algebra.backend import numpy_backend
-from unified_algebra.semiring import semiring, resolve_semiring
-from unified_algebra.contraction import compile_equation, semiring_contract
+from unified_algebra import (
+    semiring, sort, equation, numpy_backend, assemble_graph,
+    path, lens, lens_path,
+)
+from hydra.context import Context
+from hydra.dsl.python import FrozenDict, Right
+from hydra.dsl.terms import apply, var
+from hydra.reduction import reduce_term
 
 backend = numpy_backend()
+cx = Context(trace=(), messages=(), other=FrozenDict({}))
 
-# Define a semiring — user chooses the operations, backend provides them
-real = resolve_semiring(
-    semiring("real", plus="add", times="multiply", zero=0.0, one=1.0),
-    backend,
+# 1. Define a semiring — user chooses operations, backend provides implementations
+real_sr = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+hidden = sort("hidden", real_sr)
+
+# 2. Declare equations (morphisms)
+eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
+eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+
+# 3. Compose into a path and assemble the graph
+graph = assemble_graph(
+    [eq_relu, eq_tanh], backend,
+    paths=[("act", ["relu", "tanh"], hidden, hidden)],
 )
 
-# Same equation, different semirings
-eq = compile_equation("ij,j->i")
-W = np.array([[1.0, 2.0], [3.0, 4.0]])
-x = np.array([1.0, 1.0])
+# 4. Execute via Hydra reduction
+from unified_algebra import tensor_coder
+coder = tensor_coder()
+x = np.array([-1.0, 0.0, 0.5, 1.0])
+x_enc = coder.decode(None, x).value
 
-result = semiring_contract(eq, [W, x], real, backend)
-# array([3., 7.])  — standard matrix-vector multiply
+result = reduce_term(cx, graph, True, apply(var("ua.path.act"), x_enc))
+output = coder.encode(None, None, result.value).value
+# tanh(relu(x)) = [0.0, 0.0, 0.462, 0.762]
+```
 
-# Switch to tropical (min-plus) — same equation, different algebra
-tropical = resolve_semiring(
-    semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0),
-    backend,
-)
-result = semiring_contract(eq, [W, x], tropical, backend)
-# array([2., 4.])  — shortest-path style computation
+Same architecture, different semiring — swap to tropical (min-plus):
+
+```python
+tropical_sr = semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
 ```
 
 ## Testing
 
 ```bash
-uv run --python 3.12 --extra dev python -m pytest tests/ -v
+uv run --python 3.12 --extra dev python -m pytest tests/ -v   # 197 tests
+uv run --python 3.12 --extra dev python -m pytest tests/test_phase1.py  # one phase
+```
+
+## Architecture
+
+```
+src/unified_algebra/
+    backend.py       — Backend class: numpy/PyTorch ops
+    semiring.py      — Semiring declaration + resolution
+    contraction.py   — Generalised einsum with blocked execution
+    sort.py          — Named tensor types, coders, junction checking
+    morphism.py      — Equation declaration + resolution
+    composition.py   — Path (sequential) and fan (parallel) composition
+    recursion.py     — Fold and unfold via Hydra reduction
+    lens.py          — Bidirectional morphisms (lenses)
+    graph.py         — Graph assembly, rebind_hyperparams, NamedTuple specs
+    validation.py    — DAG resolution, pipeline validation
 ```
 
 ## Research basis
 
 | Paper | Relevance |
 |---|---|
-| Lawvere, F.W. (1973). *Metric spaces, generalized logic, and closed categories.* Rend. Sem. Mat. Fis. Milano XLIII, 135–166. | V-enriched foundation; morphisms as V-functors, fans as V-category products |
-| Gavranovic et al. *Categorical Deep Learning as Algebraic Theory.* | Parametric morphisms in 2-categories (§3); initial algebra / final coalgebra for recursive architectures (§5) |
-| Maragos, Charisopoulos & Theodosis (2021). *Tropical Geometry and Machine Learning.* Proc. IEEE. | Max-plus and min-plus semirings as concrete V instances |
-| Domingos, P. (2025). *Tensor Logic: The Language of AI.* | Tensor equations as the universal construct; semiring-parameterised einsum |
-| Bělohlávek, R. (2000). *Fuzzy Formal Concept Analysis.* | Complete lattice fixpoints; fuzzy formal contexts and concept lattices |
-| Tarski, A. (1955). *A lattice-theoretical fixpoint theorem and its applications.* Pacific J. Math. 5(2), 285–309. | Convergence guarantees for fixpoint computations |
-| Shen & Tang (2022). *Isbell adjunctions and Kan adjunctions via quantale-enriched two-variable adjunctions.* | Quantale-enriched categories; representation theorems |
-| Green et al. *Provenance Semirings.* | Semiring provenance for fixpoint logic |
+| Gavranovic, B. (2024). *Fundamental Components of Deep Learning.* PhD thesis. | Primary reference: Para, weighted optics, Lens_A-coalgebra, architecture survey |
+| Gavranovic et al. (2024). *Categorical Deep Learning.* ICML. | Position paper: CDL as algebraic theory of all architectures |
+| Capucci et al. (2024). *On a Fibrational Construction for Optics, Lenses, and Dialectica.* MFPS. | Lenses, optics, Dialectica unified as dialenses |
+| Cruttwell et al. (2022). *Categorical Foundations of Gradient-Based Learning.* ESOP. | Backprop as lens |
+| Dudzik & Veličković (2022). *GNNs are Dynamic Programmers.* NeurIPS. | Algorithmic alignment via structure |
+| Lewis et al. (2025). *Filter Equivariant Functions.* NeurIPS DiffCoAlg workshop. | Symmetric length-general extrapolation |
+| Hehner, E. (2007). *Unified Algebra.* | Project namesake: unifying boolean, number, set algebra |
+| Lawvere, F.W. (1973). *Metric spaces, generalized logic, and closed categories.* | V-enriched foundation |
+| Domingos, P. (2025). *Tensor Logic: The Language of AI.* | Tensor equations as universal construct |
+| Maragos et al. (2021). *Tropical Geometry and Machine Learning.* | Max-plus/min-plus as concrete V instances |
+| Shen & Tang (2022). *Isbell adjunctions and Kan adjunctions via quantale-enriched two-variable adjunctions.* | Quantale enrichment, representation theorems |
+| Schultz, Spivak, Vasilakopoulou & Wisnesky (2016). *Algebraic Databases.* | Multi-sorted algebraic theories, Hydra's theoretical basis |

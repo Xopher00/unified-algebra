@@ -15,7 +15,7 @@ from unified_algebra.utils import record_fields, string_value
 import hydra.core as core
 import hydra.dsl.terms as Terms
 import hydra.graph
-from hydra.dsl.python import FrozenDict, Right, Left, Nothing
+from hydra.dsl.python import Right, Left
 
 if TYPE_CHECKING:
     import hydra.errors
@@ -28,12 +28,14 @@ if TYPE_CHECKING:
 SORT_TYPE_NAME = core.Name("ua.sort.Sort")
 
 
-def sort(name: str, semiring_term: core.Term) -> core.Term:
+def sort(name: str, semiring_term: core.Term, batched: bool = False) -> core.Term:
     """Create a sort as a Hydra record term.
 
     Args:
-        name: sort identifier (e.g. "hidden", "output")
+        name:          sort identifier (e.g. "hidden", "output")
         semiring_term: the semiring this sort belongs to (from semiring())
+        batched:       if True, equations on this sort automatically prepend a
+                       batch dimension to their einsum at resolution time.
 
     Returns:
         A Hydra TermRecord representing the sort.
@@ -41,28 +43,54 @@ def sort(name: str, semiring_term: core.Term) -> core.Term:
     return Terms.record(SORT_TYPE_NAME, [
         Terms.field("name", Terms.string(name)),
         Terms.field("semiring", semiring_term),
+        Terms.field("batched", Terms.boolean(batched)),
     ])
 
 
-def sort_to_type(name: str, semiring_name: str) -> core.Type:
+def sort_to_type(name: str, semiring_name: str, batched: bool = False) -> core.Type:
     """Map a sort to a Hydra Type encoding both sort and semiring identity.
 
     The semiring is part of the type name so Hydra's type checker
-    naturally distinguishes sorts over different semirings.
+    naturally distinguishes sorts over different semirings.  Batched sorts
+    append a ':B' suffix so they are a distinct type from their unbatched
+    counterparts.
     """
-    return core.TypeVariable(core.Name(f"ua.sort.{name}:{semiring_name}"))
+    suffix = ":B" if batched else ""
+    return core.TypeVariable(core.Name(f"ua.sort.{name}:{semiring_name}{suffix}"))
 
 
 # ---------------------------------------------------------------------------
 # Semiring compatibility
 # ---------------------------------------------------------------------------
 
+def _is_batched_field(fields: dict) -> bool:
+    """Read the 'batched' flag from a pre-extracted fields dict.
+
+    Returns False when the field is absent (backwards-compat with old records).
+    """
+    if "batched" not in fields:
+        return False
+    b_term = fields["batched"]
+    # TermLiteral(LiteralBoolean(bool))
+    return (
+        hasattr(b_term, "value")
+        and hasattr(b_term.value, "value")
+        and b_term.value.value is True
+    )
+
+
+def is_batched(sort_term: core.Term) -> bool:
+    """Return True if the sort has the batched flag set."""
+    return _is_batched_field(record_fields(sort_term))
+
+
 def sort_type_from_term(sort_term: core.Term) -> core.Type:
     """Extract the Hydra Type for a sort from its record term."""
     fields = record_fields(sort_term)
     name = string_value(fields["name"])
     sr_name = string_value(record_fields(fields["semiring"])["name"])
-    return sort_to_type(name, sr_name)
+    batched = _is_batched_field(fields)
+    return sort_to_type(name, sr_name, batched)
 
 
 def check_sort_junction(upstream_eq: core.Term, downstream_eq: core.Term) -> None:
@@ -125,17 +153,31 @@ def check_rank_junction(upstream_eq: core.Term, downstream_eq: core.Term,
         )
 
 
+def _semiring_from_type_name(type_name: str) -> str:
+    """Extract the semiring portion from a sort type name.
+
+    Type name formats:
+      ua.sort.<sort>:<semiring>       (unbatched)
+      ua.sort.<sort>:<semiring>:B     (batched)
+
+    Returns the semiring string (e.g. "real").
+    """
+    # Strip the optional ':B' suffix first, then take the part after the first ':'
+    name = type_name.removesuffix(":B")
+    return name.split(":", 1)[1]
+
+
 def check_sort_compatibility(sort_a: core.Term, sort_b: core.Term) -> bool:
     """Return True iff two sorts share the same semiring.
 
     Uses Hydra type identity: sorts over different semirings have
     different TypeVariable names and are therefore incompatible.
+    The batched flag does not affect semiring compatibility.
     """
     type_a = sort_type_from_term(sort_a)
     type_b = sort_type_from_term(sort_b)
-    # Same semiring iff the semiring portion of the type name matches
-    sr_a = type_a.value.value.rsplit(":", 1)[1]
-    sr_b = type_b.value.value.rsplit(":", 1)[1]
+    sr_a = _semiring_from_type_name(type_a.value.value)
+    sr_b = _semiring_from_type_name(type_b.value.value)
     return sr_a == sr_b
 
 
@@ -196,51 +238,3 @@ def _tensor_decode(cx, arr):
     )
     return Right(Terms.binary(hdr + a.tobytes()))
 
-
-# ---------------------------------------------------------------------------
-# Graph assembly
-# ---------------------------------------------------------------------------
-
-def build_graph(
-    sort_terms: list[core.Term],
-    primitives: dict | None = None,
-    bound_terms: dict | None = None,
-) -> hydra.graph.Graph:
-    """Assemble a Hydra Graph with sorts registered as schema_types.
-
-    Args:
-        sort_terms: list of sort record terms (from sort())
-        primitives: optional dict of Name -> Primitive (for Phase 3+)
-        bound_terms: optional dict of Name -> Term
-    """
-    schema = {}
-    terms = dict(bound_terms or {})
-
-    # Register the tensor type
-    tensor_name = core.Name("ua.tensor.NDArray")
-    schema[tensor_name] = core.TypeScheme(
-        (), core.TypeVariable(tensor_name), Nothing()
-    )
-
-    # Register each sort with semiring identity in the type
-    for st in sort_terms:
-        fields = record_fields(st)
-        name = string_value(fields["name"])
-        sr_fields = record_fields(fields["semiring"])
-        sr_name = string_value(sr_fields["name"])
-        sort_type_name = core.Name(f"ua.sort.{name}:{sr_name}")
-        schema[sort_type_name] = core.TypeScheme(
-            (), core.TypeVariable(sort_type_name), Nothing()
-        )
-        terms[sort_type_name] = st
-
-    return hydra.graph.Graph(
-        bound_terms=FrozenDict(terms),
-        bound_types=FrozenDict({}),
-        class_constraints=FrozenDict({}),
-        lambda_variables=frozenset(),
-        metadata=FrozenDict({}),
-        primitives=FrozenDict(primitives or {}),
-        schema_types=FrozenDict(schema),
-        type_variables=frozenset(),
-    )

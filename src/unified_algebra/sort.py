@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from unified_algebra._hydra_setup import record_fields, string_value
+from unified_algebra.utils import record_fields, string_value
 import hydra.core as core
 import hydra.dsl.terms as Terms
 import hydra.graph
@@ -147,9 +147,25 @@ def tensor_coder() -> hydra.graph.TermCoder:
     """Create a TermCoder that bridges numpy arrays and Hydra Terms.
 
     Wire format: <dtype>\\x00<dim0>,<dim1>,...\\x00<raw bytes>
+    Uses a generic NDArray type — for sort-specific types, use sort_coder().
     """
     return hydra.graph.TermCoder(
         type=core.TypeVariable(core.Name("ua.tensor.NDArray")),
+        encode=_tensor_encode,
+        decode=_tensor_decode,
+    )
+
+
+def sort_coder(sort_term: core.Term) -> hydra.graph.TermCoder:
+    """Create a TermCoder with a sort-specific Hydra type.
+
+    Same encode/decode as tensor_coder(), but the type is the sort's
+    TypeVariable (e.g. ua.sort.hidden:real) rather than the generic NDArray.
+    This lets Hydra's type checker distinguish primitives operating on
+    different sorts.
+    """
+    return hydra.graph.TermCoder(
+        type=sort_type_from_term(sort_term),
         encode=_tensor_encode,
         decode=_tensor_decode,
     )

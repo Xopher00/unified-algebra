@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 
-import unified_algebra._hydra_setup  # noqa: F401
 import hydra.graph
 from hydra.context import Context
 from hydra.core import Name

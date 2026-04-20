@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 
-import unified_algebra._hydra_setup  # noqa: F401
 from hydra.context import Context
 from hydra.core import Name
 from hydra.dsl.python import FrozenDict, Right

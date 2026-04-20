@@ -16,13 +16,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from unified_algebra._hydra_setup import record_fields, string_value
+from unified_algebra.utils import record_fields, string_value
 import hydra.core as core
 import hydra.dsl.terms as Terms
 from hydra.dsl.prims import prim1, prim2, prim3
 
 from .semiring import resolve_semiring
-from .sort import tensor_coder
+from .sort import tensor_coder, sort_coder
 from .contraction import compile_equation, semiring_contract
 
 if TYPE_CHECKING:
@@ -72,6 +72,8 @@ def resolve_equation(eq_term: core.Term, backend: Backend) -> hydra.graph.Primit
 
     Reads the equation's fields, resolves its semiring against the backend,
     compiles the einsum, and produces a Primitive with the correct arity.
+    Uses sort-aware TermCoders so the Primitive's type scheme reflects
+    the actual domain/codomain sorts.
     """
     fields = record_fields(eq_term)
     name = string_value(fields["name"])
@@ -81,7 +83,8 @@ def resolve_equation(eq_term: core.Term, backend: Backend) -> hydra.graph.Primit
     has_einsum = bool(einsum_str)
     has_nl = bool(nl_str)
 
-    coder = tensor_coder()
+    in_coder = sort_coder(fields["domainSort"])
+    out_coder = sort_coder(fields["codomainSort"])
 
     prim_name = core.Name(f"ua.equation.{name}")
 
@@ -95,19 +98,19 @@ def resolve_equation(eq_term: core.Term, backend: Backend) -> hydra.graph.Primit
             def compute1(a):
                 r = semiring_contract(eq, [a], sr, backend)
                 return nl_fn(r) if nl_fn else r
-            return prim1(prim_name, compute1, [], coder, coder)
+            return prim1(prim_name, compute1, [], in_coder, out_coder)
 
         elif n_inputs == 2:
             def compute2(a, b):
                 r = semiring_contract(eq, [a, b], sr, backend)
                 return nl_fn(r) if nl_fn else r
-            return prim2(prim_name, compute2, [], coder, coder, coder)
+            return prim2(prim_name, compute2, [], in_coder, in_coder, out_coder)
 
         elif n_inputs == 3:
             def compute3(a, b, c):
                 r = semiring_contract(eq, [a, b, c], sr, backend)
                 return nl_fn(r) if nl_fn else r
-            return prim3(prim_name, compute3, [], coder, coder, coder, coder)
+            return prim3(prim_name, compute3, [], in_coder, in_coder, in_coder, out_coder)
 
         else:
             raise ValueError(
@@ -116,7 +119,7 @@ def resolve_equation(eq_term: core.Term, backend: Backend) -> hydra.graph.Primit
 
     elif has_nl:
         nl_fn = backend.unary(nl_str)
-        return prim1(prim_name, lambda x: nl_fn(x), [], coder, coder)
+        return prim1(prim_name, lambda x: nl_fn(x), [], in_coder, out_coder)
 
     else:
         raise ValueError(f"Equation '{name}' has neither einsum nor nonlinearity")

@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from unified_algebra._hydra_setup import record_fields, string_value, float_value  # noqa: F401
+from unified_algebra.utils import record_fields, string_value, float_value  # noqa: F401
 import hydra.core as core
 import hydra.dsl.terms as Terms
 

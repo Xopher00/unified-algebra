@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import hydra.core as core
-import hydra.dsl.terms as Terms
+from hydra.core import Name
+from hydra.dsl.meta.phantoms import record, string, float64, TTerm
 from .views import SemiringView
 
 if TYPE_CHECKING:
@@ -54,14 +55,14 @@ def semiring(name: str, plus: str, times: str, zero: float, one: float,
         tropical = semiring("tropical", plus="minimum", times="add", residual="subtract", zero=float('inf'), one=0.0)
         fuzzy = semiring("fuzzy", plus="maximum", times="minimum", residual="implies", zero=0.0, one=1.0)
     """
-    return Terms.record(SEMIRING_TYPE_NAME, [
-        Terms.field("name", Terms.string(name)),
-        Terms.field("plus", Terms.string(plus)),
-        Terms.field("times", Terms.string(times)),
-        Terms.field("zero", Terms.float64(zero)),
-        Terms.field("one", Terms.float64(one)),
-        Terms.field("residual", Terms.string(residual or "")),
-    ])
+    return record(SEMIRING_TYPE_NAME, [
+        Name("name") >> string(name),
+        Name("plus") >> string(plus),
+        Name("times") >> string(times),
+        Name("zero") >> float64(zero),
+        Name("one") >> float64(one),
+        Name("residual") >> string(residual or ""),
+    ]).value
 
 
 def resolve_semiring(semiring_term: core.Term, backend: Backend) -> ResolvedSemiring:

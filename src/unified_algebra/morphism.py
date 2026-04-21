@@ -17,7 +17,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import hydra.core as core
-import hydra.dsl.terms as Terms
+from hydra.core import Name
+from hydra.dsl.meta.phantoms import record, string, list_, unit, TTerm
 from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
 
 from .semiring import resolve_semiring
@@ -82,16 +83,16 @@ def equation(name: str, einsum: str | None,
         param_slots:    names of scalar hyperparameters this equation expects
                         before its tensor input(s) (e.g. ("temperature",))
     """
-    return Terms.record(EQUATION_TYPE_NAME, [
-        Terms.field("name", Terms.string(name)),
-        Terms.field("einsum", Terms.string(einsum or "")),
-        Terms.field("domainSort", domain_sort),
-        Terms.field("codomainSort", codomain_sort),
-        Terms.field("semiring", semiring_term if semiring_term is not None else Terms.unit()),
-        Terms.field("nonlinearity", Terms.string(nonlinearity or "")),
-        Terms.field("inputs", Terms.list_([Terms.string(n) for n in inputs])),
-        Terms.field("paramSlots", Terms.list_([Terms.string(p) for p in param_slots])),
-    ])
+    return record(EQUATION_TYPE_NAME, [
+        Name("name") >> string(name),
+        Name("einsum") >> string(einsum or ""),
+        Name("domainSort") >> TTerm(domain_sort),
+        Name("codomainSort") >> TTerm(codomain_sort),
+        Name("semiring") >> (TTerm(semiring_term) if semiring_term is not None else unit()),
+        Name("nonlinearity") >> string(nonlinearity or ""),
+        Name("inputs") >> list_([string(n) for n in inputs]),
+        Name("paramSlots") >> list_([string(p) for p in param_slots]),
+    ]).value
 
 
 # ---------------------------------------------------------------------------

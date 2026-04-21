@@ -7,8 +7,8 @@ before passing them to reduce_term. Reuses numpy wire format from backend.
 from __future__ import annotations
 
 import hydra.core as core
-import hydra.dsl.terms as Terms
 import hydra.graph
+from hydra.dsl.meta.phantoms import binary as phantom_binary
 from hydra.dsl.python import Right
 from hydra.extract.core import binary as extract_binary
 from .backend import _np_from_wire, _np_to_wire
@@ -25,7 +25,7 @@ def tensor_coder() -> hydra.graph.TermCoder:
         return Right(_np_from_wire(raw))
 
     def decode(cx, arr):
-        return Right(Terms.binary(_np_to_wire(arr)))
+        return Right(phantom_binary(_np_to_wire(arr)).value)
 
     return hydra.graph.TermCoder(
         type=core.TypeVariable(core.Name("ua.tensor.NDArray")),

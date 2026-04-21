@@ -18,9 +18,9 @@ step function term is applied at every recursive step.
 from __future__ import annotations
 
 import hydra.core as core
-import hydra.dsl.terms as Terms
 import hydra.graph
 from hydra.dsl import prims
+from hydra.dsl.meta.phantoms import var, int32, TTerm
 from .utils import bind_composition
 
 
@@ -44,8 +44,8 @@ def fold(
         (Name("ua.fold.<name>"), lambda_term)
         The lambda term is: λseq. foldl(step, init, seq)
     """
-    step_fn = Terms.var(f"ua.equation.{step_name}")
-    body = Terms.apply_all(Terms.var("hydra.lib.lists.foldl"), [step_fn, init_term, Terms.var("seq")])
+    step_fn = var(f"ua.equation.{step_name}")
+    body = var("hydra.lib.lists.foldl") @ step_fn @ TTerm(init_term) @ var("seq")
     return bind_composition("fold", name, "seq", body)
 
 
@@ -105,8 +105,8 @@ def unfold(
         (Name("ua.unfold.<name>"), lambda_term)
         The lambda term is: λstate. unfold_n(step, n, state)
     """
-    step_fn = Terms.var(f"ua.equation.{step_name}")
-    body = Terms.apply_all(Terms.var("ua.prim.unfold_n"), [step_fn, Terms.int32(n_steps), Terms.var("state")])
+    step_fn = var(f"ua.equation.{step_name}")
+    body = var("ua.prim.unfold_n") @ step_fn @ int32(n_steps) @ var("state")
     return bind_composition("unfold", name, "state", body)
 
 
@@ -166,9 +166,9 @@ def fixpoint(
         The lambda term is: λstate. fixpoint(step, pred, state)
         Output is a pair: (final_state, iteration_count)
     """
-    step_fn = Terms.var(f"ua.equation.{step_name}")
-    pred_fn = Terms.var(f"ua.equation.{predicate_name}")
-    body = Terms.apply_all(Terms.var("ua.prim.fixpoint"), [step_fn, pred_fn, Terms.var("state")])
+    step_fn = var(f"ua.equation.{step_name}")
+    pred_fn = var(f"ua.equation.{predicate_name}")
+    body = var("ua.prim.fixpoint") @ step_fn @ pred_fn @ var("state")
     return bind_composition("fixpoint", name, "state", body)
 
 

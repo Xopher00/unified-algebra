@@ -211,10 +211,10 @@ def rebind_hyperparams(
     graph: hydra.graph.Graph,
     updates: dict[str, core.Term],
 ) -> hydra.graph.Graph:
-    """Return a new Graph with updated hyperparameter bound_terms.
+    """Return a new Graph with hyperparameters substituted into term bodies.
 
-    Does NOT re-resolve primitives — just swaps the bound_term values.
-    Cheap operation (dict copy, not recompilation).
+    Uses Hydra's structural substitution to replace var("ua.param.X")
+    references directly inside lambda bodies, respecting variable scoping.
 
     Args:
         graph:   existing Hydra Graph
@@ -223,10 +223,20 @@ def rebind_hyperparams(
     """
     import hydra.core as core
     import hydra.graph as hgraph
+    import hydra.substitution as subst
+    import hydra.typing
 
-    new_terms = dict(graph.bound_terms)
-    for key, val in updates.items():
-        new_terms[core.Name(f"ua.param.{key}")] = val
+    param_updates = {
+        core.Name(f"ua.param.{k}"): v for k, v in updates.items()
+    }
+    ts = hydra.typing.TermSubst(FrozenDict(param_updates))
+
+    new_terms = {
+        name: subst.substitute_in_term(ts, term)
+        for name, term in graph.bound_terms.items()
+    }
+    # Also update bound_terms entries for the params themselves
+    new_terms.update(param_updates)
 
     return hgraph.Graph(
         bound_terms=FrozenDict(new_terms),

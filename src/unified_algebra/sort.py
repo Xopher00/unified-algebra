@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING
 
 from .views import EquationView, SortView, ProductSortView
 import hydra.core as core
-import hydra.dsl.terms as Terms
 import hydra.graph
 from hydra.dsl.python import Right, Left
+from hydra.dsl.meta.phantoms import record, string, boolean, list_, unit, TTerm, binary
 
 if TYPE_CHECKING:
     import hydra.errors
@@ -40,11 +40,11 @@ def sort(name: str, semiring_term: core.Term, batched: bool = False) -> core.Ter
     Returns:
         A Hydra TermRecord representing the sort.
     """
-    return Terms.record(SORT_TYPE_NAME, [
-        Terms.field("name", Terms.string(name)),
-        Terms.field("semiring", semiring_term),
-        Terms.field("batched", Terms.boolean(batched)),
-    ])
+    return record(SORT_TYPE_NAME, [
+        core.Name("name") >> string(name),
+        core.Name("semiring") >> TTerm(semiring_term),
+        core.Name("batched") >> boolean(batched),
+    ]).value
 
 
 def sort_to_type(name: str, semiring_name: str, batched: bool = False) -> core.Type:
@@ -207,7 +207,7 @@ def sort_coder(sort_term: core.Term, backend) -> hydra.graph.TermCoder:
         return Right(fw(raw))
 
     def decode(cx, arr):
-        return Right(Terms.binary(tw(arr)))
+        return Right(binary(tw(arr)).value)
 
     return hydra.graph.TermCoder(
         type=sort_type_from_term(sort_term),
@@ -239,9 +239,9 @@ def product_sort(sorts: list[core.Term]) -> core.Term:
     """
     if len(sorts) < 2:
         raise ValueError("Product sort requires at least 2 component sorts")
-    return Terms.record(PRODUCT_SORT_TYPE_NAME, [
-        Terms.field("sorts", Terms.list_(sorts)),
-    ])
+    return record(PRODUCT_SORT_TYPE_NAME, [
+        core.Name("sorts") >> list_([TTerm(s) for s in sorts]),
+    ]).value
 
 
 def is_product_sort(sort_term: core.Term) -> bool:

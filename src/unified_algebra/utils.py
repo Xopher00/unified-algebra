@@ -24,5 +24,8 @@ def float_value(term) -> float:
 def bind_composition(kind, name, var_name, body):
     """Wrap a body term in a lambda and return (Name, lambda_term)."""
     import hydra.core as core
-    from hydra.dsl import terms as Terms
-    return (core.Name(f"ua.{kind}.{name}"), Terms.lambda_(var_name, body))
+    from hydra.dsl.meta.phantoms import lam, TTerm
+    if not isinstance(body, TTerm):
+        body = TTerm(body)
+    term = lam(var_name, body).value
+    return (core.Name(f"ua.{kind}.{name}"), term)

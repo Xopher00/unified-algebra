@@ -11,9 +11,9 @@ and _assembly.py.
 from __future__ import annotations
 
 import hydra.core as core
-import hydra.dsl.terms as Terms
 import hydra.graph
 from hydra.dsl import prims
+from hydra.dsl.meta.phantoms import var, list_
 from .utils import bind_composition
 
 
@@ -105,16 +105,10 @@ def _lens_path_threaded(
 
     Forward collects residuals at each step; backward injects them in reverse.
     """
-    fwd_list = Terms.list_([Terms.var(f"ua.equation.{n}") for n in fwd_eq_names])
-    fwd_body = Terms.apply(
-        Terms.apply(Terms.var("ua.prim.lens_fwd"), fwd_list),
-        Terms.var("x"),
-    )
-    bwd_list = Terms.list_([Terms.var(f"ua.equation.{n}") for n in bwd_eq_names])
-    bwd_body = Terms.apply(
-        Terms.apply(Terms.var("ua.prim.lens_bwd"), bwd_list),
-        Terms.var("p"),
-    )
+    fwd_list = list_([var(f"ua.equation.{n}") for n in fwd_eq_names])
+    fwd_body = var("ua.prim.lens_fwd") @ fwd_list @ var("x")
+    bwd_list = list_([var(f"ua.equation.{n}") for n in bwd_eq_names])
+    bwd_body = var("ua.prim.lens_bwd") @ bwd_list @ var("p")
 
     fwd_pair = bind_composition("path", f"{name}.fwd", "x", fwd_body)
     bwd_pair = bind_composition("path", f"{name}.bwd", "p", bwd_body)

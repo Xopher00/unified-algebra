@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from .views import EquationView, LensView
 import hydra.core as core
-import hydra.dsl.terms as Terms
+from hydra.dsl.meta.phantoms import record, string, unit, lam, var, list_, TTerm
 
 from .sort import sort_type_from_term, _check_sort
 from .utils import bind_composition
@@ -44,13 +44,13 @@ def path(
     if not eq_names:
         raise ValueError(f"Path '{name}' must have at least one equation")
 
-    body: core.Term = Terms.var("x")
+    body: TTerm = var("x")
     for eq_name in eq_names:
-        fn: core.Term = Terms.var(f"ua.equation.{eq_name}")
+        fn: TTerm = var(f"ua.equation.{eq_name}")
         if params and eq_name in params:
             for p in params[eq_name]:
-                fn = Terms.apply(fn, p)
-        body = Terms.apply(fn, body)
+                fn = fn @ TTerm(p)
+        body = fn @ body
 
     return bind_composition("path", name, "x", body)
 
@@ -81,11 +81,11 @@ def fan(
 
     # Build list of branch results applied to input
     branch_results = [
-        Terms.apply(Terms.var(f"ua.equation.{bname}"), Terms.var("x"))
+        var(f"ua.equation.{bname}") @ var("x")
         for bname in branch_names
     ]
-    list_term = Terms.list_(branch_results)
-    body = Terms.apply(Terms.var(f"ua.equation.{merge_name}"), list_term)
+    list_term = list_(branch_results)
+    body = var(f"ua.equation.{merge_name}") @ list_term
 
     return bind_composition("fan", name, "x", body)
 
@@ -108,12 +108,12 @@ def lens(
     A lens pairs a forward equation with a backward equation and an optional
     residual sort that carries information between the two legs.
     """
-    return Terms.record(LENS_TYPE_NAME, [
-        Terms.field("name", Terms.string(name)),
-        Terms.field("forward", Terms.string(forward)),
-        Terms.field("backward", Terms.string(backward)),
-        Terms.field("residualSort", residual_sort if residual_sort is not None else Terms.unit()),
-    ])
+    return record(LENS_TYPE_NAME, [
+        core.Name("name") >> string(name),
+        core.Name("forward") >> string(forward),
+        core.Name("backward") >> string(backward),
+        core.Name("residualSort") >> (TTerm(residual_sort) if residual_sort is not None else unit()),
+    ]).value
 
 
 

@@ -6,10 +6,11 @@ Hydra Graph construction from resolved equations.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING
 
 from hydra.dsl.python import FrozenDict
 from .sort import sort_type_from_term
+from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
 from .validation import validate_pipeline, _register_sort_components
 from ._assembly import (
     _resolve_all_primitives, _register_hyperparams,
@@ -20,65 +21,6 @@ if TYPE_CHECKING:
     import hydra.core as core
     import hydra.graph
     from .backend import Backend
-
-
-# ---------------------------------------------------------------------------
-# NamedTuple spec types
-# ---------------------------------------------------------------------------
-
-class PathSpec(NamedTuple):
-    """Convenience spec for a sequential path composition."""
-    name: str
-    eq_names: list[str]
-    domain_sort: object  # core.Term
-    codomain_sort: object  # core.Term
-    params: dict[str, list] | None = None
-
-
-class FanSpec(NamedTuple):
-    """Convenience spec for a parallel fan composition."""
-    name: str
-    branch_names: list[str]
-    merge_name: str
-    domain_sort: object  # core.Term
-    codomain_sort: object  # core.Term
-
-
-class FoldSpec(NamedTuple):
-    """Convenience spec for a fold (catamorphism)."""
-    name: str
-    step_name: str
-    init_term: object  # core.Term
-    domain_sort: object  # core.Term
-    state_sort: object  # core.Term
-
-
-class UnfoldSpec(NamedTuple):
-    """Convenience spec for an unfold (anamorphism)."""
-    name: str
-    step_name: str
-    n_steps: int
-    domain_sort: object  # core.Term
-    state_sort: object  # core.Term
-
-
-class LensPathSpec(NamedTuple):
-    """Convenience spec for a bidirectional lens path."""
-    name: str
-    lens_names: list[str]
-    domain_sort: object  # core.Term
-    codomain_sort: object  # core.Term
-    params: dict[str, list] | None = None
-
-
-class FixpointSpec(NamedTuple):
-    """Convenience spec for a fixpoint iteration."""
-    name: str
-    step_name: str
-    predicate_name: str
-    epsilon: float
-    max_iter: int
-    domain_sort: object  # core.Term
 
 
 # ---------------------------------------------------------------------------

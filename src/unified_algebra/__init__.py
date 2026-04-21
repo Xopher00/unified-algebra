@@ -6,7 +6,7 @@ from .semiring import semiring
 from .sort import sort, tensor_coder, sort_coder, is_batched, product_sort, is_product_sort
 from .morphism import equation
 from .graph import assemble_graph, rebind_hyperparams, build_graph
-from .graph import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
+from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
 
 # ---------------------------------------------------------------------------
 # Composition — for building paths, fans, folds, lenses manually

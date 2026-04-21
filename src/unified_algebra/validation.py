@@ -13,7 +13,7 @@ from hydra.unification import unify_type_constraints
 
 from .views import EquationView, SortView
 from .sort import check_rank_junction, sort_type_from_term, is_product_sort
-from .morphism import resolve_equation, resolve_list_merge
+from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
 
 if TYPE_CHECKING:
     import hydra.graph
@@ -190,7 +190,6 @@ def _spec_sorts(spec):
 
 def validate_spec(eq_by_name, spec, schema_types=None):
     """Validate sort junctions via Hydra constraint unification."""
-    from .graph import PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec
     builders = {PathSpec: _path_cs, FanSpec: _fan_cs, FoldSpec: _fold_cs,
                 UnfoldSpec: _unfold_cs, FixpointSpec: _fixpoint_cs}
     builder = builders.get(type(spec))

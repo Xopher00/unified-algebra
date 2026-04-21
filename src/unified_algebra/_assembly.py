@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from .views import EquationView, LensView
 from .sort import sort_type_from_term
 from .morphism import resolve_equation, resolve_list_merge
+from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
 from .composition import path, fan, validate_lens, lens_path
 from .recursion import fold, unfold, _unfold_n_primitive, fixpoint, _fixpoint_primitive
 from ._lens_threading import _lens_fwd_primitive, _lens_bwd_primitive
@@ -92,8 +93,6 @@ def _build_compositions(
     schema_types,
 ) -> None:
     """Validate and build all composition specs. Mutates primitives and bound_terms."""
-    from .graph import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
-
     for spec in specs:
         # LensPathSpec — lens validation handled by _build_lens_by_name
         if not isinstance(spec, LensPathSpec):

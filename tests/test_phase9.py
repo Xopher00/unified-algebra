@@ -400,7 +400,7 @@ class TestBatchedPath:
         hidden_b = sort("hidden", real_sr, batched=True)
         eq1 = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq2 = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
-        p = path("b_pipe", [eq1, eq2])
+        p = path("b_pipe", ["relu_b", "tanh_b"])
         # path() returns a Hydra Term (lambda)
         assert p is not None
 

@@ -101,50 +101,32 @@ class TestFeedforward:
 
     def test_path_produces_correct_output(self, hidden, real_sr, backend, cx, coder):
         """Running the path produces W3 @ relu(W2 @ relu(W1 @ x))."""
-        eqs = build_ffn_equations(hidden, real_sr)
-        graph = assemble_graph(
-            eqs, backend,
-            specs=[PathSpec("ffn", ["ffn_linear1", "ffn_relu1",
-                                    "ffn_linear2", "ffn_relu2",
-                                    "ffn_linear3"], hidden, hidden)],
-        )
-
         W1 = np.array([[1.0, -1.0], [-1.0,  1.0]])
         W2 = np.array([[0.5,  0.5], [ 0.5, -0.5]])
         W3 = np.array([[2.0,  0.0], [ 0.0,  2.0]])
         x  = np.array([3.0, 1.0])
 
-        # Encode weights as bound terms by running individual equations
-        sc = sort_coder(hidden, backend)
-        x_enc = encode_array(coder, x)
-
-        # Build a graph with weights bound so the equations resolve correctly
-        from unified_algebra import build_graph
-        from hydra.graph import Graph
-        from hydra.dsl.python import FrozenDict as FD
-
-        # Run step-by-step using individual equation primitives
-        prim1 = graph.primitives[Name("ua.equation.ffn_linear1")]
-        prim2 = graph.primitives[Name("ua.equation.ffn_relu1")]
-        prim3 = graph.primitives[Name("ua.equation.ffn_linear2")]
-        prim4 = graph.primitives[Name("ua.equation.ffn_relu2")]
-        prim5 = graph.primitives[Name("ua.equation.ffn_linear3")]
-
         w1_enc = encode_array(coder, W1)
         w2_enc = encode_array(coder, W2)
         w3_enc = encode_array(coder, W3)
+        x_enc  = encode_array(coder, x)
 
-        # Each linear prim takes (weight, input)
-        h1 = decode_term(coder, assert_reduce_ok(cx, graph,
-                apply(apply(var("ua.equation.ffn_linear1"), w1_enc), x_enc)))
-        h2 = decode_term(coder, assert_reduce_ok(cx, graph,
-                apply(var("ua.equation.ffn_relu1"), encode_array(coder, h1))))
-        h3 = decode_term(coder, assert_reduce_ok(cx, graph,
-                apply(apply(var("ua.equation.ffn_linear2"), w2_enc), encode_array(coder, h2))))
-        h4 = decode_term(coder, assert_reduce_ok(cx, graph,
-                apply(var("ua.equation.ffn_relu2"), encode_array(coder, h3))))
-        out = decode_term(coder, assert_reduce_ok(cx, graph,
-                apply(apply(var("ua.equation.ffn_linear3"), w3_enc), encode_array(coder, h4))))
+        eqs = build_ffn_equations(hidden, real_sr)
+        graph = assemble_graph(
+            eqs, backend,
+            specs=[PathSpec(
+                "ffn",
+                ["ffn_linear1", "ffn_relu1", "ffn_linear2", "ffn_relu2", "ffn_linear3"],
+                hidden, hidden,
+                params={"ffn_linear1": [w1_enc],
+                        "ffn_linear2": [w2_enc],
+                        "ffn_linear3": [w3_enc]},
+            )],
+        )
+
+        out = decode_term(coder, assert_reduce_ok(
+            cx, graph, apply(var("ua.path.ffn"), x_enc)
+        ))
 
         expected = W3 @ np.maximum(0, W2 @ np.maximum(0, W1 @ x))
         np.testing.assert_allclose(out, expected, rtol=1e-6)

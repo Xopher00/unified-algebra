@@ -20,9 +20,8 @@ from .recursion import fixpoint
 # Validation & resolution — power-user / introspection
 # ---------------------------------------------------------------------------
 from .morphism import resolve_equation, resolve_list_merge
-from .validation import validate_path, validate_fan
+from .validation import validate_spec
 from .composition import validate_lens
-from .validation import validate_fold, validate_unfold, validate_fixpoint
 from .graph import resolve_dag, validate_pipeline, ua_primitives, type_check_term
 from .sort import sort_to_type, check_sort_junction
 from .contraction import compile_equation, semiring_contract

@@ -1,49 +1,29 @@
 """Private sub-functions for assemble_graph (graph.py orchestrator).
 
 This module is not part of the public API — it is imported only by graph.py.
-Each function handles one concern in the graph assembly pipeline:
-
-    _collect_merge_names   — which equations need list-merge resolution
-    _resolve_all_primitives — resolve equations → Hydra Primitives
-    _register_hyperparams  — inject scalar hyperparams as bound_terms
-    _build_paths           — validate + build sequential path lambda terms
-    _build_fans            — validate + build parallel fan lambda terms
-    _build_recursion       — validate + build fold/unfold lambda terms
-    _build_lenses          — validate + build bidirectional lens-path terms
-    _collect_sorts         — gather all unique sorts from equations + extras
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .utils import record_fields, string_value, eq_name, lens_fields
+from .views import EquationView, LensView
 from .sort import sort_type_from_term
 from .morphism import resolve_equation, resolve_list_merge
-from .composition import path, fan
-from .composition import validate_lens, lens_path
-from .recursion import fold, unfold, _unfold_n_primitive
-from .recursion import fixpoint, _fixpoint_primitive
+from .composition import path, fan, validate_lens, lens_path
+from .recursion import fold, unfold, _unfold_n_primitive, fixpoint, _fixpoint_primitive
 from ._lens_threading import _lens_fwd_primitive, _lens_bwd_primitive
-from .validation import validate_path, validate_fan, validate_fold, validate_unfold, validate_fixpoint
+from .validation import validate_spec
 
 if TYPE_CHECKING:
     import hydra.core as core
     from .backend import Backend
 
 
-# ---------------------------------------------------------------------------
-# Sub-functions
-# ---------------------------------------------------------------------------
 
-def _collect_merge_names(fans: list[tuple] | None) -> set[str]:
-    """Collect equation names used as fan merges (need list-merge resolution)."""
-    merge_names: set[str] = set()
-    if fans:
-        for (_, _, merge_name, _, _) in fans:
-            merge_names.add(merge_name)
-    return merge_names
-
+# ---------------------------------------------------------------------------
+# Primitive resolution and hyperparameter registration
+# ---------------------------------------------------------------------------
 
 def _resolve_all_primitives(
     eq_terms: list[core.Term],
@@ -59,9 +39,9 @@ def _resolve_all_primitives(
     from hydra.sources.libraries import standard_library
     primitives = dict(standard_library())
 
-    eq_by_name: dict[str, core.Term] = {eq_name(eq): eq for eq in eq_terms}
+    eq_by_name: dict[str, core.Term] = {EquationView(eq).name: eq for eq in eq_terms}
     for eq_term in eq_terms:
-        name = eq_name(eq_term)
+        name = EquationView(eq_term).name
         if name in merge_names:
             prim = resolve_list_merge(eq_term, backend)
         else:
@@ -82,126 +62,78 @@ def _register_hyperparams(
             bound_terms[core.Name(f"ua.param.{param_name}")] = param_term
 
 
-def _build_paths(
-    paths: list[tuple] | None,
-    eq_by_name: dict[str, core.Term],
-    bound_terms: dict,
-) -> None:
-    """Validate and build path lambda terms. Mutates bound_terms."""
-    if paths:
-        for (pname, eq_names, domain_sort, codomain_sort, *rest) in paths:
-            params = rest[0] if rest else None
-            validate_path(eq_by_name, eq_names, domain_sort, codomain_sort)
-            term_name, term = path(pname, eq_names, domain_sort, codomain_sort, params)
-            bound_terms[term_name] = term
+# ---------------------------------------------------------------------------
+# Lens validation
+# ---------------------------------------------------------------------------
 
-
-def _build_fans(
-    fans: list[tuple] | None,
-    eq_by_name: dict[str, core.Term],
-    bound_terms: dict,
-) -> None:
-    """Validate and build fan lambda terms. Mutates bound_terms."""
-    if fans:
-        for (fname, branch_names, merge_name, domain_sort, codomain_sort) in fans:
-            validate_fan(eq_by_name, branch_names, merge_name, domain_sort, codomain_sort)
-            term_name, term = fan(fname, branch_names, merge_name, domain_sort, codomain_sort)
-            bound_terms[term_name] = term
-
-
-def _build_recursion(
-    folds: list[tuple] | None,
-    unfolds: list[tuple] | None,
-    eq_by_name: dict[str, core.Term],
-    primitives: dict,
-    bound_terms: dict,
-) -> None:
-    """Validate and build fold/unfold terms. Mutates primitives and bound_terms.
-
-    The unfold_n primitive must be registered before any unfold terms are built,
-    so primitives registration happens here before the per-unfold loop.
-    """
-    if unfolds:
-        unfold_prim = _unfold_n_primitive()
-        primitives[unfold_prim.name] = unfold_prim
-
-    if folds:
-        for (fname, step_name, init_term, domain_sort, state_sort) in folds:
-            validate_fold(eq_by_name, step_name, domain_sort, state_sort)
-            term_name, term = fold(fname, step_name, init_term, domain_sort, state_sort)
-            bound_terms[term_name] = term
-
-    if unfolds:
-        for (uname, step_name, n_steps, domain_sort, state_sort) in unfolds:
-            validate_unfold(eq_by_name, step_name, domain_sort, state_sort)
-            term_name, term = unfold(uname, step_name, n_steps, domain_sort, state_sort)
-            bound_terms[term_name] = term
-
-
-def _build_lenses(
+def _build_lens_by_name(
     lenses: list[core.Term] | None,
-    lens_paths_specs: list[tuple] | None,
     eq_by_name: dict[str, core.Term],
-    bound_terms: dict,
-    primitives: dict | None = None,
-) -> None:
-    """Validate lenses and build bidirectional path terms. Mutates bound_terms.
-
-    Builds lens_by_name lookup internally before processing lens_paths_specs.
-
-    For lenses with residual_sort, registers ua.prim.lens_fwd and ua.prim.lens_bwd
-    in primitives before building the terms. The primitives
-    dict must be provided when any lens with residual_sort is used in lens_paths.
-    """
-    import hydra.core as core
+) -> dict[str, core.Term]:
+    """Validate lenses and build lens_by_name lookup."""
     lens_by_name: dict[str, core.Term] = {}
     if lenses:
         for lens_term in lenses:
-            fields = record_fields(lens_term)
-            lname = string_value(fields["name"])
-            lens_by_name[lname] = lens_term
+            lens_by_name[LensView(lens_term).name] = lens_term
             validate_lens(eq_by_name, lens_term)
-
-    if lens_paths_specs:
-        for (lpname, lp_lens_names, domain_sort, codomain_sort, *rest) in lens_paths_specs:
-            lp_params = rest[0] if rest else None
-
-            # Detect whether any lens in this path has a residual_sort.
-            def _has_residual_sort(lname: str) -> bool:
-                lf = lens_fields(lens_by_name[lname])
-                rs = lf.get("residualSort")
-                return rs is not None and not isinstance(rs, core.TermUnit)
-            has_residual = any(_has_residual_sort(ln) for ln in lp_lens_names)
-
-            if has_residual and primitives is not None:
-                # Register optic primitives on first encounter.
-                lens_fwd_prim = _lens_fwd_primitive()
-                lens_bwd_prim = _lens_bwd_primitive()
-                primitives.setdefault(lens_fwd_prim.name, lens_fwd_prim)
-                primitives.setdefault(lens_bwd_prim.name, lens_bwd_prim)
-
-            (fwd_name, fwd_term), (bwd_name, bwd_term) = lens_path(
-                lpname, lp_lens_names, lens_by_name, domain_sort, codomain_sort, lp_params
-            )
-            bound_terms[fwd_name] = fwd_term
-            bound_terms[bwd_name] = bwd_term
+    return lens_by_name
 
 
-def _build_fixpoints(
-    fixpoints_specs: list[tuple] | None,
+# ---------------------------------------------------------------------------
+# Composition dispatch
+# ---------------------------------------------------------------------------
+
+def _build_compositions(
+    specs: list,
     eq_by_name: dict[str, core.Term],
     primitives: dict,
     bound_terms: dict,
+    lens_by_name: dict[str, core.Term],
 ) -> None:
-    """Validate and build fixpoint terms. Mutates primitives and bound_terms."""
-    if fixpoints_specs:
-        for (fname, step_name, pred_name, epsilon, max_iter, domain_sort) in fixpoints_specs:
-            validate_fixpoint(eq_by_name, step_name, pred_name, domain_sort)
-            fp_prim = _fixpoint_primitive(epsilon, max_iter)
-            primitives[fp_prim.name] = fp_prim
-            term_name, term = fixpoint(fname, step_name, pred_name, epsilon, max_iter, domain_sort)
-            bound_terms[term_name] = term
+    """Validate and build all composition specs. Mutates primitives and bound_terms."""
+    from .graph import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
 
+    for spec in specs:
+        # LensPathSpec — lens validation handled by _build_lens_by_name
+        if not isinstance(spec, LensPathSpec):
+            validate_spec(eq_by_name, spec)
+
+        if isinstance(spec, PathSpec):
+            results = [path(spec.name, spec.eq_names, spec.params)]
+
+        elif isinstance(spec, FanSpec):
+            results = [fan(spec.name, spec.branch_names, spec.merge_name)]
+
+        elif isinstance(spec, FoldSpec):
+            results = [fold(spec.name, spec.step_name, spec.init_term)]
+
+        elif isinstance(spec, UnfoldSpec):
+            unfold_prim = _unfold_n_primitive()
+            primitives.setdefault(unfold_prim.name, unfold_prim)
+            results = [unfold(spec.name, spec.step_name, spec.n_steps)]
+
+        elif isinstance(spec, LensPathSpec):
+            if any(LensView(lens_by_name[ln]).residual_sort is not None for ln in spec.lens_names):
+                for prim in (_lens_fwd_primitive(), _lens_bwd_primitive()):
+                    primitives.setdefault(prim.name, prim)
+            (fwd, bwd) = lens_path(spec.name, spec.lens_names, lens_by_name, spec.params)
+            results = [fwd, bwd]
+
+        elif isinstance(spec, FixpointSpec):
+            fp_prim = _fixpoint_primitive(spec.epsilon, spec.max_iter)
+            primitives[fp_prim.name] = fp_prim
+            results = [fixpoint(spec.name, spec.step_name, spec.predicate_name)]
+
+        else:
+            raise TypeError(f"Unknown composition spec type: {type(spec).__name__}")
+
+        for name, term in results:
+            bound_terms[name] = term
+
+
+# ---------------------------------------------------------------------------
+# Sort collection
+# ---------------------------------------------------------------------------
 
 def _collect_sorts(
     eq_terms: list[core.Term],
@@ -213,9 +145,8 @@ def _collect_sorts(
     """
     seen_sorts: dict[str, core.Term] = {}
     for eq_term in eq_terms:
-        fields = record_fields(eq_term)
-        for key in ("domainSort", "codomainSort"):
-            st = fields[key]
+        v = EquationView(eq_term)
+        for st in (v.domain_sort, v.codomain_sort):
             type_key = sort_type_from_term(st).value.value
             seen_sorts.setdefault(type_key, st)
     return list(seen_sorts.values()) + list(extra_sorts or [])

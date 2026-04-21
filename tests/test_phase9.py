@@ -25,8 +25,9 @@ from unified_algebra.morphism import (
     equation, resolve_equation, resolve_list_merge, _prepend_batch_dim,
 )
 from unified_algebra.composition import path, fan
-from unified_algebra.validation import validate_path, validate_fan
+from unified_algebra.validation import validate_spec
 from unified_algebra.graph import build_graph, assemble_graph
+from unified_algebra import PathSpec, FanSpec
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +384,7 @@ class TestBatchedPath:
         hidden_b = sort("hidden", real_sr, batched=True)
         eq1 = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq2 = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
-        p = path("b_pipe", [eq1, eq2], hidden_b, hidden_b)
+        p = path("b_pipe", [eq1, eq2])
         # path() returns a Hydra Term (lambda)
         assert p is not None
 
@@ -395,7 +396,7 @@ class TestBatchedPath:
 
         graph = assemble_graph(
             [eq_relu, eq_tanh], backend,
-            paths=[("b_pipe", ["relu_b", "tanh_b"], hidden_b, hidden_b)],
+            specs=[PathSpec("b_pipe", ["relu_b", "tanh_b"], hidden_b, hidden_b)],
         )
 
         x = np.array([[-1.0, 0.5, 2.0],
@@ -417,7 +418,7 @@ class TestBatchedPath:
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_relu2], backend,
-            paths=[("b_pipe3", ["relu_b", "tanh_b", "relu_b2"], hidden_b, hidden_b)],
+            specs=[PathSpec("b_pipe3", ["relu_b", "tanh_b", "relu_b2"], hidden_b, hidden_b)],
         )
 
         x = np.array([[-2.0, 1.0], [0.5, -0.5], [0.0, 3.0]])
@@ -442,7 +443,7 @@ class TestBatchedFan:
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_merge], backend,
-            fans=[("b_fan", ["relu_b", "tanh_b"], "merge_b", hidden_b, hidden_b)],
+            specs=[FanSpec("b_fan", ["relu_b", "tanh_b"], "merge_b", hidden_b, hidden_b)],
         )
 
         x = np.array([[-1.0, 0.5, 0.0, 2.0],
@@ -469,8 +470,8 @@ class TestBatchedFan:
 
         graph = assemble_graph(
             eqs + [eq_merge], backend,
-            fans=[("b_fan4", ["relu_b", "tanh_b", "abs_b", "neg_b"],
-                   "add_merge_b", hidden_b, hidden_b)],
+            specs=[FanSpec("b_fan4", ["relu_b", "tanh_b", "abs_b", "neg_b"],
+                           "add_merge_b", hidden_b, hidden_b)],
         )
 
         x = np.array([[-1.0, 0.5], [2.0, -2.0]])

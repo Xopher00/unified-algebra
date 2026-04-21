@@ -41,7 +41,7 @@ from unified_algebra.composition import lens, lens_path, validate_lens
 from unified_algebra._lens_threading import (
     _lens_fwd_primitive, _lens_bwd_primitive, _lens_path_threaded,
 )
-from unified_algebra.graph import assemble_graph, build_graph
+from unified_algebra.graph import assemble_graph, build_graph, LensPathSpec
 
 
 # ---------------------------------------------------------------------------
@@ -143,24 +143,24 @@ class TestOpticPathStructure:
 
     def test__lens_path_threaded_returns_two_pairs(self, hidden, residual):
         """_lens_path_threaded() returns two (Name, Term) pairs for fwd and bwd."""
-        result = _lens_path_threaded("enc", ["fwd1", "fwd2"], ["bwd1", "bwd2"], hidden, hidden)
+        result = _lens_path_threaded("enc", ["fwd1", "fwd2"], ["bwd1", "bwd2"])
         (fwd_name, fwd_term), (bwd_name, bwd_term) = result
         assert fwd_name == Name("ua.path.enc.fwd")
         assert bwd_name == Name("ua.path.enc.bwd")
 
     def test__lens_path_threaded_fwd_is_lambda(self, hidden, residual):
         """Forward optic path term is a Hydra lambda."""
-        (_, fwd_term), _ = _lens_path_threaded("enc2", ["fwd1"], ["bwd1"], hidden, hidden)
+        (_, fwd_term), _ = _lens_path_threaded("enc2", ["fwd1"], ["bwd1"])
         assert isinstance(fwd_term.value, core.Lambda)
 
     def test__lens_path_threaded_bwd_is_lambda(self, hidden, residual):
         """Backward optic path term is a Hydra lambda."""
-        _, (_, bwd_term) = _lens_path_threaded("enc3", ["fwd1"], ["bwd1"], hidden, hidden)
+        _, (_, bwd_term) = _lens_path_threaded("enc3", ["fwd1"], ["bwd1"])
         assert isinstance(bwd_term.value, core.Lambda)
 
     def test__lens_path_threaded_fwd_uses_lens_fwd_primitive(self, hidden, residual):
         """Forward optic path body references ua.prim.lens_fwd."""
-        (_, fwd_term), _ = _lens_path_threaded("enc4", ["fwd1", "fwd2"], ["bwd1", "bwd2"], hidden, hidden)
+        (_, fwd_term), _ = _lens_path_threaded("enc4", ["fwd1", "fwd2"], ["bwd1", "bwd2"])
         # Body is apply(apply(var("ua.prim.lens_fwd"), list_of_fwds), var("x"))
         outer_app = fwd_term.value.body
         inner_app = outer_app.value.function
@@ -169,7 +169,7 @@ class TestOpticPathStructure:
 
     def test__lens_path_threaded_bwd_uses_lens_bwd_primitive(self, hidden, residual):
         """Backward optic path body references ua.prim.lens_bwd."""
-        _, (_, bwd_term) = _lens_path_threaded("enc5", ["fwd1", "fwd2"], ["bwd1", "bwd2"], hidden, hidden)
+        _, (_, bwd_term) = _lens_path_threaded("enc5", ["fwd1", "fwd2"], ["bwd1", "bwd2"])
         outer_app = bwd_term.value.body
         inner_app = outer_app.value.function
         prim_var = inner_app.value.function
@@ -210,7 +210,7 @@ class TestLensPathRouting:
         lens_by_name = {"so": l}
 
         (fwd_name, fwd_term), (bwd_name, bwd_term) = lens_path(
-            "so_pipe", ["so"], lens_by_name, hidden, hidden
+            "so_pipe", ["so"], lens_by_name
         )
         # Plain path: fwd body is apply(var("ua.equation.so_fwd"), var("x")) — no optic_fwd
         body = fwd_term.value.body
@@ -229,7 +229,7 @@ class TestLensPathRouting:
         lens_by_name = {"mo_a": l_a, "mo_b": l_b}
 
         (fwd_name, fwd_term), (bwd_name, bwd_term) = lens_path(
-            "mo_pipe", ["mo_a", "mo_b"], lens_by_name, hidden, hidden
+            "mo_pipe", ["mo_a", "mo_b"], lens_by_name
         )
         # _lens_path_threaded: fwd body is apply(apply(var("ua.prim.lens_fwd"), list), var("x"))
         body = fwd_term.value.body
@@ -245,7 +245,7 @@ class TestLensPathRouting:
         lens_by_name = {"pl": l}
 
         (fwd_name, fwd_term), (bwd_name, bwd_term) = lens_path(
-            "pl_pipe", ["pl"], lens_by_name, hidden, hidden
+            "pl_pipe", ["pl"], lens_by_name
         )
         body = fwd_term.value.body
         assert body.value.function.value.value == "ua.equation.pl_fwd"
@@ -296,7 +296,7 @@ class TestMultiOpticEndToEnd:
         graph = assemble_graph(
             [eq_a_fwd, eq_a_bwd, eq_b_fwd, eq_b_bwd], backend,
             lenses=[l_a, l_b],
-            lens_paths=[("two_optic13", ["la13", "lb13"], hidden, hidden)],
+            specs=[LensPathSpec("two_optic13", ["la13", "lb13"], hidden, hidden)],
             extra_sorts=[prod],
         )
         return graph, prod
@@ -491,7 +491,7 @@ class TestOpticSemiringPolymorphism:
         graph = assemble_graph(
             [eq_a_fwd, eq_a_bwd, eq_b_fwd, eq_b_bwd], backend,
             lenses=[l_a, l_b],
-            lens_paths=[("trop_two_optic", ["lat13", "lbt13"], t_sort, t_sort)],
+            specs=[LensPathSpec("trop_two_optic", ["lat13", "lbt13"], t_sort, t_sort)],
             extra_sorts=[prod],
         )
 

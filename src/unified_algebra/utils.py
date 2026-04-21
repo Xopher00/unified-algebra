@@ -20,17 +20,9 @@ def float_value(term) -> float:
     return term.value.value
 
 
-def eq_name(eq_term) -> str:
-    """Extract an equation's name from its Hydra record."""
-    return string_value(record_fields(eq_term)["name"])
 
-
-def lens_fields(term) -> dict[str, object]:
-    """Extract name/forward/backward/residualSort from a lens record."""
-    fields = record_fields(term)
-    return {
-        "name": string_value(fields["name"]),
-        "forward": string_value(fields["forward"]),
-        "backward": string_value(fields["backward"]),
-        "residualSort": fields.get("residualSort"),
-    }
+def bind_composition(kind, name, var_name, body):
+    """Wrap a body term in a lambda and return (Name, lambda_term)."""
+    import hydra.core as core
+    from hydra.dsl import terms as Terms
+    return (core.Name(f"ua.{kind}.{name}"), Terms.lambda_(var_name, body))

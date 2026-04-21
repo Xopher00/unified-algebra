@@ -13,9 +13,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .utils import record_fields, string_value, float_value  # noqa: F401
 import hydra.core as core
 import hydra.dsl.terms as Terms
+from .views import SemiringView
 
 if TYPE_CHECKING:
     from .backend import Backend
@@ -70,11 +70,11 @@ def resolve_semiring(semiring_term: core.Term, backend: Backend) -> ResolvedSemi
     Extracts the operation names from the Hydra record and looks them up
     in the backend to produce concrete callables for contraction.
     """
-    fields = record_fields(semiring_term)
-    name = string_value(fields["name"])
-    plus_name = string_value(fields["plus"])
-    times_name = string_value(fields["times"])
-    residual_name = string_value(fields.get("residual", Terms.string("")))
+    v = SemiringView(semiring_term)
+    name = v.name
+    plus_name = v.plus
+    times_name = v.times
+    residual_name = v.residual
 
     residual_elementwise = None
     if residual_name:
@@ -88,8 +88,8 @@ def resolve_semiring(semiring_term: core.Term, backend: Backend) -> ResolvedSemi
         plus_reduce=backend.reduce(plus_name),
         times_elementwise=backend.elementwise(times_name),
         times_reduce=backend.reduce(times_name),
-        zero=float_value(fields["zero"]),
-        one=float_value(fields["one"]),
+        zero=v.zero,
+        one=v.one,
         residual_name=residual_name or None,
         residual_elementwise=residual_elementwise,
     )

@@ -46,10 +46,11 @@ from unified_algebra.sort import (
 )
 from unified_algebra.morphism import equation, resolve_equation
 from unified_algebra.composition import lens, validate_lens, lens_path
-from unified_algebra.utils import lens_fields
 from unified_algebra.recursion import fixpoint, _fixpoint_primitive
-from unified_algebra.validation import validate_fixpoint
+from unified_algebra.validation import validate_spec
+from unified_algebra import FixpointSpec
 from unified_algebra.graph import assemble_graph, build_graph
+from unified_algebra import LensPathSpec
 from unified_algebra.utils import record_fields
 
 
@@ -297,7 +298,7 @@ class TestOpticLensValidation:
         graph = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            lens_paths=[("optic2_pipe", ["optic2"], h_sort, prod)],
+            specs=[LensPathSpec("optic2_pipe", ["optic2"], h_sort, prod)],
         )
 
         x = np.array([-1.0, 0.5, 2.0])
@@ -331,7 +332,7 @@ class TestFixpointValidation:
         pred_eq = equation("fp_pred", None, hidden, hidden, nonlinearity="abs")
         eq_by_name = {"fp_step": step_eq, "fp_pred": pred_eq}
         # Should not raise
-        validate_fixpoint(eq_by_name, "fp_step", "fp_pred", hidden)
+        validate_spec(eq_by_name, FixpointSpec("_", "fp_step", "fp_pred", 0.0, 0, hidden))
 
     def test_validate_fixpoint_raises_for_non_endomorphism_step(
         self, hidden, output_sort, real_sr
@@ -341,21 +342,21 @@ class TestFixpointValidation:
         pred_eq = equation("bad_pred", None, hidden, hidden, nonlinearity="abs")
         eq_by_name = {"bad_step": step_eq, "bad_pred": pred_eq}
         with pytest.raises(TypeError):
-            validate_fixpoint(eq_by_name, "bad_step", "bad_pred", hidden)
+            validate_spec(eq_by_name, FixpointSpec("_", "bad_step", "bad_pred", 0.0, 0, hidden))
 
     def test_validate_fixpoint_raises_for_missing_predicate(self, hidden):
         """validate_fixpoint raises ValueError when predicate equation is not found."""
         step_eq = equation("ms_step", None, hidden, hidden, nonlinearity="relu")
         eq_by_name = {"ms_step": step_eq}
         with pytest.raises(ValueError, match="predicate equation 'missing_pred' not found"):
-            validate_fixpoint(eq_by_name, "ms_step", "missing_pred", hidden)
+            validate_spec(eq_by_name, FixpointSpec("_", "ms_step", "missing_pred", 0.0, 0, hidden))
 
     def test_validate_fixpoint_raises_for_missing_step(self, hidden):
         """validate_fixpoint raises ValueError when step equation is not found."""
         pred_eq = equation("ms_pred", None, hidden, hidden, nonlinearity="abs")
         eq_by_name = {"ms_pred": pred_eq}
         with pytest.raises(ValueError, match="step equation 'missing_step' not found"):
-            validate_fixpoint(eq_by_name, "missing_step", "ms_pred", hidden)
+            validate_spec(eq_by_name, FixpointSpec("_", "missing_step", "ms_pred", 0.0, 0, hidden))
 
 
 class TestFixpointEndToEnd:
@@ -407,7 +408,7 @@ class TestFixpointEndToEnd:
         fp_prim = _fixpoint_primitive(epsilon, max_iter)
 
         fp_name, fp_term = fixpoint(
-            "converge1", "fp1_step", "fp1_pred", epsilon, max_iter, s_sort
+            "converge1", "fp1_step", "fp1_pred"
         )
 
         graph = make_graph_with_stdlib(
@@ -454,7 +455,7 @@ class TestFixpointEndToEnd:
         fp_prim = _fixpoint_primitive(epsilon, max_iter)
 
         fp_name, fp_term = fixpoint(
-            "no_converge", "fp2_step", "fp2_pred", epsilon, max_iter, s_sort
+            "no_converge", "fp2_step", "fp2_pred"
         )
 
         graph = make_graph_with_stdlib(
@@ -496,7 +497,7 @@ class TestFixpointEndToEnd:
 
         fp_prim = _fixpoint_primitive(0.001, 50)
         fp_name, fp_term = fixpoint(
-            "conv_scalar", "fp3_step", "fp3_pred", 0.001, 50, s_sort
+            "conv_scalar", "fp3_step", "fp3_pred"
         )
 
         graph = make_graph_with_stdlib(

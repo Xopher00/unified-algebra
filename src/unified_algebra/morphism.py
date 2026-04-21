@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .utils import record_fields, string_value
 import hydra.core as core
 import hydra.dsl.terms as Terms
 from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
@@ -24,6 +23,7 @@ from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_
 from .semiring import resolve_semiring
 from .sort import tensor_coder, sort_coder, is_batched
 from .contraction import compile_equation, semiring_contract
+from .views import EquationView
 
 if TYPE_CHECKING:
     from .backend import Backend
@@ -112,32 +112,32 @@ def _resolve_fields(eq_term: core.Term, backend: "Backend"):
     Callers that need a wrapped form (e.g. ``list_coder(in_coder)``) must
     apply that wrapping themselves.
     """
-    fields = record_fields(eq_term)
-    name = string_value(fields["name"])
-    einsum_str = string_value(fields["einsum"])
-    nl_str = string_value(fields["nonlinearity"])
+    v = EquationView(eq_term)
+    name = v.name
+    einsum_str = v.einsum
+    nl_str = v.nonlinearity
 
     # Auto-prepend batch dimension when the domain sort is batched.
     # The declaration stores the logical (unbatched) einsum; resolution
     # produces the physical (batched) einsum for the backend.
     has_einsum = bool(einsum_str)
-    if has_einsum and is_batched(fields["domainSort"]):
+    if has_einsum and is_batched(v.domain_sort):
         einsum_str = _prepend_batch_dim(einsum_str)
 
     has_nl = bool(nl_str)
     nl_fn = backend.unary(nl_str) if has_nl else None
 
-    in_coder = sort_coder(fields["domainSort"], backend)
-    out_coder = sort_coder(fields["codomainSort"], backend)
+    in_coder = sort_coder(v.domain_sort, backend)
+    out_coder = sort_coder(v.codomain_sort, backend)
     prim_name = core.Name(f"ua.equation.{name}")
 
     sr = None
     eq = None
     if has_einsum:
-        sr = resolve_semiring(fields["semiring"], backend)
+        sr = resolve_semiring(v.semiring, backend)
         eq = compile_equation(einsum_str)
 
-    return fields, name, einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq
+    return v, name, einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq
 
 
 def _make_prim(prim_name, compute, coders, out_coder):
@@ -165,17 +165,12 @@ def resolve_equation(eq_term: core.Term, backend: Backend) -> hydra.graph.Primit
     Uses sort-aware TermCoders so the Primitive's type scheme reflects
     the actual domain/codomain sorts.
     """
-    fields, name, einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq = \
+    v, name, einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq = \
         _resolve_fields(eq_term, backend)
 
     # Determine param_slots (scalar hyperparameters before tensor inputs).
     # This is specific to resolve_equation and not shared with resolve_list_merge.
-    param_slots = []
-    if "paramSlots" in fields:
-        ps_term = fields["paramSlots"]
-        # TermList has .value which is a list of Terms
-        if hasattr(ps_term, 'value') and isinstance(ps_term.value, (list, tuple)):
-            param_slots = [string_value(t) for t in ps_term.value]
+    param_slots = v.param_slots
     n_params = len(param_slots)
 
     if has_einsum:
@@ -221,7 +216,7 @@ def resolve_list_merge(eq_term: core.Term, backend: Backend) -> hydra.graph.Prim
     The equation must have a 2-input einsum (the binary combiner, e.g. "i,i->i").
     Produces a prim1: list<tensor> → tensor.
     """
-    fields, name, einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq = \
+    _, name, _einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq = \
         _resolve_fields(eq_term, backend)
 
     if has_einsum:

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .utils import record_fields, string_value
+from .views import EquationView, SortView, ProductSortView
 import hydra.core as core
 import hydra.dsl.terms as Terms
 import hydra.graph
@@ -63,25 +63,10 @@ def sort_to_type(name: str, semiring_name: str, batched: bool = False) -> core.T
 # Semiring compatibility
 # ---------------------------------------------------------------------------
 
-def _is_batched_field(fields: dict) -> bool:
-    """Read the 'batched' flag from a pre-extracted fields dict.
-
-    Returns False when the field is absent (backwards-compat with old records).
-    """
-    if "batched" not in fields:
-        return False
-    b_term = fields["batched"]
-    # TermLiteral(LiteralBoolean(bool))
-    return (
-        hasattr(b_term, "value")
-        and hasattr(b_term.value, "value")
-        and b_term.value.value is True
-    )
-
 
 def is_batched(sort_term: core.Term) -> bool:
     """Return True if the sort has the batched flag set."""
-    return _is_batched_field(record_fields(sort_term))
+    return SortView(sort_term).batched
 
 
 def sort_type_from_term(sort_term: core.Term) -> core.Type:
@@ -90,11 +75,8 @@ def sort_type_from_term(sort_term: core.Term) -> core.Type:
         elements = product_sort_elements(sort_term)
         names = [sort_type_from_term(e).value.value for e in elements]
         return core.TypeVariable(core.Name(f"ua.sort.product:({'*'.join(names)})"))
-    fields = record_fields(sort_term)
-    name = string_value(fields["name"])
-    sr_name = string_value(record_fields(fields["semiring"])["name"])
-    batched = _is_batched_field(fields)
-    return sort_to_type(name, sr_name, batched)
+    v = SortView(sort_term)
+    return sort_to_type(v.name, v.semiring_name, v.batched)
 
 
 def _check_sort(
@@ -105,7 +87,9 @@ def _check_sort(
     label: str,
 ) -> None:
     """Assert that an equation's sort field matches an expected sort."""
-    actual = sort_type_from_term(record_fields(eq_terms_by_name[eq_name])[field])
+    v = EquationView(eq_terms_by_name[eq_name])
+    sort_term = v.domain_sort if field == "domainSort" else v.codomain_sort
+    actual = sort_type_from_term(sort_term)
     expected = sort_type_from_term(expected_sort)
     if actual != expected:
         raise TypeError(f"{label}: {actual.value.value!r} != {expected.value.value!r}")
@@ -117,16 +101,14 @@ def check_sort_junction(upstream_eq: core.Term, downstream_eq: core.Term) -> Non
     Compares full Hydra TypeVariable identity — both sort name and semiring
     must match.
     """
-    up_fields = record_fields(upstream_eq)
-    down_fields = record_fields(downstream_eq)
-    codomain_type = sort_type_from_term(up_fields["codomainSort"])
-    domain_type = sort_type_from_term(down_fields["domainSort"])
+    up = EquationView(upstream_eq)
+    down = EquationView(downstream_eq)
+    codomain_type = sort_type_from_term(up.codomain_sort)
+    domain_type = sort_type_from_term(down.domain_sort)
     if codomain_type != domain_type:
-        up_name = string_value(up_fields["name"])
-        down_name = string_value(down_fields["name"])
         raise TypeError(
-            f"Sort junction error: '{up_name}' codomain "
-            f"{codomain_type.value.value!r} != '{down_name}' domain "
+            f"Sort junction error: '{up.name}' codomain "
+            f"{codomain_type.value.value!r} != '{down.name}' domain "
             f"{domain_type.value.value!r}"
         )
 
@@ -154,20 +136,18 @@ def check_rank_junction(upstream_eq: core.Term, downstream_eq: core.Term,
 
     Only checks when both equations have non-empty einsum strings.
     """
-    up_fields = record_fields(upstream_eq)
-    down_fields = record_fields(downstream_eq)
-    up_einsum = string_value(up_fields["einsum"])
-    down_einsum = string_value(down_fields["einsum"])
+    up = EquationView(upstream_eq)
+    down = EquationView(downstream_eq)
+    up_einsum = up.einsum
+    down_einsum = down.einsum
 
     out_rank = _output_rank(up_einsum)
     in_rank = _input_rank(down_einsum, input_slot)
 
     if out_rank is not None and in_rank is not None and out_rank != in_rank:
-        up_name = string_value(up_fields["name"])
-        down_name = string_value(down_fields["name"])
         raise TypeError(
-            f"Rank mismatch: '{up_name}' output rank {out_rank} != "
-            f"'{down_name}' input rank {in_rank} at slot {input_slot}"
+            f"Rank mismatch: '{up.name}' output rank {out_rank} != "
+            f"'{down.name}' input rank {in_rank} at slot {input_slot}"
         )
 
 
@@ -291,10 +271,7 @@ def product_sort_elements(sort_term: core.Term) -> list[core.Term]:
     Raises:
         KeyError: if sort_term is not a product sort.
     """
-    fields = record_fields(sort_term)
-    sorts_list = fields["sorts"]
-    # TermList.value is a tuple of Terms
-    return list(sorts_list.value)
+    return ProductSortView(sort_term).elements
 
 
 def product_sort_coder(sort_term: core.Term, backend):

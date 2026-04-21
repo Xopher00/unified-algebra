@@ -14,6 +14,7 @@ import hydra.core as core
 import hydra.dsl.terms as Terms
 import hydra.graph
 from hydra.dsl import prims
+from .utils import bind_composition
 
 
 def _lens_fwd_primitive() -> hydra.graph.Primitive:
@@ -99,8 +100,6 @@ def _lens_path_threaded(
     name: str,
     fwd_eq_names: list[str],
     bwd_eq_names: list[str],
-    domain_sort: core.Term,
-    codomain_sort: core.Term,
 ) -> tuple[tuple[core.Name, core.Term], tuple[core.Name, core.Term]]:
     """Build a lens path with residual threading (height-2).
 
@@ -111,15 +110,12 @@ def _lens_path_threaded(
         Terms.apply(Terms.var("ua.prim.lens_fwd"), fwd_list),
         Terms.var("x"),
     )
-    fwd_term = Terms.lambda_("x", fwd_body)
-
     bwd_list = Terms.list_([Terms.var(f"ua.equation.{n}") for n in bwd_eq_names])
     bwd_body = Terms.apply(
         Terms.apply(Terms.var("ua.prim.lens_bwd"), bwd_list),
         Terms.var("p"),
     )
-    bwd_term = Terms.lambda_("p", bwd_body)
 
-    fwd_name = core.Name(f"ua.path.{name}.fwd")
-    bwd_name = core.Name(f"ua.path.{name}.bwd")
-    return (fwd_name, fwd_term), (bwd_name, bwd_term)
+    fwd_pair = bind_composition("path", f"{name}.fwd", "x", fwd_body)
+    bwd_pair = bind_composition("path", f"{name}.bwd", "p", bwd_body)
+    return fwd_pair, bwd_pair

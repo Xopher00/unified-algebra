@@ -21,6 +21,7 @@ import hydra.core as core
 import hydra.dsl.terms as Terms
 import hydra.graph
 from hydra.dsl import prims
+from .utils import bind_composition
 
 
 # ---------------------------------------------------------------------------
@@ -31,8 +32,6 @@ def fold(
     name: str,
     step_name: str,
     init_term: core.Term,
-    domain_sort: core.Term,
-    state_sort: core.Term,
 ) -> tuple[core.Name, core.Term]:
     """Build a fold as a Hydra lambda term.
 
@@ -40,8 +39,6 @@ def fold(
         name:       identifier (e.g. "rnn")
         step_name:  name of a 2-input equation/path: step(state, element) → new_state
         init_term:  pre-encoded Hydra tensor term for initial state
-        domain_sort: sort term for list elements
-        state_sort:  sort term for the state (also the output)
 
     Returns:
         (Name("ua.fold.<name>"), lambda_term)
@@ -49,8 +46,7 @@ def fold(
     """
     step_fn = Terms.var(f"ua.equation.{step_name}")
     body = Terms.apply_all(Terms.var("hydra.lib.lists.foldl"), [step_fn, init_term, Terms.var("seq")])
-    term = Terms.lambda_("seq", body)
-    return (core.Name(f"ua.fold.{name}"), term)
+    return bind_composition("fold", name, "seq", body)
 
 
 # ---------------------------------------------------------------------------
@@ -97,8 +93,6 @@ def unfold(
     name: str,
     step_name: str,
     n_steps: int,
-    domain_sort: core.Term,
-    state_sort: core.Term,
 ) -> tuple[core.Name, core.Term]:
     """Build an unfold as a Hydra lambda term.
 
@@ -106,8 +100,6 @@ def unfold(
         name:       identifier (e.g. "stream")
         step_name:  name of a 1-input equation/path: step(state) → new_state
         n_steps:    number of unfolding iterations
-        domain_sort: sort term for the state
-        state_sort:  sort term for the state (also list element type)
 
     Returns:
         (Name("ua.unfold.<name>"), lambda_term)
@@ -115,8 +107,7 @@ def unfold(
     """
     step_fn = Terms.var(f"ua.equation.{step_name}")
     body = Terms.apply_all(Terms.var("ua.prim.unfold_n"), [step_fn, Terms.int32(n_steps), Terms.var("state")])
-    term = Terms.lambda_("state", body)
-    return (core.Name(f"ua.unfold.{name}"), term)
+    return bind_composition("unfold", name, "state", body)
 
 
 
@@ -162,9 +153,6 @@ def fixpoint(
     name: str,
     step_name: str,
     predicate_name: str,
-    epsilon: float,
-    max_iter: int,
-    domain_sort: core.Term,
 ) -> tuple[core.Name, core.Term]:
     """Build a fixpoint iteration as a Hydra lambda term.
 
@@ -172,9 +160,6 @@ def fixpoint(
         name:            identifier (e.g. "converge")
         step_name:       name of a 1-input equation: step(state) → new_state
         predicate_name:  name of a 1-input equation: pred(state) → float32 residual
-        epsilon:         convergence threshold (iterate until pred(state) <= epsilon)
-        max_iter:        maximum iterations (safety bound)
-        domain_sort:     sort term for the state
 
     Returns:
         (Name("ua.fixpoint.<name>"), lambda_term)
@@ -184,8 +169,7 @@ def fixpoint(
     step_fn = Terms.var(f"ua.equation.{step_name}")
     pred_fn = Terms.var(f"ua.equation.{predicate_name}")
     body = Terms.apply_all(Terms.var("ua.prim.fixpoint"), [step_fn, pred_fn, Terms.var("state")])
-    term = Terms.lambda_("state", body)
-    return (core.Name(f"ua.fixpoint.{name}"), term)
+    return bind_composition("fixpoint", name, "state", body)
 
 
 

@@ -15,9 +15,11 @@ from unified_algebra.backend import numpy_backend
 from unified_algebra.semiring import semiring
 from unified_algebra.sort import sort, tensor_coder, sort_coder
 from unified_algebra.graph import build_graph, assemble_graph, rebind_hyperparams
+from unified_algebra.graph import PathSpec, FanSpec
 from unified_algebra.morphism import equation, resolve_equation, resolve_list_merge
 from unified_algebra.composition import path, fan
-from unified_algebra.validation import validate_path, validate_fan
+from unified_algebra.validation import validate_spec
+from unified_algebra import PathSpec, FanSpec
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +90,7 @@ class TestListFanArity:
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_sig, eq_ident, eq_merge], backend,
-            fans=[("quad", ["relu", "tanh", "sigmoid", "ident"], "merge4", hidden, hidden)],
+            specs=[FanSpec("quad", ["relu", "tanh", "sigmoid", "ident"], "merge4", hidden, hidden)],
         )
 
         x = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
@@ -115,7 +117,7 @@ class TestListFanArity:
 
         graph = assemble_graph(
             eqs + [eq_merge], backend,
-            fans=[("mha", [f"head{i}" for i in range(8)], "merge8", hidden, hidden)],
+            specs=[FanSpec("mha", [f"head{i}" for i in range(8)], "merge8", hidden, hidden)],
         )
 
         x = np.array([0.5, 1.0, -1.0, 2.0])
@@ -136,7 +138,7 @@ class TestListFanArity:
 
         graph = assemble_graph(
             [eq_relu, eq_merge], backend,
-            fans=[("single", ["relu"], "merge1", hidden, hidden)],
+            specs=[FanSpec("single", ["relu"], "merge1", hidden, hidden)],
         )
 
         x = np.array([-1.0, 0.0, 1.0])
@@ -165,7 +167,7 @@ class TestListFanWithAdditiveMerge:
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_merge], backend,
-            fans=[("additive", ["relu", "tanh"], "sum_merge", hidden_add, hidden_add)],
+            specs=[FanSpec("additive", ["relu", "tanh"], "sum_merge", hidden_add, hidden_add)],
         )
 
         x = np.array([-1.0, 0.0, 1.0])
@@ -208,7 +210,7 @@ class TestHyperparams:
         graph = assemble_graph(
             [eq_relu, eq_tanh], backend,
             hyperparams={"temp": Terms.float32(1.0)},
-            paths=[("pipe", ["relu", "tanh"], hidden, hidden)],
+            specs=[PathSpec("pipe", ["relu", "tanh"], hidden, hidden)],
         )
 
         # Verify the hyperparam is in bound_terms
@@ -239,7 +241,7 @@ class TestHyperparams:
         graph = assemble_graph(
             [eq_relu, eq_scale], backend,
             hyperparams={"weight": w1_enc},
-            paths=[("scaled_relu", ["relu", "scale"], hidden, hidden,
+            specs=[PathSpec("scaled_relu", ["relu", "scale"], hidden, hidden,
                     {"scale": [var("ua.param.weight")]})],
         )
 
@@ -276,7 +278,7 @@ class TestHyperparams:
         graph = assemble_graph(
             [eq_relu, eq_scale], backend,
             hyperparams={"weight": w_enc},
-            paths=[("scaled_relu", ["relu", "scale"], hidden, hidden,
+            specs=[PathSpec("scaled_relu", ["relu", "scale"], hidden, hidden,
                     {"scale": [var("ua.param.weight")]})],
         )
 
@@ -393,7 +395,7 @@ class TestParamSlots:
         graph = assemble_graph(
             [eq_relu, eq_tsoftplus], temp_backend,
             hyperparams={"temperature": Terms.float32(2.0)},
-            paths=[("pipe", ["relu", "tsoftplus"], hidden, hidden,
+            specs=[PathSpec("pipe", ["relu", "tsoftplus"], hidden, hidden,
                     {"tsoftplus": [var("ua.param.temperature")]})],
         )
 
@@ -417,7 +419,7 @@ class TestParamSlots:
         graph = assemble_graph(
             [eq_tsoftplus], temp_backend,
             hyperparams={"temperature": Terms.float32(1.0)},
-            paths=[("smooth", ["tsoftplus"], hidden, hidden,
+            specs=[PathSpec("smooth", ["tsoftplus"], hidden, hidden,
                     {"tsoftplus": [var("ua.param.temperature")]})],
         )
 

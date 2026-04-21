@@ -14,9 +14,11 @@ from unified_algebra.backend import numpy_backend
 from unified_algebra.semiring import semiring
 from unified_algebra.sort import sort, tensor_coder
 from unified_algebra.graph import build_graph, assemble_graph
+from unified_algebra.graph import PathSpec, FanSpec
 from unified_algebra.morphism import equation, resolve_equation, resolve_list_merge
 from unified_algebra.composition import path, fan
-from unified_algebra.validation import validate_path, validate_fan
+from unified_algebra.validation import validate_spec
+from unified_algebra import PathSpec, FanSpec
 
 
 # ---------------------------------------------------------------------------
@@ -92,28 +94,28 @@ def assert_reduce_ok(cx, graph, term):
 class TestPathStructure:
 
     def test_path_returns_name_and_lambda(self, hidden):
-        name, term = path("act", ["relu"], hidden, hidden)
+        name, term = path("act", ["relu"])
         assert name == Name("ua.path.act")
         assert isinstance(term.value, core.Lambda)
 
     def test_path_name_prefix(self, hidden):
-        name, _ = path("ffn", ["a", "b", "c"], hidden, hidden)
+        name, _ = path("ffn", ["a", "b", "c"])
         assert name.value == "ua.path.ffn"
 
     def test_path_empty_raises(self, hidden):
         with pytest.raises(ValueError, match="at least one equation"):
-            path("bad", [], hidden, hidden)
+            path("bad", [])
 
     def test_path_single_step(self, hidden):
         """Single-equation path should be lambda x. eq(x)."""
-        _, term = path("single", ["relu"], hidden, hidden)
+        _, term = path("single", ["relu"])
         # The body should be an application
         body = term.value.body
         assert isinstance(body.value, core.Application)
 
     def test_path_two_step(self, hidden):
         """Two-equation path: lambda x. b(a(x))."""
-        _, term = path("two", ["a", "b"], hidden, hidden)
+        _, term = path("two", ["a", "b"])
         body = term.value.body
         # outer: apply(var("ua.equation.b"), ...)
         assert isinstance(body.value, core.Application)
@@ -131,30 +133,30 @@ class TestPathValidation:
     def test_valid_path(self, real_sr, hidden):
         eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
         eq_b = equation("b", None, hidden, hidden, nonlinearity="tanh")
-        validate_path({"a": eq_a, "b": eq_b}, ["a", "b"], hidden, hidden)
+        validate_spec({"a": eq_a, "b": eq_b}, PathSpec("_", ["a", "b"], hidden, hidden))
 
     def test_domain_mismatch(self, real_sr, hidden, output_sort):
         eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
         with pytest.raises(TypeError, match="Path domain"):
-            validate_path({"a": eq_a}, ["a"], output_sort, hidden)
+            validate_spec({"a": eq_a}, PathSpec("_", ["a"], output_sort, hidden))
 
     def test_codomain_mismatch(self, real_sr, hidden, output_sort):
         eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
         with pytest.raises(TypeError, match="Path codomain"):
-            validate_path({"a": eq_a}, ["a"], hidden, output_sort)
+            validate_spec({"a": eq_a}, PathSpec("_", ["a"], hidden, output_sort))
 
     def test_junction_mismatch(self, real_sr, hidden, output_sort):
         eq_a = equation("a", None, hidden, output_sort, nonlinearity="relu")
         eq_b = equation("b", None, hidden, hidden, nonlinearity="relu")
         with pytest.raises(TypeError, match="Sort junction"):
-            validate_path({"a": eq_a, "b": eq_b}, ["a", "b"], hidden, hidden)
+            validate_spec({"a": eq_a, "b": eq_b}, PathSpec("_", ["a", "b"], hidden, hidden))
 
     def test_cross_semiring_path(self, real_sr, hidden, tropical_sort):
         eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
         eq_b = equation("b", None, tropical_sort, tropical_sort, nonlinearity="relu")
         with pytest.raises(TypeError, match="Sort junction"):
-            validate_path(
-                {"a": eq_a, "b": eq_b}, ["a", "b"], hidden, tropical_sort
+            validate_spec(
+                {"a": eq_a, "b": eq_b}, PathSpec("_", ["a", "b"], hidden, tropical_sort)
             )
 
 
@@ -172,7 +174,7 @@ class TestPathReduce:
         prim_relu = resolve_equation(eq_relu, backend)
         prim_tanh = resolve_equation(eq_tanh, backend)
 
-        p_name, p_term = path("act", ["relu", "tanh"], hidden, hidden)
+        p_name, p_term = path("act", ["relu", "tanh"])
 
         graph = build_graph(
             [],
@@ -209,7 +211,7 @@ class TestPathReduce:
             p = resolve_equation(eq, backend)
             prims[p.name] = p
 
-        p_name, p_term = path("deep", ["relu", "tanh", "sigmoid"], hidden, hidden)
+        p_name, p_term = path("deep", ["relu", "tanh", "sigmoid"])
 
         graph = build_graph(
             [], primitives=prims, bound_terms={p_name: p_term}
@@ -236,7 +238,7 @@ class TestPathReduce:
         eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
         prim = resolve_equation(eq_relu, backend)
 
-        p_name, p_term = path("just_relu", ["relu"], hidden, hidden)
+        p_name, p_term = path("just_relu", ["relu"])
 
         graph = build_graph(
             [], primitives={prim.name: prim}, bound_terms={p_name: p_term}
@@ -268,7 +270,7 @@ class TestPathReduce:
         W_enc = encode_array(coder, W)
 
         p_name, p_term = path(
-            "lr", ["linear", "relu"], hidden, hidden,
+            "lr", ["linear", "relu"],
             params={"linear": [W_enc]},
         )
 
@@ -305,17 +307,17 @@ class TestPathReduce:
 class TestFanStructure:
 
     def test_fan_returns_name_and_lambda(self, hidden):
-        name, term = fan("f", ["a", "b"], "m", hidden, hidden)
+        name, term = fan("f", ["a", "b"], "m")
         assert name == Name("ua.fan.f")
         assert isinstance(term.value, core.Lambda)
 
     def test_fan_empty_branches_raises(self, hidden):
         with pytest.raises(ValueError, match="at least one branch"):
-            fan("bad", [], "m", hidden, hidden)
+            fan("bad", [], "m")
 
     def test_fan_many_branches_allowed(self, hidden):
         """Fan arity is unbounded — list-based merge handles any branch count."""
-        _, term = fan("wide", ["a", "b", "c", "d", "e"], "m", hidden, hidden)
+        _, term = fan("wide", ["a", "b", "c", "d", "e"], "m")
         # Should not raise — produces a valid lambda term
         assert term is not None
 
@@ -330,24 +332,24 @@ class TestFanValidation:
         eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
         eq_b = equation("b", None, hidden, hidden, nonlinearity="tanh")
         eq_m = equation("m", "ij,ij->ij", hidden, hidden, real_sr)
-        validate_fan({"a": eq_a, "b": eq_b, "m": eq_m}, ["a", "b"], "m", hidden, hidden)
+        validate_spec({"a": eq_a, "b": eq_b, "m": eq_m}, FanSpec("_", ["a", "b"], "m", hidden, hidden))
 
     def test_branch_domain_mismatch(self, real_sr, hidden, output_sort):
         eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
         eq_b = equation("b", None, output_sort, hidden, nonlinearity="tanh")
         eq_m = equation("m", "ij,ij->ij", hidden, hidden, real_sr)
         with pytest.raises(TypeError, match="Fan branch 'b' domain"):
-            validate_fan(
+            validate_spec(
                 {"a": eq_a, "b": eq_b, "m": eq_m},
-                ["a", "b"], "m", hidden, hidden,
+                FanSpec("_", ["a", "b"], "m", hidden, hidden),
             )
 
     def test_merge_codomain_mismatch(self, real_sr, hidden, output_sort):
         eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
         eq_m = equation("m", None, hidden, output_sort, nonlinearity="relu")
         with pytest.raises(TypeError, match="Fan merge 'm' codomain"):
-            validate_fan(
-                {"a": eq_a, "m": eq_m}, ["a"], "m", hidden, hidden,
+            validate_spec(
+                {"a": eq_a, "m": eq_m}, FanSpec("_", ["a"], "m", hidden, hidden),
             )
 
 
@@ -370,7 +372,7 @@ class TestFanReduce:
         # Merge is resolved as list-merge (prim1 over list<tensor>)
         prims[resolve_list_merge(eq_merge, backend).name] = resolve_list_merge(eq_merge, backend)
 
-        f_name, f_term = fan("res", ["relu", "tanh"], "merge", hidden, hidden)
+        f_name, f_term = fan("res", ["relu", "tanh"], "merge")
 
         graph = build_graph(
             [], primitives=prims, bound_terms={f_name: f_term}
@@ -399,7 +401,7 @@ class TestFanReduce:
         p = resolve_list_merge(eq_ident, backend)
         prims[p.name] = p
 
-        f_name, f_term = fan("single", ["relu"], "ident", hidden, hidden)
+        f_name, f_term = fan("single", ["relu"], "ident")
 
         graph = build_graph(
             [], primitives=prims, bound_terms={f_name: f_term}
@@ -433,7 +435,7 @@ class TestAssembleWithComposition:
 
         graph = assemble_graph(
             [eq_relu, eq_tanh], backend,
-            paths=[("act", ["relu", "tanh"], hidden, hidden)],
+            specs=[PathSpec("act", ["relu", "tanh"], hidden, hidden)],
         )
 
         x = np.array([-1.0, 0.0, 1.0])
@@ -459,7 +461,7 @@ class TestAssembleWithComposition:
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_merge], backend,
-            fans=[("res", ["relu", "tanh"], "merge", hidden, hidden)],
+            specs=[FanSpec("res", ["relu", "tanh"], "merge", hidden, hidden)],
         )
 
         x = np.array([-1.0, 0.0, 1.0])
@@ -484,8 +486,10 @@ class TestAssembleWithComposition:
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_sig, eq_merge], backend,
-            paths=[("act", ["relu", "tanh"], hidden, hidden)],
-            fans=[("split", ["relu", "sigmoid"], "merge", hidden, hidden)],
+            specs=[
+                PathSpec("act", ["relu", "tanh"], hidden, hidden),
+                FanSpec("split", ["relu", "sigmoid"], "merge", hidden, hidden),
+            ],
         )
 
         x = np.array([-1.0, 0.0, 1.0])
@@ -529,7 +533,7 @@ class TestNesting:
         p = resolve_list_merge(eq_merge, backend)
         prims[p.name] = p
 
-        f_name, f_term = fan("split", ["relu", "tanh"], "merge", hidden, hidden)
+        f_name, f_term = fan("split", ["relu", "tanh"], "merge")
 
         # lambda x. sigmoid(split(x))
         import hydra.dsl.terms as Terms
@@ -587,9 +591,9 @@ class TestOrderSensitivity:
             prims[p.name] = p
 
         # Path A: sigmoid then relu
-        pa_name, pa_term = path("sig_relu", ["sigmoid", "relu"], hidden, hidden)
+        pa_name, pa_term = path("sig_relu", ["sigmoid", "relu"])
         # Path B: relu then sigmoid
-        pb_name, pb_term = path("relu_sig", ["relu", "sigmoid"], hidden, hidden)
+        pb_name, pb_term = path("relu_sig", ["relu", "sigmoid"])
 
         graph = build_graph(
             [], primitives=prims,
@@ -635,7 +639,7 @@ class TestThreeBranchFan:
         prims[p.name] = p
 
         f_name, f_term = fan(
-            "triple", ["relu", "tanh", "sigmoid"], "merge3", hidden, hidden
+            "triple", ["relu", "tanh", "sigmoid"], "merge3"
         )
 
         graph = build_graph(
@@ -667,7 +671,7 @@ class TestNegativeIntegration:
         with pytest.raises(TypeError, match="Sort junction"):
             assemble_graph(
                 [eq_a, eq_b], backend,
-                paths=[("bad", ["a", "b"], hidden, hidden)],
+                specs=[PathSpec("bad", ["a", "b"], hidden, hidden)],
             )
 
     def test_assemble_rejects_invalid_fan(self, real_sr, hidden, output_sort, backend):
@@ -681,7 +685,7 @@ class TestNegativeIntegration:
         with pytest.raises(TypeError, match="branch 'b' codomain.*merge 'm' domain"):
             assemble_graph(
                 [eq_a, eq_m, eq_b], backend,
-                fans=[("bad", ["a", "b"], "m", hidden, hidden)],
+                specs=[FanSpec("bad", ["a", "b"], "m", hidden, hidden)],
             )
 
 
@@ -694,8 +698,8 @@ class TestBranchCodomainValidation:
         eq_m = equation("m", "i,i->i", hidden, hidden, real_sr)
 
         with pytest.raises(TypeError, match="branch 'a' codomain.*merge 'm' domain"):
-            validate_fan(
-                {"a": eq_a, "m": eq_m}, ["a"], "m", hidden, hidden,
+            validate_spec(
+                {"a": eq_a, "m": eq_m}, FanSpec("_", ["a"], "m", hidden, hidden),
             )
 
     def test_mixed_branch_codomains_rejected(self, real_sr, hidden, output_sort):
@@ -705,7 +709,7 @@ class TestBranchCodomainValidation:
         eq_m = equation("m", "i,i->i", hidden, hidden, real_sr)
 
         with pytest.raises(TypeError, match="branch 'b' codomain.*merge 'm' domain"):
-            validate_fan(
+            validate_spec(
                 {"a": eq_a, "b": eq_b, "m": eq_m},
-                ["a", "b"], "m", hidden, hidden,
+                FanSpec("_", ["a", "b"], "m", hidden, hidden),
             )

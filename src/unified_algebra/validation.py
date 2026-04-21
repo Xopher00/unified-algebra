@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections import deque
 from typing import TYPE_CHECKING
 
-from .utils import record_fields, string_value, eq_name
+from .views import EquationView
 from .sort import check_sort_junction, check_rank_junction, _check_sort
 from .morphism import resolve_equation, resolve_list_merge
 
@@ -23,12 +23,8 @@ if TYPE_CHECKING:
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-
-
 def _eq_inputs(eq_term: core.Term) -> list[str]:
-    inputs_term = record_fields(eq_term)["inputs"]
-    return [string_value(t) for t in inputs_term.value]
+    return EquationView(eq_term).inputs
 
 
 def _any_has_inputs(eq_terms: list[core.Term]) -> bool:
@@ -44,14 +40,14 @@ def resolve_dag(eq_terms: list[core.Term]) -> list[tuple[core.Term, core.Term, i
 
     Raises ValueError on cycles.
     """
-    by_name = {eq_name(eq): eq for eq in eq_terms}
+    by_name = {EquationView(eq).name: eq for eq in eq_terms}
 
     edges = []
-    in_degree = {eq_name(eq): 0 for eq in eq_terms}
-    children = {eq_name(eq): [] for eq in eq_terms}
+    in_degree = {EquationView(eq).name: 0 for eq in eq_terms}
+    children = {EquationView(eq).name: [] for eq in eq_terms}
 
     for eq in eq_terms:
-        name = eq_name(eq)
+        name = EquationView(eq).name
         for slot, inp in enumerate(_eq_inputs(eq)):
             if inp in by_name:
                 edges.append((by_name[inp], eq, slot))
@@ -76,7 +72,7 @@ def resolve_dag(eq_terms: list[core.Term]) -> list[tuple[core.Term, core.Term, i
 
 
 # ---------------------------------------------------------------------------
-# Validation
+# Pipeline validation
 # ---------------------------------------------------------------------------
 
 def _validate_dag(eq_terms: list[core.Term]) -> None:
@@ -100,88 +96,65 @@ def validate_pipeline(eq_terms: list[core.Term]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Primitive resolution
+# Composition validation — validate_spec owns the logic
 # ---------------------------------------------------------------------------
 
-def validate_path(
-    eq_terms_by_name: dict[str, "core.Term"],
-    eq_names: list[str],
-    domain_sort: "core.Term",
-    codomain_sort: "core.Term",
-) -> None:
-    """Validate sort junctions along a path."""
-    _check_sort(eq_terms_by_name, eq_names[0], "domainSort", domain_sort,
-                f"Path domain != first equation '{eq_names[0]}' domain")
-    for i in range(len(eq_names) - 1):
-        check_sort_junction(eq_terms_by_name[eq_names[i]], eq_terms_by_name[eq_names[i + 1]])
-    _check_sort(eq_terms_by_name, eq_names[-1], "codomainSort", codomain_sort,
-                f"Path codomain != last equation '{eq_names[-1]}' codomain")
+def _require_eq(eq_terms_by_name, name, label):
+    """Raise ValueError if an equation name is missing."""
+    if name not in eq_terms_by_name:
+        raise ValueError(f"{label} equation '{name}' not found")
 
 
-def validate_fan(
-    eq_terms_by_name: dict[str, "core.Term"],
-    branch_names: list[str],
-    merge_name: str,
-    domain_sort: "core.Term",
-    codomain_sort: "core.Term",
-) -> None:
-    """Validate sort junctions in a fan."""
-    for bname in branch_names:
-        _check_sort(eq_terms_by_name, bname, "domainSort", domain_sort,
-                    f"Fan branch '{bname}' domain != fan domain")
-    merge_fields = record_fields(eq_terms_by_name[merge_name])
-    for bname in branch_names:
-        _check_sort(eq_terms_by_name, bname, "codomainSort", merge_fields["domainSort"],
-                    f"Fan branch '{bname}' codomain != merge '{merge_name}' domain")
-    _check_sort(eq_terms_by_name, merge_name, "codomainSort", codomain_sort,
-                f"Fan merge '{merge_name}' codomain != fan codomain")
+def _check_endomorphism(eq_terms_by_name, name, sort, label):
+    """Check that an equation's domain and codomain both match a sort."""
+    _check_sort(eq_terms_by_name, name, "domainSort", sort,
+                f"{label} '{name}' domain != state sort")
+    _check_sort(eq_terms_by_name, name, "codomainSort", sort,
+                f"{label} '{name}' codomain != state sort")
 
 
-def validate_fold(
-    eq_terms_by_name: dict[str, "core.Term"],
-    step_name: str,
-    domain_sort: "core.Term",
-    state_sort: "core.Term",
-) -> None:
-    """Validate sort junctions for a fold."""
-    if step_name not in eq_terms_by_name:
-        raise ValueError(f"Fold step equation '{step_name}' not found")
-    _check_sort(eq_terms_by_name, step_name, "codomainSort", state_sort,
-                f"Fold step '{step_name}' codomain != state sort")
+def validate_spec(eq_terms_by_name, spec):
+    """Validate sort junctions for a composition spec."""
+    from .graph import PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec
 
+    match spec:
+        case PathSpec(eq_names=eq_names, domain_sort=ds, codomain_sort=cs):
+            _check_sort(eq_terms_by_name, eq_names[0], "domainSort", ds,
+                        f"Path domain != first equation '{eq_names[0]}' domain")
+            for i in range(len(eq_names) - 1):
+                check_sort_junction(eq_terms_by_name[eq_names[i]], eq_terms_by_name[eq_names[i + 1]])
+            _check_sort(eq_terms_by_name, eq_names[-1], "codomainSort", cs,
+                        f"Path codomain != last equation '{eq_names[-1]}' codomain")
 
-def validate_unfold(
-    eq_terms_by_name: dict[str, "core.Term"],
-    step_name: str,
-    domain_sort: "core.Term",
-    state_sort: "core.Term",
-) -> None:
-    """Validate sort junctions for an unfold."""
-    if step_name not in eq_terms_by_name:
-        raise ValueError(f"Unfold step equation '{step_name}' not found")
-    _check_sort(eq_terms_by_name, step_name, "domainSort", domain_sort,
-                f"Unfold step '{step_name}' domain != state sort")
-    _check_sort(eq_terms_by_name, step_name, "codomainSort", domain_sort,
-                f"Unfold step '{step_name}' codomain != state sort")
+        case FanSpec(branch_names=bns, merge_name=mn, domain_sort=ds, codomain_sort=cs):
+            for bname in bns:
+                _check_sort(eq_terms_by_name, bname, "domainSort", ds,
+                            f"Fan branch '{bname}' domain != fan domain")
+            merge_eq = EquationView(eq_terms_by_name[mn])
+            for bname in bns:
+                _check_sort(eq_terms_by_name, bname, "codomainSort", merge_eq.domain_sort,
+                            f"Fan branch '{bname}' codomain != merge '{mn}' domain")
+            _check_sort(eq_terms_by_name, mn, "codomainSort", cs,
+                        f"Fan merge '{mn}' codomain != fan codomain")
 
+        case FoldSpec(step_name=sn, state_sort=ss):
+            _require_eq(eq_terms_by_name, sn, "Fold step")
+            _check_sort(eq_terms_by_name, sn, "codomainSort", ss,
+                        f"Fold step '{sn}' codomain != state sort")
 
-def validate_fixpoint(
-    eq_terms_by_name: dict[str, "core.Term"],
-    step_name: str,
-    predicate_name: str,
-    domain_sort: "core.Term",
-) -> None:
-    """Validate sort junctions for a fixpoint iteration."""
-    if step_name not in eq_terms_by_name:
-        raise ValueError(f"Fixpoint step equation '{step_name}' not found")
-    if predicate_name not in eq_terms_by_name:
-        raise ValueError(f"Fixpoint predicate equation '{predicate_name}' not found")
-    _check_sort(eq_terms_by_name, step_name, "domainSort", domain_sort,
-                f"Fixpoint step '{step_name}' domain != state sort")
-    _check_sort(eq_terms_by_name, step_name, "codomainSort", domain_sort,
-                f"Fixpoint step '{step_name}' codomain != state sort")
-    _check_sort(eq_terms_by_name, predicate_name, "domainSort", domain_sort,
-                f"Fixpoint predicate '{predicate_name}' domain != state sort")
+        case UnfoldSpec(step_name=sn, domain_sort=ds):
+            _require_eq(eq_terms_by_name, sn, "Unfold step")
+            _check_endomorphism(eq_terms_by_name, sn, ds, "Unfold step")
+
+        case FixpointSpec(step_name=sn, predicate_name=pn, domain_sort=ds):
+            _require_eq(eq_terms_by_name, sn, "Fixpoint step")
+            _require_eq(eq_terms_by_name, pn, "Fixpoint predicate")
+            _check_endomorphism(eq_terms_by_name, sn, ds, "Fixpoint step")
+            _check_sort(eq_terms_by_name, pn, "domainSort", ds,
+                        f"Fixpoint predicate '{pn}' domain != state sort")
+
+        case _:
+            raise TypeError(f"Unknown spec type: {type(spec).__name__}")
 
 
 # ---------------------------------------------------------------------------

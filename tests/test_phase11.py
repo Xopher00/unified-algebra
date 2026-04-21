@@ -33,6 +33,7 @@ from unified_algebra.semiring import semiring
 from unified_algebra.sort import sort, tensor_coder, sort_coder
 from unified_algebra.morphism import equation, resolve_equation
 from unified_algebra.graph import build_graph, assemble_graph, rebind_hyperparams
+from unified_algebra import PathSpec, FoldSpec, UnfoldSpec, LensPathSpec
 from unified_algebra.composition import lens, lens_path
 from unified_algebra.recursion import fold, unfold
 
@@ -199,7 +200,7 @@ class TestLensUpdateComposition:
         lens_graph = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            lens_paths=[("act_pipe", ["activation"], hidden, hidden)],
+            specs=[LensPathSpec("act_pipe", ["activation"], hidden, hidden)],
         )
         update_graph = assemble_graph([eq_update], backend)
 
@@ -248,7 +249,7 @@ class TestLensUpdateComposition:
         lens_graph = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            lens_paths=[("trop_pipe", ["trop_lens"], trop_sort, trop_sort)],
+            specs=[LensPathSpec("trop_pipe", ["trop_lens"], trop_sort, trop_sort)],
         )
 
         # Bellman relaxation update (separate graph, different semiring)
@@ -303,7 +304,7 @@ class TestIteratedUpdate:
         init = encode_array(coder, np.zeros(3))
         graph = assemble_graph(
             [eq_step], backend,
-            folds=[("accumulate", "add_step", init, acc_sort, acc_sort)],
+            specs=[FoldSpec("accumulate", "add_step", init, acc_sort, acc_sort)],
         )
 
         data = [
@@ -331,7 +332,7 @@ class TestIteratedUpdate:
 
         graph = assemble_graph(
             [eq_decay], backend,
-            unfolds=[("converge", "decay", 10, state_sort, state_sort)],
+            specs=[UnfoldSpec("converge", "decay", 10, state_sort, state_sort)],
         )
 
         x0 = np.array([10.0, 5.0, 1.0])
@@ -364,7 +365,7 @@ class TestIteratedUpdate:
         init_w = encode_array(coder, np.array([1.0, 1.0, 1.0]))
         graph = assemble_graph(
             [eq_step], backend,
-            folds=[("train", "sgd_step", init_w, w_sort, w_sort)],
+            specs=[FoldSpec("train", "sgd_step", init_w, w_sort, w_sort)],
         )
 
         # 5 identical gradients pushing weights down
@@ -400,8 +401,8 @@ class TestHyperparamsInUpdate:
         graph = assemble_graph(
             [eq_scale], backend,
             hyperparams={"lr": lr1},
-            paths=[("scaled", ["lr_scale"], hidden, hidden,
-                    {"lr_scale": [var("ua.param.lr")]})],
+            specs=[PathSpec("scaled", ["lr_scale"], hidden, hidden,
+                            {"lr_scale": [var("ua.param.lr")]})],
         )
 
         grad = np.array([5.0, 10.0, 2.0])
@@ -437,8 +438,8 @@ class TestHyperparamsInUpdate:
         graph = assemble_graph(
             [eq], backend,
             hyperparams={"rate": Terms.float32(0.5)},
-            paths=[("decay_path", ["scaled_decay"], state_sort, state_sort,
-                    {"scaled_decay": [var("ua.param.rate")]})],
+            specs=[PathSpec("decay_path", ["scaled_decay"], state_sort, state_sort,
+                            {"scaled_decay": [var("ua.param.rate")]})],
         )
 
         x = np.array([4.0, 6.0, 8.0])

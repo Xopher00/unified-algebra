@@ -15,8 +15,10 @@ from unified_algebra.semiring import semiring
 from unified_algebra.sort import sort, tensor_coder
 from unified_algebra.morphism import equation, resolve_equation
 from unified_algebra.recursion import fold, unfold, _unfold_n_primitive
-from unified_algebra.validation import validate_fold, validate_unfold
+from unified_algebra.validation import validate_spec
+from unified_algebra import FoldSpec, UnfoldSpec
 from unified_algebra.graph import build_graph, assemble_graph
+from unified_algebra.graph import PathSpec, FoldSpec, UnfoldSpec
 
 
 # ---------------------------------------------------------------------------
@@ -92,13 +94,13 @@ class TestFoldStructure:
 
     def test_fold_returns_name_and_lambda(self, hidden, coder):
         init = encode_array(coder, np.zeros(3))
-        name, term = fold("rnn", "step", init, hidden, hidden)
+        name, term = fold("rnn", "step", init)
         assert name == Name("ua.fold.rnn")
         assert isinstance(term.value, core.Lambda)
 
     def test_fold_name_prefix(self, hidden, coder):
         init = encode_array(coder, np.zeros(3))
-        name, _ = fold("test", "step", init, hidden, hidden)
+        name, _ = fold("test", "step", init)
         assert name.value == "ua.fold.test"
 
 
@@ -110,16 +112,16 @@ class TestFoldValidation:
 
     def test_valid_fold(self, real_sr, hidden):
         eq_step = equation("step", "i,i->i", hidden, hidden, real_sr)
-        validate_fold({"step": eq_step}, "step", hidden, hidden)
+        validate_spec({"step": eq_step}, FoldSpec("_", "step", None, hidden, hidden))
 
     def test_fold_step_not_found(self, hidden):
         with pytest.raises(ValueError, match="not found"):
-            validate_fold({}, "missing", hidden, hidden)
+            validate_spec({}, FoldSpec("_", "missing", None, hidden, hidden))
 
     def test_fold_state_recurrence_mismatch(self, real_sr, hidden, output_sort):
         eq_step = equation("step", "i,i->i", hidden, output_sort, real_sr)
         with pytest.raises(TypeError, match="codomain.*state sort"):
-            validate_fold({"step": eq_step}, "step", hidden, hidden)
+            validate_spec({"step": eq_step}, FoldSpec("_", "step", None, hidden, hidden))
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +143,7 @@ class TestFoldReduce:
         init = np.ones(3)
         init_term = encode_array(coder, init)
 
-        f_name, f_term = fold("prod", "step", init_term, hidden, hidden)
+        f_name, f_term = fold("prod", "step", init_term)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -180,7 +182,7 @@ class TestFoldReduce:
 
         init = np.ones(2)
         init_term = encode_array(coder, init)
-        f_name, f_term = fold("single", "step", init_term, hidden, hidden)
+        f_name, f_term = fold("single", "step", init_term)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -208,7 +210,7 @@ class TestFoldReduce:
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
-        f_name, f_term = fold("tied", "step", init_term, hidden, hidden)
+        f_name, f_term = fold("tied", "step", init_term)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -236,7 +238,7 @@ class TestFoldReduce:
 class TestUnfoldStructure:
 
     def test_unfold_returns_name_and_lambda(self, hidden):
-        name, term = unfold("stream", "step", 3, hidden, hidden)
+        name, term = unfold("stream", "step", 3)
         assert name == Name("ua.unfold.stream")
         assert isinstance(term.value, core.Lambda)
 
@@ -249,21 +251,21 @@ class TestUnfoldValidation:
 
     def test_valid_unfold(self, real_sr, hidden):
         eq_step = equation("step", None, hidden, hidden, nonlinearity="tanh")
-        validate_unfold({"step": eq_step}, "step", hidden, hidden)
+        validate_spec({"step": eq_step}, UnfoldSpec("_", "step", 0, hidden, hidden))
 
     def test_unfold_step_not_found(self, hidden):
         with pytest.raises(ValueError, match="not found"):
-            validate_unfold({}, "missing", hidden, hidden)
+            validate_spec({}, UnfoldSpec("_", "missing", 0, hidden, hidden))
 
     def test_unfold_domain_mismatch(self, real_sr, hidden, output_sort):
         eq_step = equation("step", None, output_sort, hidden, nonlinearity="tanh")
         with pytest.raises(TypeError, match="domain.*state sort"):
-            validate_unfold({"step": eq_step}, "step", hidden, hidden)
+            validate_spec({"step": eq_step}, UnfoldSpec("_", "step", 0, hidden, hidden))
 
     def test_unfold_codomain_mismatch(self, real_sr, hidden, output_sort):
         eq_step = equation("step", None, hidden, output_sort, nonlinearity="tanh")
         with pytest.raises(TypeError, match="codomain.*state sort"):
-            validate_unfold({"step": eq_step}, "step", hidden, hidden)
+            validate_spec({"step": eq_step}, UnfoldSpec("_", "step", 0, hidden, hidden))
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +280,7 @@ class TestUnfoldReduce:
         prim_step = resolve_equation(eq_step, backend)
 
         unfold_prim = _unfold_n_primitive()
-        u_name, u_term = unfold("stream", "step", 3, hidden, hidden)
+        u_name, u_term = unfold("stream", "step", 3)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_prim.name: unfold_prim},
@@ -320,7 +322,7 @@ class TestUnfoldReduce:
         prim_step = resolve_equation(eq_step, backend)
 
         unfold_prim = _unfold_n_primitive()
-        u_name, u_term = unfold("one", "step", 1, hidden, hidden)
+        u_name, u_term = unfold("one", "step", 1)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_prim.name: unfold_prim},
@@ -350,7 +352,7 @@ class TestAssembleWithRecursion:
 
         graph = assemble_graph(
             [eq_step], backend,
-            folds=[("prod", "step", init, hidden, hidden)],
+            specs=[FoldSpec("prod", "step", init, hidden, hidden)],
         )
 
         x1 = np.array([2.0, 3.0])
@@ -368,7 +370,7 @@ class TestAssembleWithRecursion:
 
         graph = assemble_graph(
             [eq_step], backend,
-            unfolds=[("stream", "step", 2, hidden, hidden)],
+            specs=[UnfoldSpec("stream", "step", 2, hidden, hidden)],
         )
 
         s0 = np.array([1.0, -1.0])
@@ -391,8 +393,10 @@ class TestAssembleWithRecursion:
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_step], backend,
-            paths=[("act", ["relu", "tanh"], hidden, hidden)],
-            folds=[("prod", "step", init, hidden, hidden)],
+            specs=[
+                PathSpec("act", ["relu", "tanh"], hidden, hidden),
+                FoldSpec("prod", "step", init, hidden, hidden),
+            ],
         )
 
         # Test path still works

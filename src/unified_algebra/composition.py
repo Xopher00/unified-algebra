@@ -11,11 +11,12 @@ resolve to Primitives in the same Graph.
 
 from __future__ import annotations
 
-from .utils import record_fields, string_value, lens_fields
+from .views import EquationView, LensView
 import hydra.core as core
 import hydra.dsl.terms as Terms
 
 from .sort import sort_type_from_term, _check_sort
+from .utils import bind_composition
 
 
 # ---------------------------------------------------------------------------
@@ -25,8 +26,6 @@ from .sort import sort_type_from_term, _check_sort
 def path(
     name: str,
     eq_names: list[str],
-    domain_sort: core.Term,
-    codomain_sort: core.Term,
     params: dict[str, list[core.Term]] | None = None,
 ) -> tuple[core.Name, core.Term]:
     """Build a sequential composition as a Hydra lambda term.
@@ -35,8 +34,6 @@ def path(
         name:           identifier (e.g. "ffn")
         eq_names:       ordered list of equation names, applied left-to-right
                         (first equation receives input, last produces output)
-        domain_sort:    sort term for the path's input
-        codomain_sort:  sort term for the path's output
         params:         optional pre-bound arguments per equation, e.g.
                         {"linear": [W_term]} applies W before the pipeline input
 
@@ -55,8 +52,7 @@ def path(
                 fn = Terms.apply(fn, p)
         body = Terms.apply(fn, body)
 
-    term = Terms.lambda_("x", body)
-    return (core.Name(f"ua.path.{name}"), term)
+    return bind_composition("path", name, "x", body)
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +63,6 @@ def fan(
     name: str,
     branch_names: list[str],
     merge_name: str,
-    domain_sort: core.Term,
-    codomain_sort: core.Term,
 ) -> tuple[core.Name, core.Term]:
     """Build a parallel composition as a Hydra lambda term.
 
@@ -76,8 +70,6 @@ def fan(
         name:           identifier (e.g. "attn")
         branch_names:   names of equations applied in parallel to the same input
         merge_name:     name of the equation that merges branch outputs
-        domain_sort:    sort term for the fan's input (shared by all branches)
-        codomain_sort:  sort term for the fan's output (merge's codomain)
 
     Returns:
         (Name("ua.fan.<name>"), lambda_term)
@@ -95,8 +87,7 @@ def fan(
     list_term = Terms.list_(branch_results)
     body = Terms.apply(Terms.var(f"ua.equation.{merge_name}"), list_term)
 
-    term = Terms.lambda_("x", body)
-    return (core.Name(f"ua.fan.{name}"), term)
+    return bind_composition("fan", name, "x", body)
 
 
 # ---------------------------------------------------------------------------
@@ -140,38 +131,35 @@ def validate_lens(
     """
     from .sort import is_product_sort, product_sort_elements
 
-    lf = lens_fields(lens_term)
-    lname = lf["name"]
-    fwd_name = lf["forward"]
-    bwd_name = lf["backward"]
-    residual_sort = lf["residualSort"]
+    lv = LensView(lens_term)
+    lname = lv.name
+    fwd_name = lv.forward
+    bwd_name = lv.backward
+    residual_sort = lv.residual_sort
 
     if fwd_name not in eq_terms_by_name:
         raise TypeError(f"Lens '{lname}': forward equation '{fwd_name}' not found")
     if bwd_name not in eq_terms_by_name:
         raise TypeError(f"Lens '{lname}': backward equation '{bwd_name}' not found")
 
-    fwd_fields = record_fields(eq_terms_by_name[fwd_name])
-    bwd_fields = record_fields(eq_terms_by_name[bwd_name])
+    fwd_eq = EquationView(eq_terms_by_name[fwd_name])
+    bwd_eq = EquationView(eq_terms_by_name[bwd_name])
 
     # Base check: forward domain == backward codomain
     _check_sort(
-        eq_terms_by_name, fwd_name, "domainSort", bwd_fields["codomainSort"],
+        eq_terms_by_name, fwd_name, "domainSort", bwd_eq.codomain_sort,
         f"Lens '{lname}': forward domain != backward codomain"
     )
 
     # If residual_sort is set, check product sort constraints
-    has_residual = (
-        residual_sort is not None
-        and not isinstance(residual_sort, core.TermUnit)
-    )
+    has_residual = residual_sort is not None
     if has_residual:
-        fwd_codomain = fwd_fields["codomainSort"]
+        fwd_codomain = fwd_eq.codomain_sort
         if not is_product_sort(fwd_codomain):
             raise TypeError(
                 f"Lens '{lname}': forward codomain must be a product sort (has residual)"
             )
-        bwd_domain = bwd_fields["domainSort"]
+        bwd_domain = bwd_eq.domain_sort
         if not is_product_sort(bwd_domain):
             raise TypeError(
                 f"Lens '{lname}': backward domain must be a product sort (has residual)"
@@ -184,7 +172,7 @@ def validate_lens(
     else:
         # Plain lens: forward codomain == backward domain
         _check_sort(
-            eq_terms_by_name, fwd_name, "codomainSort", bwd_fields["domainSort"],
+            eq_terms_by_name, fwd_name, "codomainSort", bwd_eq.domain_sort,
             f"Lens '{lname}': forward codomain != backward domain"
         )
 
@@ -193,8 +181,6 @@ def lens_path(
     name: str,
     lens_names: list[str],
     lens_terms_by_name: dict[str, core.Term],
-    domain_sort: core.Term,
-    codomain_sort: core.Term,
     params: dict[str, list[core.Term]] | None = None,
 ) -> tuple[tuple[core.Name, core.Term], tuple[core.Name, core.Term]]:
     """Compose lenses sequentially into a bidirectional path.
@@ -214,28 +200,23 @@ def lens_path(
     bwd_eq_names = []
     has_residual = False
     for ln in lens_names:
-        lf = lens_fields(lens_terms_by_name[ln])
-        fwd_eq_names.append(lf["forward"])
-        bwd_eq_names.append(lf["backward"])
-        rs = lf.get("residualSort")
-        if rs is not None and not isinstance(rs, core.TermUnit):
+        lv = LensView(lens_terms_by_name[ln])
+        fwd_eq_names.append(lv.forward)
+        bwd_eq_names.append(lv.backward)
+        if lv.residual_sort is not None:
             has_residual = True
 
     if has_residual and len(lens_names) > 1:
         # Multiple lenses with residual: thread residuals through forward/backward.
         from ._lens_threading import _lens_path_threaded
-        return _lens_path_threaded(name, fwd_eq_names, bwd_eq_names, domain_sort, codomain_sort)
+        return _lens_path_threaded(name, fwd_eq_names, bwd_eq_names)
 
     # Single lens or plain lens: two independent paths.
     # For a single lens with residual, the forward equation already returns the
     # product sort pair; the backward equation accepts the same pair — no additional
     # threading needed.
-    fwd_name_obj, fwd_term = path(
-        f"{name}.fwd", fwd_eq_names, domain_sort, codomain_sort, params,
-    )
-    bwd_name_obj, bwd_term = path(
-        f"{name}.bwd", list(reversed(bwd_eq_names)), codomain_sort, domain_sort, None,
-    )
+    fwd_name_obj, fwd_term = path(f"{name}.fwd", fwd_eq_names, params)
+    bwd_name_obj, bwd_term = path(f"{name}.bwd", list(reversed(bwd_eq_names)))
 
     return (fwd_name_obj, fwd_term), (bwd_name_obj, bwd_term)
 
@@ -245,8 +226,6 @@ def lens_fan(
     lens_names: list[str],
     merge_lens_name: str,
     lens_terms_by_name: dict[str, core.Term],
-    domain_sort: core.Term,
-    codomain_sort: core.Term,
 ) -> tuple[tuple[core.Name, core.Term], tuple[core.Name, core.Term]]:
     """Compose lenses in parallel into a bidirectional fan.
 
@@ -259,20 +238,16 @@ def lens_fan(
     fwd_branch_names = []
     bwd_branch_names = []
     for ln in lens_names:
-        lf = lens_fields(lens_terms_by_name[ln])
-        fwd_branch_names.append(lf["forward"])
-        bwd_branch_names.append(lf["backward"])
+        lv = LensView(lens_terms_by_name[ln])
+        fwd_branch_names.append(lv.forward)
+        bwd_branch_names.append(lv.backward)
 
-    merge_lf = lens_fields(lens_terms_by_name[merge_lens_name])
-    fwd_merge_name = merge_lf["forward"]
-    bwd_merge_name = merge_lf["backward"]
+    merge_lv = LensView(lens_terms_by_name[merge_lens_name])
+    fwd_merge_name = merge_lv.forward
+    bwd_merge_name = merge_lv.backward
 
-    fwd_name_obj, fwd_term = fan(
-        f"{name}.fwd", fwd_branch_names, fwd_merge_name, domain_sort, codomain_sort,
-    )
-    bwd_name_obj, bwd_term = fan(
-        f"{name}.bwd", bwd_branch_names, bwd_merge_name, codomain_sort, domain_sort,
-    )
+    fwd_name_obj, fwd_term = fan(f"{name}.fwd", fwd_branch_names, fwd_merge_name)
+    bwd_name_obj, bwd_term = fan(f"{name}.bwd", bwd_branch_names, bwd_merge_name)
 
     return (fwd_name_obj, fwd_term), (bwd_name_obj, bwd_term)
 

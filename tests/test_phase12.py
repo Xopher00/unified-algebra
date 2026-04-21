@@ -171,15 +171,14 @@ class TestProductSorts:
             product_sort([])
 
     def test_sort_type_from_term_distinct_for_product_vs_components(self, hidden, output_sort):
-        """sort_type_from_term produces distinct TypeVariable names for product sort vs components."""
+        """sort_type_from_term produces a nested TypePair for product sorts, distinct from components."""
         ps = product_sort([hidden, output_sort])
         ps_type = sort_type_from_term(ps)
         hidden_type = sort_type_from_term(hidden)
         output_type = sort_type_from_term(output_sort)
         assert ps_type != hidden_type
         assert ps_type != output_type
-        # The product type name encodes both components
-        assert "product" in ps_type.value.value
+        assert isinstance(ps_type, core.TypePair)
 
     def test_sort_coder_on_product_sort_encodes_decodes_tuple(self, hidden, output_sort, backend):
         """sort_coder on a product sort encodes/decodes a tuple of arrays correctly."""

@@ -4,7 +4,7 @@ Each view wraps a raw Hydra Term and exposes its fields as @property
 accessors. The Term stays the source of truth — views never copy data.
 """
 
-from .utils import record_fields, string_value, float_value
+from .utils import record_fields, string_value
 import hydra.core as core
 
 
@@ -24,7 +24,7 @@ class _FloatField:
     __slots__ = ("_key",)
     def __init__(self, key): self._key = key
     def __get__(self, obj, cls=None):
-        return float_value(record_fields(obj._term)[self._key])
+        return record_fields(obj._term)[self._key].value.value
 
 class _TermField:
     """Descriptor: extracts a raw Term field (no conversion)."""

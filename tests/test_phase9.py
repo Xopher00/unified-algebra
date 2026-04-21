@@ -18,9 +18,10 @@ from hydra.reduction import reduce_term
 from unified_algebra.backend import numpy_backend
 from unified_algebra.semiring import semiring
 from unified_algebra.sort import (
-    sort, sort_to_type, sort_type_from_term, tensor_coder, sort_coder,
-    is_batched, check_sort_junction,
+    sort, sort_type_from_term, tensor_coder, sort_coder,
+    is_batched,
 )
+from unified_algebra.validation import validate_pipeline
 from unified_algebra.morphism import (
     equation, resolve_equation, resolve_list_merge, _prepend_batch_dim,
 )
@@ -84,7 +85,8 @@ class TestBatchedSortConstruction:
     """Verify that the batched flag is stored and reflected in the TypeVariable."""
 
     def test_batched_sort_identity(self, real_sr):
-        """Batched and unbatched sorts with the same name produce distinct TypeVariables."""
+        """Batched and unbatched sorts with the same name produce distinct types."""
+        import hydra.core as core
         unbatched = sort("hidden", real_sr, batched=False)
         batched = sort("hidden", real_sr, batched=True)
 
@@ -92,18 +94,30 @@ class TestBatchedSortConstruction:
         t_batched = sort_type_from_term(batched)
 
         assert t_unbatched != t_batched
-        assert t_unbatched.value.value == "ua.sort.hidden:real"
-        assert t_batched.value.value == "ua.sort.hidden:real:B"
+        # Unbatched: TypeApplication(ua.sort.hidden, ua.semiring.real)
+        assert t_unbatched.value.function == core.TypeVariable(core.Name("ua.sort.hidden"))
+        assert t_unbatched.value.argument == core.TypeVariable(core.Name("ua.semiring.real"))
+        # Batched: TypeApplication(ua.batched, TypeApplication(ua.sort.hidden, ua.semiring.real))
+        assert t_batched.value.function == core.TypeVariable(core.Name("ua.batched"))
+        assert t_batched.value.argument == t_unbatched
 
-    def test_batched_suffix_in_sort_to_type(self, real_sr):
-        """sort_to_type includes :B suffix when batched=True."""
-        t = sort_to_type("output", "tropical", batched=True)
-        assert t.value.value == "ua.sort.output:tropical:B"
+    def test_batched_type_from_term(self, real_sr):
+        """sort_type_from_term with batched=True wraps in ua.batched TypeApplication."""
+        tropical_sr = semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+        s = sort("output", tropical_sr, batched=True)
+        t = sort_type_from_term(s)
+        assert t.value.function == core.TypeVariable(core.Name("ua.batched"))
+        inner = t.value.argument
+        assert inner.value.function == core.TypeVariable(core.Name("ua.sort.output"))
+        assert inner.value.argument == core.TypeVariable(core.Name("ua.semiring.tropical"))
 
-    def test_unbatched_no_suffix(self, real_sr):
-        """sort_to_type has no suffix when batched=False (default)."""
-        t = sort_to_type("output", "tropical", batched=False)
-        assert t.value.value == "ua.sort.output:tropical"
+    def test_unbatched_type_from_term(self, real_sr):
+        """sort_type_from_term with batched=False has no batched wrapper."""
+        tropical_sr = semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+        s = sort("output", tropical_sr, batched=False)
+        t = sort_type_from_term(s)
+        assert t.value.function == core.TypeVariable(core.Name("ua.sort.output"))
+        assert t.value.argument == core.TypeVariable(core.Name("ua.semiring.tropical"))
 
     def test_is_batched_helper_true(self, real_sr):
         """is_batched returns True for batched=True sorts."""
@@ -126,12 +140,14 @@ class TestBatchedSortConstruction:
         ])
         assert is_batched(old_style) is False
 
-    def test_sort_type_from_term_roundtrip(self, real_sr):
-        """sort_type_from_term is consistent with sort_to_type for batched sorts."""
+    def test_sort_type_from_term_batched_structure(self, real_sr):
+        """sort_type_from_term for a batched sort produces the expected TypeApplication structure."""
         s = sort("encoder", real_sr, batched=True)
-        t_via_term = sort_type_from_term(s)
-        t_direct = sort_to_type("encoder", "real", batched=True)
-        assert t_via_term == t_direct
+        t = sort_type_from_term(s)
+        assert t.value.function == core.TypeVariable(core.Name("ua.batched"))
+        inner = t.value.argument
+        assert inner.value.function == core.TypeVariable(core.Name("ua.sort.encoder"))
+        assert inner.value.argument == core.TypeVariable(core.Name("ua.semiring.real"))
 
 
 # ===========================================================================
@@ -226,40 +242,40 @@ class TestBatchedEquationResolution:
 # ===========================================================================
 
 class TestBatchedSortJunctions:
-    """check_sort_junction must treat batched and unbatched as distinct types."""
+    """validate_pipeline must treat batched and unbatched sorts as distinct types."""
 
     def test_batched_to_batched_ok(self, real_sr):
         """Batched codomain → batched domain: junction passes."""
         hidden_b = sort("hidden", real_sr, batched=True)
         eq1 = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        eq2 = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
+        eq2 = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh", inputs=("relu_b",))
         # Should not raise
-        check_sort_junction(eq1, eq2)
+        validate_pipeline([eq1, eq2])
 
     def test_unbatched_to_unbatched_ok(self, real_sr):
         """Unbatched codomain → unbatched domain: junction passes."""
         hidden = sort("hidden", real_sr, batched=False)
         eq1 = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq2 = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        check_sort_junction(eq1, eq2)
+        eq2 = equation("tanh", None, hidden, hidden, nonlinearity="tanh", inputs=("relu",))
+        validate_pipeline([eq1, eq2])
 
     def test_batched_to_unbatched_fails(self, real_sr):
         """Batched codomain → unbatched domain: junction raises TypeError."""
         hidden_b = sort("hidden", real_sr, batched=True)
         hidden = sort("hidden", real_sr, batched=False)
         eq_batched = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        eq_unbatched = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        with pytest.raises(TypeError, match="Sort junction error"):
-            check_sort_junction(eq_batched, eq_unbatched)
+        eq_unbatched = equation("tanh", None, hidden, hidden, nonlinearity="tanh", inputs=("relu_b",))
+        with pytest.raises(TypeError):
+            validate_pipeline([eq_batched, eq_unbatched])
 
     def test_unbatched_to_batched_fails(self, real_sr):
         """Unbatched codomain → batched domain: junction raises TypeError."""
         hidden_b = sort("hidden", real_sr, batched=True)
         hidden = sort("hidden", real_sr, batched=False)
         eq_unbatched = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_batched = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
-        with pytest.raises(TypeError, match="Sort junction error"):
-            check_sort_junction(eq_unbatched, eq_batched)
+        eq_batched = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh", inputs=("relu",))
+        with pytest.raises(TypeError):
+            validate_pipeline([eq_unbatched, eq_batched])
 
 
 # ===========================================================================
@@ -490,25 +506,28 @@ class TestBatchedFan:
 # ===========================================================================
 
 class TestBatchedGraphRegistration:
-    """Batched sorts are registered in schema_types with :B suffix."""
+    """Sorts are registered in schema_types as component names."""
 
     def test_batched_sort_in_schema(self, real_sr):
-        """build_graph registers the batched sort type name in schema_types."""
+        """build_graph registers component names (ua.sort.X, ua.semiring.Y, ua.batched)."""
         hidden_b = sort("hidden", real_sr, batched=True)
         graph = build_graph([hidden_b])
-        assert core.Name("ua.sort.hidden:real:B") in graph.schema_types
+        assert core.Name("ua.sort.hidden") in graph.schema_types
+        assert core.Name("ua.semiring.real") in graph.schema_types
+        assert core.Name("ua.batched") in graph.schema_types
 
     def test_unbatched_sort_in_schema(self, real_sr):
-        """build_graph registers the unbatched sort with the original name."""
+        """build_graph registers component names for unbatched sort."""
         hidden = sort("hidden", real_sr, batched=False)
         graph = build_graph([hidden])
-        assert core.Name("ua.sort.hidden:real") in graph.schema_types
-        assert core.Name("ua.sort.hidden:real:B") not in graph.schema_types
+        assert core.Name("ua.sort.hidden") in graph.schema_types
+        assert core.Name("ua.semiring.real") in graph.schema_types
 
     def test_both_sorts_in_schema(self, real_sr):
-        """Both batched and unbatched variants of a sort can coexist in one graph."""
+        """Both batched and unbatched variants share component name entries."""
         hidden = sort("hidden", real_sr, batched=False)
         hidden_b = sort("hidden", real_sr, batched=True)
         graph = build_graph([hidden, hidden_b])
-        assert core.Name("ua.sort.hidden:real") in graph.schema_types
-        assert core.Name("ua.sort.hidden:real:B") in graph.schema_types
+        assert core.Name("ua.sort.hidden") in graph.schema_types
+        assert core.Name("ua.semiring.real") in graph.schema_types
+        assert core.Name("ua.batched") in graph.schema_types

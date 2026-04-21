@@ -13,7 +13,7 @@ from .graph import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, Fixpoi
 # ---------------------------------------------------------------------------
 from .composition import path, fan
 from .recursion import fold, unfold
-from .composition import lens, lens_path, lens_fan
+from .composition import lens, lens_path
 from .recursion import fixpoint
 
 # ---------------------------------------------------------------------------
@@ -22,7 +22,7 @@ from .recursion import fixpoint
 from .morphism import resolve_equation, resolve_list_merge
 from .validation import validate_spec
 from .composition import validate_lens
-from .graph import resolve_dag, validate_pipeline, ua_primitives, type_check_term
-from .sort import sort_to_type, check_sort_junction
+from .validation import resolve_dag, validate_pipeline
+from .graph import type_check_term
 from .contraction import compile_equation, semiring_contract
 from .semiring import resolve_semiring

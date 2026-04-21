@@ -89,6 +89,7 @@ def _build_compositions(
     primitives: dict,
     bound_terms: dict,
     lens_by_name: dict[str, core.Term],
+    schema_types,
 ) -> None:
     """Validate and build all composition specs. Mutates primitives and bound_terms."""
     from .graph import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
@@ -96,7 +97,7 @@ def _build_compositions(
     for spec in specs:
         # LensPathSpec — lens validation handled by _build_lens_by_name
         if not isinstance(spec, LensPathSpec):
-            validate_spec(eq_by_name, spec)
+            validate_spec(eq_by_name, spec, schema_types)
 
         if isinstance(spec, PathSpec):
             results = [path(spec.name, spec.eq_names, spec.params)]
@@ -108,7 +109,7 @@ def _build_compositions(
             results = [fold(spec.name, spec.step_name, spec.init_term)]
 
         elif isinstance(spec, UnfoldSpec):
-            unfold_prim = _unfold_n_primitive()
+            unfold_prim = _unfold_n_primitive
             primitives.setdefault(unfold_prim.name, unfold_prim)
             results = [unfold(spec.name, spec.step_name, spec.n_steps)]
 
@@ -147,6 +148,5 @@ def _collect_sorts(
     for eq_term in eq_terms:
         v = EquationView(eq_term)
         for st in (v.domain_sort, v.codomain_sort):
-            type_key = sort_type_from_term(st).value.value
-            seen_sorts.setdefault(type_key, st)
+            seen_sorts.setdefault(str(sort_type_from_term(st)), st)
     return list(seen_sorts.values()) + list(extra_sorts or [])

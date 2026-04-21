@@ -21,6 +21,7 @@ import hydra.core as core
 import hydra.graph
 from hydra.dsl import prims
 from hydra.dsl.meta.phantoms import var, int32, TTerm
+from hydra.sources.libraries import fun as _fun
 from .utils import bind_composition
 
 
@@ -53,40 +54,23 @@ def fold(
 # Unfold (anamorphism) — custom higher-order Primitive
 # ---------------------------------------------------------------------------
 
-def _unfold_n_primitive() -> hydra.graph.Primitive:
-    """Create the ua.prim.unfold_n higher-order Primitive.
+def _unfold_n_compute(step, n, init):
+    outputs = []
+    state = init
+    for _ in range(n):
+        state = step(state)
+        outputs.append(state)
+    return tuple(outputs)
 
-    Signature: (state → state) → int32 → state → list<state>
-
-    Iterates a step function n times from an initial state, collecting
-    each intermediate state into a list. Uses Hydra's fun() TermCoder
-    to bridge term-level step functions to native callables, following
-    the same pattern as hydra.lib.lists.foldl in libraries.py.
-    """
-    from hydra.sources.libraries import fun
-
-    prim_name = core.Name("ua.prim.unfold_n")
-    a = prims.variable("a")
-    _a = prims.v("a")
-
-    def compute(step, n, init):
-        # step: native callable (fun() bridges term → native via reduce_term)
-        # n: Python int (int32 coder decodes it)
-        # init: raw Term (variable coder passes through)
-        outputs = []
-        state = init
-        for _ in range(n):
-            state = step(state)
-            outputs.append(state)
-        return tuple(outputs)
-
-    return prims.prim3(
-        prim_name, compute, [_a],
-        fun(a, a),          # step: a → a (bridged to native callable)
-        prims.int32(),      # n_steps (decoded to Python int)
-        a,                  # init state (passthrough Term)
-        prims.list_(a),     # output: list<a> (encoded from tuple of Terms)
-    )
+_a_var = prims.variable("a")
+_unfold_n_primitive = prims.prim3(
+    core.Name("ua.prim.unfold_n"), _unfold_n_compute, [prims.v("a")],
+    _fun(_a_var, _a_var),
+    prims.int32(),
+    _a_var,
+    prims.list_(_a_var),
+)
+del _a_var
 
 
 def unfold(

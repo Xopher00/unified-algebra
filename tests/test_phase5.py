@@ -13,7 +13,8 @@ from unified_algebra.backend import numpy_backend
 from unified_algebra.semiring import semiring
 from unified_algebra.sort import sort, tensor_coder
 from unified_algebra.morphism import equation
-from unified_algebra.graph import resolve_dag, validate_pipeline, assemble_graph
+from unified_algebra.validation import resolve_dag, validate_pipeline
+from unified_algebra.graph import assemble_graph
 
 
 @pytest.fixture

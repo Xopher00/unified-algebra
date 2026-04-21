@@ -5,11 +5,11 @@ import pytest
 
 from unified_algebra.semiring import semiring
 from unified_algebra.sort import (
-    sort, sort_to_type, check_sort_compatibility,
+    sort, sort_type_from_term, check_sort_compatibility,
     tensor_coder,
 )
 from unified_algebra.graph import build_graph
-from hydra.core import Name, TypeVariable
+from hydra.core import Name, TypeVariable, TypeApplication
 
 
 @pytest.fixture
@@ -45,16 +45,23 @@ class TestSortConstruction:
 
 class TestSortTypeMapping:
 
-    def test_sort_to_type(self):
-        t = sort_to_type("hidden", "real")
-        assert isinstance(t, TypeVariable)
-        assert t.value == Name("ua.sort.hidden:real")
+    def test_sort_type_from_term(self, real_sr):
+        h = sort("hidden", real_sr)
+        t = sort_type_from_term(h)
+        # sort_type_from_term returns a structural TypeApplication, not a TypeVariable
+        assert isinstance(t, TypeApplication)
+        assert t.value.function == TypeVariable(Name("ua.sort.hidden"))
+        assert t.value.argument == TypeVariable(Name("ua.semiring.real"))
 
-    def test_different_sorts_different_types(self):
-        assert sort_to_type("hidden", "real") != sort_to_type("output", "real")
+    def test_different_sorts_different_types(self, real_sr):
+        h = sort("hidden", real_sr)
+        o = sort("output", real_sr)
+        assert sort_type_from_term(h) != sort_type_from_term(o)
 
-    def test_different_semiring_different_types(self):
-        assert sort_to_type("hidden", "real") != sort_to_type("hidden", "tropical")
+    def test_different_semiring_different_types(self, real_sr, tropical_sr):
+        h_real = sort("hidden", real_sr)
+        h_trop = sort("hidden", tropical_sr)
+        assert sort_type_from_term(h_real) != sort_type_from_term(h_trop)
 
 
 class TestTensorCoder:
@@ -120,14 +127,12 @@ class TestGraphAssembly:
         h = sort("hidden", real_sr)
         o = sort("output", real_sr)
         g = build_graph([h, o])
-        assert Name("ua.sort.hidden:real") in g.schema_types
-        assert Name("ua.sort.output:real") in g.schema_types
+        # Component names are registered, not fused keys
+        assert Name("ua.sort.hidden") in g.schema_types
+        assert Name("ua.semiring.real") in g.schema_types
+        assert Name("ua.sort.output") in g.schema_types
 
     def test_tensor_type_in_schema(self, real_sr):
         g = build_graph([sort("hidden", real_sr)])
         assert Name("ua.tensor.NDArray") in g.schema_types
 
-    def test_sort_terms_in_bound_terms(self, real_sr):
-        h = sort("hidden", real_sr)
-        g = build_graph([h])
-        assert Name("ua.sort.hidden:real") in g.bound_terms

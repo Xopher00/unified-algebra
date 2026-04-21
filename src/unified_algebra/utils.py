@@ -15,10 +15,6 @@ def string_value(term) -> str:
     return term.value.value
 
 
-def float_value(term) -> float:
-    """Extract a float from a Hydra TermLiteral(LiteralFloat(FloatValueFloat64(float)))."""
-    return term.value.value
-
 
 
 def bind_composition(kind, name, var_name, body):

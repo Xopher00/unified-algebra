@@ -13,7 +13,8 @@ from unified_algebra.backend import numpy_backend
 from unified_algebra.semiring import semiring
 from unified_algebra.sort import sort, tensor_coder
 from unified_algebra.morphism import equation
-from unified_algebra.graph import validate_pipeline, assemble_graph
+from unified_algebra.validation import validate_pipeline
+from unified_algebra.graph import assemble_graph
 
 
 @pytest.fixture
@@ -50,8 +51,8 @@ class TestSortNameMismatch:
         hidden = sort("hidden", real)
         output = sort("output", real)
         eq1 = equation("eq1", "ij,j->i", hidden, hidden, real)
-        eq2 = equation("eq2", "ij,j->i", output, output, real)
-        with pytest.raises(TypeError, match="Sort junction error"):
+        eq2 = equation("eq2", "ij,j->i", output, output, real, inputs=("eq1",))
+        with pytest.raises(TypeError):
             validate_pipeline([eq1, eq2])
 
 
@@ -68,8 +69,8 @@ class TestSemiringMismatch:
         hidden_real = sort("hidden", real)
         hidden_trop = sort("hidden", tropical)
         eq1 = equation("real_eq", "ij,j->i", hidden_real, hidden_real, real)
-        eq2 = equation("trop_eq", "ij,j->i", hidden_trop, hidden_trop, tropical)
-        with pytest.raises(TypeError, match="Sort junction error"):
+        eq2 = equation("trop_eq", "ij,j->i", hidden_trop, hidden_trop, tropical, inputs=("real_eq",))
+        with pytest.raises(TypeError):
             validate_pipeline([eq1, eq2])
 
 
@@ -90,8 +91,8 @@ class TestValidComposition:
         hidden = sort("hidden", real)
         eqs = [
             equation("linear1", "ij,j->i", hidden, hidden, real),
-            equation("relu", None, hidden, hidden, nonlinearity="relu"),
-            equation("linear2", "ij,j->i", hidden, hidden, real),
+            equation("relu", None, hidden, hidden, nonlinearity="relu", inputs=("linear1",)),
+            equation("linear2", "ij,j->i", hidden, hidden, real, inputs=("relu",)),
         ]
         validate_pipeline(eqs)  # no error
         graph = assemble_graph(eqs, backend)
@@ -104,7 +105,8 @@ class TestValidComposition:
         hidden = sort("hidden", real)
         eqs = [equation("linear", "ij,j->i", hidden, hidden, real)]
         graph = assemble_graph(eqs, backend)
-        assert Name("ua.sort.hidden:real") in graph.schema_types
+        assert Name("ua.sort.hidden") in graph.schema_types
+        assert Name("ua.semiring.real") in graph.schema_types
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +120,7 @@ class TestAssembleAndRun:
         hidden = sort("hidden", real)
         eqs = [
             equation("linear", "ij,j->i", hidden, hidden, real),
-            equation("act", None, hidden, hidden, nonlinearity="relu"),
+            equation("act", None, hidden, hidden, nonlinearity="relu", inputs=("linear",)),
         ]
         graph = assemble_graph(eqs, backend)
 

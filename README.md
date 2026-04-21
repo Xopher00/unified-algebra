@@ -17,7 +17,7 @@ is no separate AST or translation layer.
 
 ## Current status
 
-197 tests passing across 10 phases:
+279 tests passing across 14 phases:
 
 - **Backend** — abstraction over numpy/PyTorch providing binary ops (elementwise + reduction),
   unary ops, structural ops. Users can extend with custom ops at runtime.
@@ -34,6 +34,12 @@ is no separate AST or translation layer.
   Weight tying is automatic.
 - **Lenses** — bidirectional morphisms pairing forward and backward equations.
   `lens_path` composes forward left-to-right, backward right-to-left. Semiring-agnostic.
+- **Height-2 lenses (optics)** — residual-threading lenses that collect residuals in the
+  forward pass and inject them in the backward pass, enabling multi-lens optic composition.
+- **Product sorts** — cartesian products of sorts as right-nested `TypePair`, enabling
+  morphisms that consume or produce multiple tensors simultaneously.
+- **Fixpoint** — convergence iteration via Hydra primitives for architectures like
+  Bellman-Ford and concept lattice closure.
 - **Dynamic hyperparameters** — named bound terms rebindable between reductions via `rebind_hyperparams`.
 - **Graph assembly** — DAG wiring with topological ordering, cycle detection,
   sort/rank junction validation. Fan-out and diamond patterns supported.
@@ -54,7 +60,7 @@ uv pip install -e ".[dev]"
 import numpy as np
 from unified_algebra import (
     semiring, sort, equation, numpy_backend, assemble_graph,
-    path, lens, lens_path,
+    PathSpec, path, lens, lens_path,
 )
 from hydra.context import Context
 from hydra.dsl.python import FrozenDict, Right
@@ -75,7 +81,7 @@ eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
 # 3. Compose into a path and assemble the graph
 graph = assemble_graph(
     [eq_relu, eq_tanh], backend,
-    paths=[("act", ["relu", "tanh"], hidden, hidden)],
+    specs=[PathSpec("act", ["relu", "tanh"], hidden, hidden)],
 )
 
 # 4. Execute via Hydra reduction
@@ -98,7 +104,7 @@ tropical_sr = semiring("tropical", plus="minimum", times="add", zero=float("inf"
 ## Testing
 
 ```bash
-uv run --python 3.12 --extra dev python -m pytest tests/ -v   # 197 tests
+uv run --python 3.12 --extra dev python -m pytest tests/ -v   # 279 tests
 uv run --python 3.12 --extra dev python -m pytest tests/test_phase1.py  # one phase
 ```
 
@@ -111,9 +117,8 @@ src/unified_algebra/
     contraction.py   — Generalised einsum with blocked execution
     sort.py          — Named tensor types, coders, junction checking
     morphism.py      — Equation declaration + resolution
-    composition.py   — Path (sequential) and fan (parallel) composition
-    recursion.py     — Fold and unfold via Hydra reduction
-    lens.py          — Bidirectional morphisms (lenses)
+    composition.py   — Path, fan, lens, lens_path composition as Hydra lambda terms
+    recursion.py     — Fold, unfold, fixpoint via Hydra primitives
     graph.py         — Graph assembly, rebind_hyperparams, NamedTuple specs
     validation.py    — DAG resolution, pipeline validation
 ```

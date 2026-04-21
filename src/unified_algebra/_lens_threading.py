@@ -96,20 +96,3 @@ def _lens_bwd_primitive() -> hydra.graph.Primitive:
     )
 
 
-def _lens_path_threaded(
-    name: str,
-    fwd_eq_names: list[str],
-    bwd_eq_names: list[str],
-) -> tuple[tuple[core.Name, core.Term], tuple[core.Name, core.Term]]:
-    """Build a lens path with residual threading (height-2).
-
-    Forward collects residuals at each step; backward injects them in reverse.
-    """
-    fwd_list = list_([var(f"ua.equation.{n}") for n in fwd_eq_names])
-    fwd_body = var("ua.prim.lens_fwd") @ fwd_list @ var("x")
-    bwd_list = list_([var(f"ua.equation.{n}") for n in bwd_eq_names])
-    bwd_body = var("ua.prim.lens_bwd") @ bwd_list @ var("p")
-
-    fwd_pair = bind_composition("path", f"{name}.fwd", "x", fwd_body)
-    bwd_pair = bind_composition("path", f"{name}.bwd", "p", bwd_body)
-    return fwd_pair, bwd_pair

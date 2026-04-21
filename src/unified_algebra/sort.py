@@ -47,16 +47,6 @@ def sort(name: str, semiring_term: core.Term, batched: bool = False) -> core.Ter
     ]).value
 
 
-def sort_to_type(name: str, semiring_name: str, batched: bool = False) -> core.Type:
-    """Map a sort to a Hydra Type encoding both sort and semiring identity.
-
-    The semiring is part of the type name so Hydra's type checker
-    naturally distinguishes sorts over different semirings.  Batched sorts
-    append a ':B' suffix so they are a distinct type from their unbatched
-    counterparts.
-    """
-    suffix = ":B" if batched else ""
-    return core.TypeVariable(core.Name(f"ua.sort.{name}:{semiring_name}{suffix}"))
 
 
 # ---------------------------------------------------------------------------
@@ -73,61 +63,19 @@ def sort_type_from_term(sort_term: core.Term) -> core.Type:
     """Extract the Hydra Type for a sort from its record term."""
     if is_product_sort(sort_term):
         elements = product_sort_elements(sort_term)
-        names = [sort_type_from_term(e).value.value for e in elements]
-        return core.TypeVariable(core.Name(f"ua.sort.product:({'*'.join(names)})"))
+        types = [sort_type_from_term(e) for e in elements]
+        result = types[-1]
+        for t in reversed(types[:-1]):
+            result = core.TypePair(core.PairType(first=t, second=result))
+        return result
     v = SortView(sort_term)
-    return sort_to_type(v.name, v.semiring_name, v.batched)
-
-
-def _check_sort(
-    eq_terms_by_name: dict[str, core.Term],
-    eq_name: str,
-    field: str,
-    expected_sort: core.Term,
-    label: str,
-) -> None:
-    """Assert that an equation's sort field matches an expected sort."""
-    v = EquationView(eq_terms_by_name[eq_name])
-    sort_term = v.domain_sort if field == "domainSort" else v.codomain_sort
-    actual = sort_type_from_term(sort_term)
-    expected = sort_type_from_term(expected_sort)
-    if actual != expected:
-        raise TypeError(f"{label}: {actual.value.value!r} != {expected.value.value!r}")
-
-
-def check_sort_junction(upstream_eq: core.Term, downstream_eq: core.Term) -> None:
-    """Raise TypeError if upstream's codomain sort != downstream's domain sort.
-
-    Compares full Hydra TypeVariable identity — both sort name and semiring
-    must match.
-    """
-    up = EquationView(upstream_eq)
-    down = EquationView(downstream_eq)
-    codomain_type = sort_type_from_term(up.codomain_sort)
-    domain_type = sort_type_from_term(down.domain_sort)
-    if codomain_type != domain_type:
-        raise TypeError(
-            f"Sort junction error: '{up.name}' codomain "
-            f"{codomain_type.value.value!r} != '{down.name}' domain "
-            f"{domain_type.value.value!r}"
-        )
-
-
-def _output_rank(einsum_str: str) -> int | None:
-    """Count output indices from einsum RHS. None if no einsum."""
-    if not einsum_str:
-        return None
-    return len(einsum_str.split("->")[1].strip())
-
-
-def _input_rank(einsum_str: str, slot: int) -> int | None:
-    """Count input indices for a given slot in einsum LHS. None if no einsum."""
-    if not einsum_str:
-        return None
-    parts = einsum_str.split("->")[0].split(",")
-    if slot >= len(parts):
-        return None
-    return len(parts[slot])
+    base = core.TypeApplication(core.ApplicationType(
+        core.TypeVariable(core.Name(f"ua.sort.{v.name}")),
+        core.TypeVariable(core.Name(f"ua.semiring.{v.semiring_name}"))))
+    if v.batched:
+        return core.TypeApplication(core.ApplicationType(
+            core.TypeVariable(core.Name("ua.batched")), base))
+    return base
 
 
 def check_rank_junction(upstream_eq: core.Term, downstream_eq: core.Term,
@@ -141,8 +89,9 @@ def check_rank_junction(upstream_eq: core.Term, downstream_eq: core.Term,
     up_einsum = up.einsum
     down_einsum = down.einsum
 
-    out_rank = _output_rank(up_einsum)
-    in_rank = _input_rank(down_einsum, input_slot)
+    out_rank = len(up_einsum.split("->")[1].strip()) if up_einsum else None
+    parts = down_einsum.split("->")[0].split(",") if down_einsum else []
+    in_rank = len(parts[input_slot]) if input_slot < len(parts) else None
 
     if out_rank is not None and in_rank is not None and out_rank != in_rank:
         raise TypeError(
@@ -151,32 +100,14 @@ def check_rank_junction(upstream_eq: core.Term, downstream_eq: core.Term,
         )
 
 
-def _semiring_from_type_name(type_name: str) -> str:
-    """Extract the semiring portion from a sort type name.
-
-    Type name formats:
-      ua.sort.<sort>:<semiring>       (unbatched)
-      ua.sort.<sort>:<semiring>:B     (batched)
-
-    Returns the semiring string (e.g. "real").
-    """
-    # Strip the optional ':B' suffix first, then take the part after the first ':'
-    name = type_name.removesuffix(":B")
-    return name.split(":", 1)[1]
-
-
 def check_sort_compatibility(sort_a: core.Term, sort_b: core.Term) -> bool:
-    """Return True iff two sorts share the same semiring.
-
-    Uses Hydra type identity: sorts over different semirings have
-    different TypeVariable names and are therefore incompatible.
-    The batched flag does not affect semiring compatibility.
-    """
-    type_a = sort_type_from_term(sort_a)
-    type_b = sort_type_from_term(sort_b)
-    sr_a = _semiring_from_type_name(type_a.value.value)
-    sr_b = _semiring_from_type_name(type_b.value.value)
-    return sr_a == sr_b
+    """Return True iff two sorts share the same semiring."""
+    def _semiring(t):
+        app = t.value
+        if app.function == core.TypeVariable(core.Name("ua.batched")):
+            app = app.argument.value
+        return app.argument
+    return _semiring(sort_type_from_term(sort_a)) == _semiring(sort_type_from_term(sort_b))
 
 
 # ---------------------------------------------------------------------------

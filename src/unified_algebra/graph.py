@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from hydra.dsl.python import FrozenDict
 from .sort import sort_type_from_term
-from .validation import resolve_dag, validate_pipeline, ua_primitives
+from .validation import validate_pipeline, _register_sort_components
 from ._assembly import (
     _resolve_all_primitives, _register_hyperparams,
     _build_compositions, _build_lens_by_name, _collect_sorts,
@@ -137,14 +137,10 @@ def build_graph(
         (), core.TypeVariable(tensor_name), Nothing()
     )
 
-    # Register each sort with semiring identity (and batched flag) in the type
+    # Register each sort's structural component names so sort_type_from_term
+    # results are ground (matches what _build_schema does in assemble_graph).
     for st in sort_terms:
-        sort_type = sort_type_from_term(st)
-        sort_type_name = sort_type.value  # core.Name
-        schema[sort_type_name] = core.TypeScheme(
-            (), core.TypeVariable(sort_type_name), Nothing()
-        )
-        terms[sort_type_name] = st
+        _register_sort_components(st, schema)
 
     return hydra.graph.Graph(
         bound_terms=FrozenDict(terms),
@@ -193,11 +189,14 @@ def assemble_graph(
     primitives, eq_by_name = _resolve_all_primitives(eq_terms, backend, merge_names)
 
     import hydra.core as core
+    from .validation import _build_schema
+    schema_types = _build_schema(eq_terms)
+
     bound_terms: dict[core.Name, core.Term] = {}
 
     _register_hyperparams(hyperparams, bound_terms)
     lens_by_name = _build_lens_by_name(lenses, eq_by_name)
-    _build_compositions(all_specs, eq_by_name, primitives, bound_terms, lens_by_name)
+    _build_compositions(all_specs, eq_by_name, primitives, bound_terms, lens_by_name, schema_types)
 
     all_sorts = _collect_sorts(eq_terms, extra_sorts)
     return build_graph(all_sorts, primitives=primitives, bound_terms=bound_terms)

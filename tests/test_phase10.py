@@ -146,13 +146,15 @@ class TestLensDeclaration:
 
     def test_lens_with_residual_stores_sort(self, hidden):
         """lens() with residual_sort stores the sort term in the residualSort field."""
+        import hydra.core as core
         l = lens("linear", "fwd", "bwd", residual_sort=hidden)
         fields = record_fields(l)
         residual = fields["residualSort"]
         # The residual sort should be the hidden sort term (a TermRecord)
         from unified_algebra.sort import sort_type_from_term
         t = sort_type_from_term(residual)
-        assert "hidden" in t.value.value
+        # Structural TypeApplication: function is ua.sort.hidden
+        assert t.value.function == core.TypeVariable(core.Name("ua.sort.hidden"))
 
 
 # ===========================================================================
@@ -454,8 +456,8 @@ class TestAssembleGraphWithLenses:
         """assemble_graph validates lenses and raises on sort mismatch."""
         real_sr = record_fields(hidden)["semiring"]
         # Both equations go hidden → output, but backward should go output → hidden
-        eq_fwd = equation("enc_fwd", "i->j", hidden, output_sort, real_sr)
-        eq_bwd = equation("enc_bwd", "i->j", hidden, output_sort, real_sr)  # WRONG direction
+        eq_fwd = equation("enc_fwd", None, hidden, output_sort, real_sr, nonlinearity="relu")
+        eq_bwd = equation("enc_bwd", None, hidden, output_sort, real_sr, nonlinearity="relu")  # WRONG direction
         l = lens("bad_enc", "enc_fwd", "enc_bwd")
 
         with pytest.raises(TypeError):

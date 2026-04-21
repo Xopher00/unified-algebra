@@ -15,7 +15,7 @@ from .views import EquationView, LensView
 import hydra.core as core
 from hydra.dsl.meta.phantoms import record, string, unit, lam, var, list_, TTerm
 
-from .sort import sort_type_from_term, _check_sort
+from .sort import sort_type_from_term
 from .utils import bind_composition
 
 
@@ -146,10 +146,12 @@ def validate_lens(
     bwd_eq = EquationView(eq_terms_by_name[bwd_name])
 
     # Base check: forward domain == backward codomain
-    _check_sort(
-        eq_terms_by_name, fwd_name, "domainSort", bwd_eq.codomain_sort,
-        f"Lens '{lname}': forward domain != backward codomain"
-    )
+    actual = sort_type_from_term(fwd_eq.domain_sort)
+    expected = sort_type_from_term(bwd_eq.codomain_sort)
+    if actual != expected:
+        raise TypeError(
+            f"Lens '{lname}': forward domain != backward codomain: {actual} != {expected}"
+        )
 
     # If residual_sort is set, check product sort constraints
     has_residual = residual_sort is not None
@@ -171,10 +173,12 @@ def validate_lens(
             raise TypeError(f"Lens '{lname}': backward domain missing residual sort")
     else:
         # Plain lens: forward codomain == backward domain
-        _check_sort(
-            eq_terms_by_name, fwd_name, "codomainSort", bwd_eq.domain_sort,
-            f"Lens '{lname}': forward codomain != backward domain"
-        )
+        actual_co = sort_type_from_term(fwd_eq.codomain_sort)
+        expected_co = sort_type_from_term(bwd_eq.domain_sort)
+        if actual_co != expected_co:
+            raise TypeError(
+                f"Lens '{lname}': forward codomain != backward domain: {actual_co} != {expected_co}"
+            )
 
 
 def lens_path(
@@ -208,8 +212,11 @@ def lens_path(
 
     if has_residual and len(lens_names) > 1:
         # Multiple lenses with residual: thread residuals through forward/backward.
-        from ._lens_threading import _lens_path_threaded
-        return _lens_path_threaded(name, fwd_eq_names, bwd_eq_names)
+        fwd_pair = bind_composition("path", f"{name}.fwd", "x",
+                                   var("ua.prim.lens_fwd") @ list_([var(f"ua.equation.{n}") for n in fwd_eq_names]) @ var("x"))
+        bwd_pair = bind_composition("path", f"{name}.bwd", "p",
+                                   var("ua.prim.lens_bwd") @ list_([var(f"ua.equation.{n}") for n in bwd_eq_names]) @ var("p"))
+        return fwd_pair, bwd_pair
 
     # Single lens or plain lens: two independent paths.
     # For a single lens with residual, the forward equation already returns the

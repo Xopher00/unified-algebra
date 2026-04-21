@@ -232,7 +232,7 @@ def pytorch_backend() -> Backend:
             "sigmoid":  UnaryOp(fn=torch.sigmoid),
             "tanh":     UnaryOp(fn=torch.tanh),
             "softmax":  UnaryOp(fn=partial(torch.nn.functional.softmax, dim=-1)),
-            "softplus": UnaryOp(fn=lambda x: torch.nn.functional.softplus(x)),
+            "softplus": UnaryOp(fn=torch.nn.functional.softplus),
 
             # Elementary
             "exp":      UnaryOp(fn=torch.exp),

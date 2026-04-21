@@ -39,7 +39,7 @@ from unified_algebra.sort import (
 from unified_algebra.morphism import equation
 from unified_algebra.composition import lens, lens_path, validate_lens
 from unified_algebra._lens_threading import (
-    _lens_fwd_primitive, _lens_bwd_primitive, _lens_path_threaded,
+    _lens_fwd_primitive, _lens_bwd_primitive,
 )
 from unified_algebra.graph import assemble_graph, build_graph, LensPathSpec
 
@@ -138,38 +138,41 @@ class TestOpticPrimitives:
 # Group 2: _lens_path_threaded term structure
 # ===========================================================================
 
-class TestOpticPathStructure:
-    """_lens_path_threaded() builds correctly named lambda terms."""
+def _make_residual_lens_path(name, lens_names, fwd_names, bwd_names, residual_sort):
+    """Helper: build lens records with residual and call lens_path."""
+    lens_terms = {
+        ln: lens(ln, forward=fwd, backward=bwd, residual_sort=residual_sort)
+        for ln, fwd, bwd in zip(lens_names, fwd_names, bwd_names)
+    }
+    return lens_path(name, lens_names, lens_terms)
 
-    def test__lens_path_threaded_returns_two_pairs(self, hidden, residual):
-        """_lens_path_threaded() returns two (Name, Term) pairs for fwd and bwd."""
-        result = _lens_path_threaded("enc", ["fwd1", "fwd2"], ["bwd1", "bwd2"])
+
+class TestOpticPathStructure:
+    """lens_path with residual builds correctly named lambda terms."""
+
+    def test_lens_path_threaded_returns_two_pairs(self, hidden, residual):
+        result = _make_residual_lens_path("enc", ["l1", "l2"], ["fwd1", "fwd2"], ["bwd1", "bwd2"], residual)
         (fwd_name, fwd_term), (bwd_name, bwd_term) = result
         assert fwd_name == Name("ua.path.enc.fwd")
         assert bwd_name == Name("ua.path.enc.bwd")
 
-    def test__lens_path_threaded_fwd_is_lambda(self, hidden, residual):
-        """Forward optic path term is a Hydra lambda."""
-        (_, fwd_term), _ = _lens_path_threaded("enc2", ["fwd1"], ["bwd1"])
+    def test_lens_path_threaded_fwd_is_lambda(self, hidden, residual):
+        (_, fwd_term), _ = _make_residual_lens_path("enc2", ["l1", "l2"], ["fwd1", "fwd2"], ["bwd1", "bwd2"], residual)
         assert isinstance(fwd_term.value, core.Lambda)
 
-    def test__lens_path_threaded_bwd_is_lambda(self, hidden, residual):
-        """Backward optic path term is a Hydra lambda."""
-        _, (_, bwd_term) = _lens_path_threaded("enc3", ["fwd1"], ["bwd1"])
+    def test_lens_path_threaded_bwd_is_lambda(self, hidden, residual):
+        _, (_, bwd_term) = _make_residual_lens_path("enc3", ["l1", "l2"], ["fwd1", "fwd2"], ["bwd1", "bwd2"], residual)
         assert isinstance(bwd_term.value, core.Lambda)
 
-    def test__lens_path_threaded_fwd_uses_lens_fwd_primitive(self, hidden, residual):
-        """Forward optic path body references ua.prim.lens_fwd."""
-        (_, fwd_term), _ = _lens_path_threaded("enc4", ["fwd1", "fwd2"], ["bwd1", "bwd2"])
-        # Body is apply(apply(var("ua.prim.lens_fwd"), list_of_fwds), var("x"))
+    def test_lens_path_threaded_fwd_uses_lens_fwd_primitive(self, hidden, residual):
+        (_, fwd_term), _ = _make_residual_lens_path("enc4", ["l1", "l2"], ["fwd1", "fwd2"], ["bwd1", "bwd2"], residual)
         outer_app = fwd_term.value.body
         inner_app = outer_app.value.function
         prim_var = inner_app.value.function
         assert prim_var.value.value == "ua.prim.lens_fwd"
 
-    def test__lens_path_threaded_bwd_uses_lens_bwd_primitive(self, hidden, residual):
-        """Backward optic path body references ua.prim.lens_bwd."""
-        _, (_, bwd_term) = _lens_path_threaded("enc5", ["fwd1", "fwd2"], ["bwd1", "bwd2"])
+    def test_lens_path_threaded_bwd_uses_lens_bwd_primitive(self, hidden, residual):
+        _, (_, bwd_term) = _make_residual_lens_path("enc5", ["l1", "l2"], ["fwd1", "fwd2"], ["bwd1", "bwd2"], residual)
         outer_app = bwd_term.value.body
         inner_app = outer_app.value.function
         prim_var = inner_app.value.function

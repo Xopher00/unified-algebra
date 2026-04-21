@@ -1,6 +1,7 @@
 # ---------------------------------------------------------------------------
 # Core API — the typical user needs these
 # ---------------------------------------------------------------------------
+from .program import Program, compile_program
 from .backend import Backend, numpy_backend, pytorch_backend
 from .semiring import semiring
 from .sort import sort, tensor_coder, sort_coder, is_batched, product_sort, is_product_sort
@@ -26,3 +27,8 @@ from .validation import resolve_dag, validate_pipeline
 from .graph import type_check_term
 from .contraction import compile_equation, semiring_contract
 from .semiring import resolve_semiring
+
+# ---------------------------------------------------------------------------
+# Parser — Phase 15
+# ---------------------------------------------------------------------------
+from .parser import parse_ua, parse_ua_spec, UASpec

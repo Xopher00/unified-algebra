@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 from .views import EquationView, LensView
 from .sort import sort_type_from_term
 from .morphism import resolve_equation, resolve_list_merge
-from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
-from .composition import path, fan, validate_lens, lens_path
+from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec, LensFanSpec
+from .composition import path, fan, validate_lens, lens_path, lens_fan
 from .recursion import fold, unfold, _unfold_n_primitive, fixpoint, _fixpoint_primitive
 from ._lens_threading import _lens_fwd_primitive, _lens_bwd_primitive
 from .validation import validate_spec
@@ -94,12 +94,14 @@ def _build_compositions(
 ) -> None:
     """Validate and build all composition specs. Mutates primitives and bound_terms."""
     for spec in specs:
-        # LensPathSpec — lens validation handled by _build_lens_by_name
-        if not isinstance(spec, LensPathSpec):
+        # LensPathSpec and LensFanSpec — lens validation handled by _build_lens_by_name
+        if not isinstance(spec, (LensPathSpec, LensFanSpec)):
             validate_spec(eq_by_name, spec, schema_types)
 
         if isinstance(spec, PathSpec):
-            results = [path(spec.name, spec.eq_names, spec.params)]
+            results = [path(spec.name, spec.eq_names, spec.params,
+                            residual=spec.residual,
+                            residual_semiring=spec.residual_semiring)]
 
         elif isinstance(spec, FanSpec):
             results = [fan(spec.name, spec.branch_names, spec.merge_name)]
@@ -119,6 +121,10 @@ def _build_compositions(
             (fwd, bwd) = lens_path(spec.name, spec.lens_names, lens_by_name, spec.params)
             results = [fwd, bwd]
 
+        elif isinstance(spec, LensFanSpec):
+            (fwd, bwd) = lens_fan(spec.name, spec.lens_names, spec.merge_lens_name, lens_by_name)
+            results = [fwd, bwd]
+
         elif isinstance(spec, FixpointSpec):
             fp_prim = _fixpoint_primitive(spec.epsilon, spec.max_iter)
             primitives[fp_prim.name] = fp_prim
@@ -129,6 +135,73 @@ def _build_compositions(
 
         for name, term in results:
             bound_terms[name] = term
+
+
+# ---------------------------------------------------------------------------
+# Residual (skip-connection) primitive registration
+# ---------------------------------------------------------------------------
+
+def _register_residual_prims(
+    specs: list,
+    eq_by_name: dict,
+    primitives: dict,
+    backend: "Backend",
+    semirings: dict | None = None,
+) -> None:
+    """Register ua.prim.residual_add.<sr_name> for any PathSpec with residual=True.
+
+    The primitive is a prim2 that calls resolved_semiring.plus_elementwise(a, b),
+    implementing output = path(x) ⊕ x for skip connections.
+
+    Searches for the semiring term first in equations (by matching name), then
+    falls back to the optional ``semirings`` dict (name → Term) supplied by
+    the parser layer.
+    """
+    import hydra.core as core
+    from hydra.dsl.prims import prim2
+    from .sort import tensor_coder
+    from .semiring import resolve_semiring
+    from .views import EquationView, SemiringView
+
+    for spec in specs:
+        if not isinstance(spec, PathSpec) or not spec.residual:
+            continue
+
+        sr_name = spec.residual_semiring or "default"
+        prim_name = core.Name(f"ua.prim.residual_add.{sr_name}")
+        if prim_name in primitives:
+            continue
+
+        # Search equations first; nonlinearity-only equations store unit() —
+        # guard by checking for TermRecord before constructing a SemiringView.
+        sr_term = None
+        for eq_term in eq_by_name.values():
+            v = EquationView(eq_term)
+            sr_field = v.semiring
+            if isinstance(sr_field, core.TermRecord):
+                sv = SemiringView(sr_field)
+                if sv.name == sr_name:
+                    sr_term = sr_field
+                    break
+
+        # Fallback: use the semirings dict supplied by the parser layer.
+        if sr_term is None and semirings:
+            sr_term = semirings.get(sr_name)
+
+        if sr_term is None:
+            raise ValueError(
+                f"Residual path references semiring '{sr_name}' but no equation "
+                f"uses it and it was not passed via semirings="
+            )
+
+        sr = resolve_semiring(sr_term, backend)
+        coder = tensor_coder()
+
+        def _make_compute(resolved_sr):
+            return lambda a, b: resolved_sr.plus_elementwise(a, b)
+
+        prim = prim2(prim_name, _make_compute(sr), [], coder, coder, coder)
+        primitives[prim_name] = prim
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,8 @@ def path(
     name: str,
     eq_names: list[str],
     params: dict[str, list[core.Term]] | None = None,
+    residual: bool = False,
+    residual_semiring: str | None = None,
 ) -> tuple[core.Name, core.Term]:
     """Build a sequential composition as a Hydra lambda term.
 
@@ -51,6 +53,10 @@ def path(
             for p in params[eq_name]:
                 fn = fn @ TTerm(p)
         body = fn @ body
+
+    if residual:
+        sr_name = residual_semiring or "default"
+        body = var(f"ua.prim.residual_add.{sr_name}") @ body @ var("x")
 
     return bind_composition("path", name, "x", body)
 

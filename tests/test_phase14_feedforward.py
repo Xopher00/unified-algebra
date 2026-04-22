@@ -7,15 +7,11 @@ of linear morphisms and nonlinear pointwise equations, semiring-polymorphic.
 import numpy as np
 import pytest
 
-from hydra.context import Context
 from hydra.core import Name
-from hydra.dsl.python import FrozenDict, Right
-from hydra.dsl.terms import apply, var
-from hydra.reduction import reduce_term
 
 from unified_algebra import (
-    numpy_backend, semiring, sort, tensor_coder, sort_coder,
-    equation, assemble_graph, PathSpec,
+    numpy_backend, semiring, sort, tensor_coder,
+    equation, compile_program, PathSpec,
 )
 
 
@@ -26,10 +22,6 @@ from unified_algebra import (
 @pytest.fixture
 def backend():
     return numpy_backend()
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
 
 @pytest.fixture
 def real_sr():
@@ -49,18 +41,9 @@ def coder():
 # ---------------------------------------------------------------------------
 
 def encode_array(coder, arr):
+    from hydra.dsl.python import Right
     result = coder.decode(None, np.ascontiguousarray(arr, dtype=np.float64))
     assert isinstance(result, Right)
-    return result.value
-
-def decode_term(coder, term):
-    result = coder.encode(None, None, term)
-    assert isinstance(result, Right)
-    return result.value
-
-def assert_reduce_ok(cx, graph, term):
-    result = reduce_term(cx, graph, True, term)
-    assert isinstance(result, Right), f"reduce_term returned Left: {result}"
     return result.value
 
 
@@ -86,20 +69,20 @@ def build_ffn_equations(hidden, real_sr):
 class TestFeedforward:
 
     def test_graph_has_all_primitives(self, hidden, real_sr, backend):
-        """assemble_graph produces primitives for all 5 equations and the path bound term."""
+        """compile_program produces primitives for all 5 equations and the path bound term."""
         eqs = build_ffn_equations(hidden, real_sr)
-        graph = assemble_graph(
-            eqs, backend,
+        prog = compile_program(
+            eqs, backend=backend,
             specs=[PathSpec("ffn", ["ffn_linear1", "ffn_relu1",
                                     "ffn_linear2", "ffn_relu2",
                                     "ffn_linear3"], hidden, hidden)],
         )
         for name in ("ffn_linear1", "ffn_relu1", "ffn_linear2",
                      "ffn_relu2", "ffn_linear3"):
-            assert Name(f"ua.equation.{name}") in graph.primitives
-        assert Name("ua.path.ffn") in graph.bound_terms
+            assert Name(f"ua.equation.{name}") in prog.graph.primitives
+        assert Name("ua.path.ffn") in prog.graph.bound_terms
 
-    def test_path_produces_correct_output(self, hidden, real_sr, backend, cx, coder):
+    def test_path_produces_correct_output(self, hidden, real_sr, backend, coder):
         """Running the path produces W3 @ relu(W2 @ relu(W1 @ x))."""
         W1 = np.array([[1.0, -1.0], [-1.0,  1.0]])
         W2 = np.array([[0.5,  0.5], [ 0.5, -0.5]])
@@ -109,11 +92,10 @@ class TestFeedforward:
         w1_enc = encode_array(coder, W1)
         w2_enc = encode_array(coder, W2)
         w3_enc = encode_array(coder, W3)
-        x_enc  = encode_array(coder, x)
 
         eqs = build_ffn_equations(hidden, real_sr)
-        graph = assemble_graph(
-            eqs, backend,
+        prog = compile_program(
+            eqs, backend=backend,
             specs=[PathSpec(
                 "ffn",
                 ["ffn_linear1", "ffn_relu1", "ffn_linear2", "ffn_relu2", "ffn_linear3"],
@@ -124,10 +106,7 @@ class TestFeedforward:
             )],
         )
 
-        out = decode_term(coder, assert_reduce_ok(
-            cx, graph, apply(var("ua.path.ffn"), x_enc)
-        ))
-
+        out = prog("ffn", x)
         expected = W3 @ np.maximum(0, W2 @ np.maximum(0, W1 @ x))
         np.testing.assert_allclose(out, expected, rtol=1e-6)
 
@@ -145,13 +124,13 @@ class TestFeedforward:
                      nonlinearity="relu", inputs=("tffn_linear2",)),
             equation("tffn_linear3", "ij,j->i", h, h, trop, inputs=("tffn_relu2",)),
         ]
-        graph = assemble_graph(
-            eqs, backend,
+        prog = compile_program(
+            eqs, backend=backend,
             specs=[PathSpec("tffn", ["tffn_linear1", "tffn_relu1",
                                      "tffn_linear2", "tffn_relu2",
                                      "tffn_linear3"], h, h)],
         )
-        assert Name("ua.path.tffn") in graph.bound_terms
+        assert Name("ua.path.tffn") in prog.graph.bound_terms
         for name in ("tffn_linear1", "tffn_relu1", "tffn_linear2",
                      "tffn_relu2", "tffn_linear3"):
-            assert Name(f"ua.equation.{name}") in graph.primitives
+            assert Name(f"ua.equation.{name}") in prog.graph.primitives

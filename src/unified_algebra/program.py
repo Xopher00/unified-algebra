@@ -192,6 +192,7 @@ def compile_program(
     hyperparams: dict | None = None,
     lenses: list | None = None,
     extra_sorts: list | None = None,
+    semirings: dict | None = None,
 ) -> Program:
     """Compile a unified-algebra specification to a runnable Program.
 
@@ -210,6 +211,7 @@ def compile_program(
         hyperparams=hyperparams,
         lenses=lenses,
         extra_sorts=extra_sorts,
+        semirings=semirings,
     )
     cx = Context(trace=(), messages=(), other=FrozenDict({}))
     return Program(graph, backend, tensor_coder(), cx)

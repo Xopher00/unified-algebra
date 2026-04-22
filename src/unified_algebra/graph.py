@@ -15,6 +15,7 @@ from .validation import validate_pipeline, _register_sort_components
 from ._assembly import (
     _resolve_all_primitives, _register_hyperparams,
     _build_compositions, _build_lens_by_name, _collect_sorts,
+    _register_residual_prims,
 )
 
 if TYPE_CHECKING:
@@ -107,6 +108,7 @@ def assemble_graph(
     specs: list | None = None,
     hyperparams: dict[str, core.Term] | None = None,
     lenses: list[core.Term] | None = None,
+    semirings: dict[str, core.Term] | None = None,
 ) -> hydra.graph.Graph:
     """Resolve equation terms and assemble a Hydra Graph.
 
@@ -118,6 +120,9 @@ def assemble_graph(
                       UnfoldSpec, LensPathSpec, FixpointSpec)
         hyperparams:  dict of param_name → scalar Term
         lenses:       list of lens record terms (from lens())
+        semirings:    optional dict of semiring_name → semiring Term, used
+                      as fallback when a residual path's semiring is not
+                      referenced by any equation
     """
     validate_pipeline(eq_terms)
 
@@ -138,6 +143,8 @@ def assemble_graph(
 
     _register_hyperparams(hyperparams, bound_terms)
     lens_by_name = _build_lens_by_name(lenses, eq_by_name)
+    _register_residual_prims(all_specs, eq_by_name, primitives, backend,
+                             semirings=semirings)
     _build_compositions(all_specs, eq_by_name, primitives, bound_terms, lens_by_name, schema_types)
 
     all_sorts = _collect_sorts(eq_terms, extra_sorts)

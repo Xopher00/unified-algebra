@@ -14,6 +14,8 @@ class PathSpec(NamedTuple):
     domain_sort: object  # core.Term
     codomain_sort: object  # core.Term
     params: dict[str, list] | None = None
+    residual: bool = False
+    residual_semiring: str | None = None
 
 
 class FanSpec(NamedTuple):
@@ -50,6 +52,15 @@ class LensPathSpec(NamedTuple):
     domain_sort: object  # core.Term
     codomain_sort: object  # core.Term
     params: dict[str, list] | None = None
+
+
+class LensFanSpec(NamedTuple):
+    """Convenience spec for a bidirectional lens fan."""
+    name: str
+    lens_names: list[str]
+    merge_lens_name: str
+    domain_sort: object  # core.Term
+    codomain_sort: object  # core.Term
 
 
 class FixpointSpec(NamedTuple):

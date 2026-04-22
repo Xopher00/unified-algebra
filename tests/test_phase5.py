@@ -9,9 +9,9 @@ from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
-    equation, resolve_dag, validate_pipeline, assemble_graph,
+    equation, topo_edges, validate_pipeline, assemble_graph,
 )
 
 
@@ -52,7 +52,7 @@ class TestDAGResolution:
     def test_linear_with_inputs(self, real, hidden):
         a = equation("A", "ij,j->i", hidden, hidden, real)
         b = equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
-        edges = resolve_dag([a, b])
+        edges = topo_edges([a, b])
         assert len(edges) == 1
         assert edges[0][2] == 0  # slot 0
 
@@ -60,14 +60,14 @@ class TestDAGResolution:
         a = equation("A", "ij,j->i", hidden, hidden, real)
         b = equation("B", "ij,j->i", hidden, hidden, real, inputs=("A",))
         c = equation("C", "ij,j->i", hidden, hidden, real, inputs=("A",))
-        edges = resolve_dag([a, b, c])
+        edges = topo_edges([a, b, c])
         assert len(edges) == 2  # A→B and A→C
 
     def test_fan_in(self, real, hidden):
         a = equation("A", "ij,j->i", hidden, hidden, real)
         b = equation("B", "ij,j->i", hidden, hidden, real)
         c = equation("C", "ij,jk->ik", hidden, hidden, real, inputs=("A", "B"))
-        edges = resolve_dag([a, b, c])
+        edges = topo_edges([a, b, c])
         assert len(edges) == 2  # A→C slot 0, B→C slot 1
 
     def test_diamond(self, real, hidden):
@@ -75,19 +75,19 @@ class TestDAGResolution:
         b = equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
         c = equation("C", None, hidden, hidden, nonlinearity="tanh", inputs=("A",))
         d = equation("D", "ij,jk->ik", hidden, hidden, real, inputs=("B", "C"))
-        edges = resolve_dag([a, b, c, d])
+        edges = topo_edges([a, b, c, d])
         assert len(edges) == 4  # A→B, A→C, B→D, C→D
 
     def test_external_inputs_ignored(self, real, hidden):
         a = equation("A", "ij,j->i", hidden, hidden, real, inputs=("X",))
-        edges = resolve_dag([a])
+        edges = topo_edges([a])
         assert len(edges) == 0  # X is external, no edge
 
     def test_cycle_raises(self, real, hidden):
         a = equation("A", None, hidden, hidden, nonlinearity="relu", inputs=("B",))
         b = equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
         with pytest.raises(ValueError, match="Cycle"):
-            resolve_dag([a, b])
+            topo_edges([a, b])
 
 
 # ---------------------------------------------------------------------------

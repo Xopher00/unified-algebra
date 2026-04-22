@@ -33,14 +33,14 @@ from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var, list_
 from hydra.reduction import reduce_term
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
     equation, resolve_equation,
     fold, unfold, validate_spec,
     build_graph, assemble_graph,
     FoldSpec, UnfoldSpec,
 )
-from unified_algebra.composition.recursion import _unfold_n_primitive
+from unialg.assembly.primitives import unfold_n_primitive
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ class TestRNN:
         u_name, u_term = unfold("echo3", "echo_step", 3)
 
         graph = make_graph_with_stdlib(
-            primitives={prim_step.name: prim_step, _unfold_n_primitive.name: _unfold_n_primitive},
+            primitives={prim_step.name: prim_step, unfold_n_primitive.name: unfold_n_primitive},
             bound_terms={u_name: u_term},
         )
 
@@ -280,7 +280,7 @@ class TestRNN:
         u_name, u_term = unfold("tied_rnn", "tied_step", n_steps)
 
         graph = make_graph_with_stdlib(
-            primitives={prim_step.name: prim_step, _unfold_n_primitive.name: _unfold_n_primitive},
+            primitives={prim_step.name: prim_step, unfold_n_primitive.name: unfold_n_primitive},
             bound_terms={u_name: u_term},
         )
 
@@ -379,7 +379,7 @@ class TestRNN:
         u_name, u_term = unfold("trop_echo", "trop_echo_step", n_steps)
 
         graph = make_graph_with_stdlib(
-            primitives={prim_step.name: prim_step, _unfold_n_primitive.name: _unfold_n_primitive},
+            primitives={prim_step.name: prim_step, unfold_n_primitive.name: unfold_n_primitive},
             bound_terms={u_name: u_term},
         )
 

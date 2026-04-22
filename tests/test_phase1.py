@@ -3,9 +3,9 @@
 import numpy as np
 import pytest
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, resolve_semiring,
-    compile_equation, semiring_contract,
+    compile_einsum, semiring_contract,
 )
 
 
@@ -41,21 +41,21 @@ def fuzzy(backend):
 class TestRealSemiring:
 
     def test_matrix_vector(self, real, backend):
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.array([[1.0, 2.0], [3.0, 4.0]])
         x = np.array([1.0, 1.0])
         result = semiring_contract(eq, [W, x], real, backend)
         np.testing.assert_allclose(result, W @ x)
 
     def test_matrix_matrix(self, real, backend):
-        eq = compile_equation("ij,jk->ik")
+        eq = compile_einsum("ij,jk->ik")
         A = np.array([[1.0, 2.0], [3.0, 4.0]])
         B = np.array([[5.0, 6.0], [7.0, 8.0]])
         result = semiring_contract(eq, [A, B], real, backend)
         np.testing.assert_allclose(result, A @ B)
 
     def test_dot_product(self, real, backend):
-        eq = compile_equation("i,i->")
+        eq = compile_einsum("i,i->")
         a = np.array([1.0, 2.0, 3.0])
         b = np.array([4.0, 5.0, 6.0])
         result = semiring_contract(eq, [a, b], real, backend)
@@ -66,7 +66,7 @@ class TestTropicalSemiring:
 
     def test_min_plus(self, tropical, backend):
         # Y_i = min_j(W_ij + x_j)
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.array([[1.0, 3.0], [2.0, 0.0]])
         x = np.array([1.0, 2.0])
         result = semiring_contract(eq, [W, x], tropical, backend)
@@ -79,7 +79,7 @@ class TestFuzzySemiring:
 
     def test_max_min(self, fuzzy, backend):
         # Y_i = max_j(min(W_ij, x_j))
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.array([[0.8, 0.3], [0.2, 0.9]])
         x = np.array([0.6, 0.7])
         result = semiring_contract(eq, [W, x], fuzzy, backend)
@@ -98,7 +98,7 @@ class TestBlockedContraction:
 
     def test_real_matvec_block2(self, real, backend):
         """Matrix-vector product blocked at size 2 matches unblocked."""
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.random.default_rng(0).random((4, 6))
         x = np.random.default_rng(1).random((6,))
         expected = semiring_contract(eq, [W, x], real, backend)
@@ -107,7 +107,7 @@ class TestBlockedContraction:
 
     def test_real_matvec_block1(self, real, backend):
         """block_size=1 (extreme: one element at a time) still correct."""
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.random.default_rng(2).random((3, 5))
         x = np.random.default_rng(3).random((5,))
         expected = semiring_contract(eq, [W, x], real, backend)
@@ -116,7 +116,7 @@ class TestBlockedContraction:
 
     def test_real_matmul_block3(self, real, backend):
         """Matrix-matrix product with two reduction dims is blocked correctly."""
-        eq = compile_equation("ij,jk->ik")
+        eq = compile_einsum("ij,jk->ik")
         A = np.random.default_rng(4).random((3, 8))
         B = np.random.default_rng(5).random((8, 4))
         expected = semiring_contract(eq, [A, B], real, backend)
@@ -125,7 +125,7 @@ class TestBlockedContraction:
 
     def test_real_block_larger_than_axis_is_noop(self, real, backend):
         """block_size > reduction axis size takes the fast path; result identical."""
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.random.default_rng(6).random((4, 3))
         x = np.random.default_rng(7).random((3,))
         expected = semiring_contract(eq, [W, x], real, backend)
@@ -139,7 +139,7 @@ class TestBlockedContraction:
 
     def test_tropical_matvec_block2(self, tropical, backend):
         """Tropical (min-plus) blocked at 2 matches unblocked."""
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.random.default_rng(8).random((4, 6))
         x = np.random.default_rng(9).random((6,))
         expected = semiring_contract(eq, [W, x], tropical, backend)
@@ -148,7 +148,7 @@ class TestBlockedContraction:
 
     def test_tropical_matvec_block1(self, tropical, backend):
         """Tropical block_size=1 is still correct."""
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.random.default_rng(10).random((3, 5))
         x = np.random.default_rng(11).random((5,))
         expected = semiring_contract(eq, [W, x], tropical, backend)
@@ -161,7 +161,7 @@ class TestBlockedContraction:
 
     def test_fuzzy_matvec_block2(self, fuzzy, backend):
         """Fuzzy (max-min) blocked at 2 matches unblocked."""
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.random.default_rng(12).random((4, 6))
         x = np.random.default_rng(13).random((6,))
         expected = semiring_contract(eq, [W, x], fuzzy, backend)
@@ -170,7 +170,7 @@ class TestBlockedContraction:
 
     def test_fuzzy_matvec_block1(self, fuzzy, backend):
         """Fuzzy block_size=1 is still correct."""
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.random.default_rng(14).random((3, 5))
         x = np.random.default_rng(15).random((5,))
         expected = semiring_contract(eq, [W, x], fuzzy, backend)
@@ -184,7 +184,7 @@ class TestBlockedContraction:
     def test_no_reduction_dims_block_ignored(self, real, backend):
         """When there are no reduced vars (output = all inputs), block_size is irrelevant."""
         # "ij->ij" — no reduction; result is just the input tensor
-        eq = compile_equation("ij->ij")
+        eq = compile_einsum("ij->ij")
         A = np.random.default_rng(16).random((3, 4))
         expected = semiring_contract(eq, [A], real, backend)
         result = semiring_contract(eq, [A], real, backend, block_size=1)
@@ -192,7 +192,7 @@ class TestBlockedContraction:
 
     def test_block_size_none_unchanged(self, real, backend):
         """Passing block_size=None leaves behaviour identical to the original."""
-        eq = compile_equation("ij,j->i")
+        eq = compile_einsum("ij,j->i")
         W = np.random.default_rng(17).random((4, 5))
         x = np.random.default_rng(18).random((5,))
         expected = semiring_contract(eq, [W, x], real, backend)

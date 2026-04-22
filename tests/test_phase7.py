@@ -10,13 +10,13 @@ from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var, list_
 from hydra.reduction import reduce_term
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
     equation, resolve_equation, fold, unfold,
     validate_spec, build_graph, assemble_graph,
     PathSpec, FoldSpec, UnfoldSpec,
 )
-from unified_algebra.composition.recursion import _unfold_n_primitive
+from unialg.assembly.primitives import unfold_n_primitive
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +277,7 @@ class TestUnfoldReduce:
         eq_step = equation("step", None, hidden, hidden, nonlinearity="tanh")
         prim_step = resolve_equation(eq_step, backend)
 
-        unfold_prim = _unfold_n_primitive
+        unfold_prim = unfold_n_primitive
         u_name, u_term = unfold("stream", "step", 3)
 
         graph = make_graph_with_stdlib(
@@ -319,7 +319,7 @@ class TestUnfoldReduce:
         eq_step = equation("step", None, hidden, hidden, nonlinearity="relu")
         prim_step = resolve_equation(eq_step, backend)
 
-        unfold_prim = _unfold_n_primitive
+        unfold_prim = unfold_n_primitive
         u_name, u_term = unfold("one", "step", 1)
 
         graph = make_graph_with_stdlib(

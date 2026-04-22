@@ -15,14 +15,14 @@ from hydra.dsl.terms import apply, var
 import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, sort, tensor_coder, sort_coder,
     is_batched, validate_pipeline, equation, resolve_equation,
     resolve_list_merge, path, fan, validate_spec,
     build_graph, assemble_graph, PathSpec, FanSpec,
 )
-from unified_algebra.algebra import sort_type_from_term
-from unified_algebra.algebra.morphism import _prepend_batch_dim
+from unialg.algebra import sort_type_from_term
+from unialg.resolve.morphism import _prepend_batch_dim
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ class TestBatchedSortConstruction:
         """is_batched returns False when batched flag is absent (old records)."""
         # Create a sort without the batched field by constructing the record manually
         import hydra.dsl.terms as T
-        from unified_algebra.algebra.sort import SORT_TYPE_NAME
+        from unialg.algebra.sort import SORT_TYPE_NAME
         old_style = T.record(SORT_TYPE_NAME, [
             T.field("name", T.string("legacy")),
             T.field("semiring", real_sr),

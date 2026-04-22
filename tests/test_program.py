@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from unified_algebra import (
+from unialg import (
     compile_program, Program,
     semiring, sort, equation, numpy_backend, tensor_coder,
     path, fan,
@@ -58,7 +58,7 @@ class TestSingleEquation:
         from hydra.dsl.python import FrozenDict, Right
         from hydra.dsl.terms import apply, var
         from hydra.reduction import reduce_term
-        from unified_algebra import assemble_graph
+        from unialg import assemble_graph
 
         eq = equation("t1_relu", None, hidden, hidden, nonlinearity="relu")
         graph = assemble_graph([eq], backend)

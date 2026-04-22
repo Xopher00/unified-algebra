@@ -24,15 +24,15 @@ from hydra.dsl.terms import apply, var
 import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, sort, tensor_coder, sort_coder,
     equation, resolve_equation, path, fan,
     build_graph, assemble_graph, lens, validate_lens, lens_path,
     FoldSpec, LensPathSpec,
 )
-from unified_algebra.composition.lenses import LENS_TYPE_NAME
-from unified_algebra.utils import record_fields, string_value
-from unified_algebra.views import LensView
+from unialg.composition.lenses import LENS_TYPE_NAME
+from unialg.utils import record_fields, string_value
+from unialg.views import LensView
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ class TestLensDeclaration:
         fields = record_fields(l)
         residual = fields["residualSort"]
         # The residual sort should be the hidden sort term (a TermRecord)
-        from unified_algebra.algebra import sort_type_from_term
+        from unialg.algebra import sort_type_from_term
         t = sort_type_from_term(residual)
         # Structural TypeApplication: function is ua.sort.hidden
         assert t.value.function == core.TypeVariable(core.Name("ua.sort.hidden"))

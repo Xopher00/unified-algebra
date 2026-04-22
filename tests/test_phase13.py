@@ -6,7 +6,7 @@ When MULTIPLE optics are composed in sequence, the residuals produced by each
 forward step must be threaded to the corresponding backward step.
 
 This file tests:
-1. _lens_fwd_primitive and _lens_bwd_primitive — low-level primitive correctness
+1. lens_fwd_primitive and lens_bwd_primitive — low-level primitive correctness
 2. lens_path with residual lenses — multi-optic residual threading via assemble_graph
 3. Single-optic with residual_sort — uses plain path (no threading needed)
 4. Correct backward ordering — residuals consumed in reverse
@@ -30,16 +30,16 @@ from hydra.dsl.terms import apply, var
 import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, sort, tensor_coder, sort_coder,
     product_sort, equation,
     lens, lens_path, validate_lens,
     assemble_graph, build_graph, LensPathSpec,
 )
-from unified_algebra.algebra.sort import product_sort_coder
-from unified_algebra.backend import UnaryOp
-from unified_algebra.composition._lens_threading import (
-    _lens_fwd_primitive, _lens_bwd_primitive,
+from unialg.algebra.sort import product_sort_coder
+from unialg.backend import UnaryOp
+from unialg.assembly.primitives import (
+    lens_fwd_primitive, lens_bwd_primitive,
 )
 
 
@@ -120,16 +120,16 @@ def bwd_scale(pair_in):
 # ===========================================================================
 
 class TestOpticPrimitives:
-    """The raw _lens_fwd_primitive and _lens_bwd_primitive have correct names."""
+    """The raw lens_fwd_primitive and lens_bwd_primitive have correct names."""
 
     def test_lens_fwd_primitive_name(self):
-        """_lens_fwd_primitive has name ua.prim.lens_fwd."""
-        prim = _lens_fwd_primitive()
+        """lens_fwd_primitive has name ua.prim.lens_fwd."""
+        prim = lens_fwd_primitive
         assert prim.name == Name("ua.prim.lens_fwd")
 
     def test_lens_bwd_primitive_name(self):
-        """_lens_bwd_primitive has name ua.prim.lens_bwd."""
-        prim = _lens_bwd_primitive()
+        """lens_bwd_primitive has name ua.prim.lens_bwd."""
+        prim = lens_bwd_primitive
         assert prim.name == Name("ua.prim.lens_bwd")
 
 
@@ -203,7 +203,7 @@ class TestLensPathRouting:
 
     def test_single_optic_with_residual_uses_plain_path(self, hidden, residual):
         """Single optic with residual_sort uses plain path (not optic_fwd/bwd)."""
-        from unified_algebra.utils import record_fields
+        from unialg.utils import record_fields
         # Build lens terms
         prod = product_sort([hidden, residual])
         eq_fwd = equation("so_fwd", None, hidden, prod, nonlinearity="relu")

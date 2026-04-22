@@ -6,13 +6,13 @@ Three distinct feature groups are exercised:
    tuple-of-arrays. Tests cover construction, element extraction, type identity,
    and the sort_coder dispatch to product_sort_coder.
 
-2. Fixpoint iteration — _fixpoint_primitive + fixpoint() as a Hydra lambda term.
+2. Fixpoint iteration — fixpoint_primitive + fixpoint() as a Hydra lambda term.
    validate_fixpoint() rejects non-endomorphisms and missing predicates; the
    end-to-end tests drive convergence toward zero and verify the hit-max_iter
    path when the step never converges.
 
    The predicate equation in end-to-end tests is assembled manually as a prim1
-   with float32_coder() output. This is required because _fixpoint_primitive
+   with float32_coder() output. This is required because fixpoint_primitive
    uses fun(a, prims.float32()), which bridges the predicate through Hydra's
    float32 coder. resolve_equation always uses sort_coder (binary tensor coder)
    as output, which is incompatible with float32 decoding.
@@ -36,7 +36,7 @@ import hydra.dsl.terms as Terms
 from hydra.dsl.prims import prim1, float32 as float32_coder
 from hydra.reduction import reduce_term
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, sort, tensor_coder, sort_coder,
     product_sort, is_product_sort,
     equation, resolve_equation,
@@ -44,11 +44,11 @@ from unified_algebra import (
     validate_spec, assemble_graph, build_graph,
     FixpointSpec, LensPathSpec,
 )
-from unified_algebra.algebra import sort_type_from_term
-from unified_algebra.algebra.sort import product_sort_elements, product_sort_coder, PRODUCT_SORT_TYPE_NAME
-from unified_algebra.backend import UnaryOp
-from unified_algebra.composition.recursion import _fixpoint_primitive
-from unified_algebra.utils import record_fields
+from unialg.algebra import sort_type_from_term
+from unialg.algebra.sort import product_sort_elements, product_sort_coder, PRODUCT_SORT_TYPE_NAME
+from unialg.backend import UnaryOp
+from unialg.assembly.primitives import fixpoint_primitive
+from unialg.utils import record_fields
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +358,7 @@ class TestFixpointValidation:
 class TestFixpointEndToEnd:
     """Fixpoint iteration via lower-level graph assembly and reduce_term.
 
-    _fixpoint_primitive uses fun(a, prims.float32()) to bridge the predicate.
+    fixpoint_primitive uses fun(a, prims.float32()) to bridge the predicate.
     This means the predicate equation must be a prim1 with float32_coder() as
     its output coder — not the standard sort_coder used by resolve_equation.
     We therefore register the predicate primitive manually, following the same
@@ -375,7 +375,7 @@ class TestFixpointEndToEnd:
 
         fn: ndarray -> float
 
-        This is required because _fixpoint_primitive bridges the predicate
+        This is required because fixpoint_primitive bridges the predicate
         through fun(a, prims.float32()), which decodes the result as float32.
         """
         in_coder = sort_coder(sort_term, backend)
@@ -401,7 +401,7 @@ class TestFixpointEndToEnd:
 
         epsilon = 0.01
         max_iter = 100
-        fp_prim = _fixpoint_primitive(epsilon, max_iter)
+        fp_prim = fixpoint_primitive(epsilon, max_iter)
 
         fp_name, fp_term = fixpoint(
             "converge1", "fp1_step", "fp1_pred"
@@ -448,7 +448,7 @@ class TestFixpointEndToEnd:
 
         epsilon = 0.01
         max_iter = 5
-        fp_prim = _fixpoint_primitive(epsilon, max_iter)
+        fp_prim = fixpoint_primitive(epsilon, max_iter)
 
         fp_name, fp_term = fixpoint(
             "no_converge", "fp2_step", "fp2_pred"
@@ -491,7 +491,7 @@ class TestFixpointEndToEnd:
             backend,
         )
 
-        fp_prim = _fixpoint_primitive(0.001, 50)
+        fp_prim = fixpoint_primitive(0.001, 50)
         fp_name, fp_term = fixpoint(
             "conv_scalar", "fp3_step", "fp3_pred"
         )
@@ -526,7 +526,7 @@ class TestSemiringResidualField:
 
     def test_semiring_with_residual_creates_record_with_residual_field(self):
         """semiring(..., residual='divide') creates a TermRecord with a 'residual' field."""
-        from unified_algebra.utils import string_value
+        from unialg.utils import string_value
         sr = semiring("real_res", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
         fields = record_fields(sr)
@@ -535,7 +535,7 @@ class TestSemiringResidualField:
 
     def test_resolve_semiring_extracts_residual_elementwise(self, backend):
         """resolve_semiring extracts residual_elementwise as the divide callable."""
-        from unified_algebra import resolve_semiring
+        from unialg import resolve_semiring
         sr = semiring("real_res2", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
         rsr = resolve_semiring(sr, backend)
@@ -549,7 +549,7 @@ class TestSemiringResidualField:
 
     def test_resolve_semiring_without_residual_gives_none(self, backend):
         """resolve_semiring with no residual gives residual_elementwise=None."""
-        from unified_algebra import resolve_semiring
+        from unialg import resolve_semiring
         sr = semiring("real_nores", plus="add", times="multiply", zero=0.0, one=1.0)
         rsr = resolve_semiring(sr, backend)
         assert rsr.residual_name is None
@@ -562,7 +562,7 @@ class TestSemiringResidualField:
         positional: divide(a, c) = a / c.  The residual satisfies the adjoint
         condition a * b <= c <=> b <= c / a, so callers swap arguments as needed.
         """
-        from unified_algebra import resolve_semiring
+        from unialg import resolve_semiring
         sr = semiring("real_div", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
         rsr = resolve_semiring(sr, backend)
@@ -578,7 +578,7 @@ class TestSemiringResidualField:
         positional: subtract(a, c) = a - c.  The tropical residual satisfies
         a + b <= c <=> b <= c - a, so callers swap arguments as needed.
         """
-        from unified_algebra import resolve_semiring
+        from unialg import resolve_semiring
         sr = semiring("tropical_res", plus="minimum", times="add",
                       residual="subtract", zero=float("inf"), one=0.0)
         rsr = resolve_semiring(sr, backend)

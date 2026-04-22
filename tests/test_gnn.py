@@ -28,7 +28,7 @@ import pytest
 
 from hydra.core import Name
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
     equation, compile_program, PathSpec,
 )

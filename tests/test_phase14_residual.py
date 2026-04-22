@@ -21,7 +21,7 @@ from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
-from unified_algebra import (
+from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
     equation, resolve_equation, resolve_list_merge,
     path, fan,

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .parser import UASpec
+from . import UASpec
 
 
 def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
@@ -19,11 +19,11 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     3. equations (depend on sorts + semirings by name)
     4. compositions (depend on equations and lenses by name)
     """
-    from .semiring import semiring as mk_semiring
-    from .sort import sort as mk_sort
-    from .morphism import equation as mk_equation
-    from .composition import lens as mk_lens
-    from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, LensPathSpec, LensFanSpec
+    from ..algebra.semiring import semiring as mk_semiring
+    from ..algebra.sort import sort as mk_sort
+    from ..algebra.morphism import equation as mk_equation
+    from ..composition.lenses import lens as mk_lens
+    from ..specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, LensPathSpec, LensFanSpec
 
     semirings: dict[str, Any] = {}
     sorts: dict[str, Any] = {}

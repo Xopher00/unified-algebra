@@ -30,18 +30,17 @@ from hydra.dsl.terms import apply, var
 import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
-from unified_algebra.backend import numpy_backend, UnaryOp
-from unified_algebra.semiring import semiring
-from unified_algebra.sort import (
-    sort, tensor_coder, sort_coder,
-    product_sort, product_sort_coder,
+from unified_algebra import (
+    numpy_backend, semiring, sort, tensor_coder, sort_coder,
+    product_sort, equation,
+    lens, lens_path, validate_lens,
+    assemble_graph, build_graph, LensPathSpec,
 )
-from unified_algebra.morphism import equation
-from unified_algebra.composition import lens, lens_path, validate_lens
-from unified_algebra._lens_threading import (
+from unified_algebra.algebra.sort import product_sort_coder
+from unified_algebra.backend import UnaryOp
+from unified_algebra.composition._lens_threading import (
     _lens_fwd_primitive, _lens_bwd_primitive,
 )
-from unified_algebra.graph import assemble_graph, build_graph, LensPathSpec
 
 
 # ---------------------------------------------------------------------------

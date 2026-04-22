@@ -14,7 +14,7 @@ import hydra.core as core
 import hydra.graph
 from hydra.dsl import prims
 from hydra.dsl.meta.phantoms import var, list_
-from .utils import bind_composition
+from ..utils import bind_composition
 
 
 def _lens_fwd_primitive() -> hydra.graph.Primitive:

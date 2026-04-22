@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING
 import hydra.core as core
 from hydra.core import Name
 from hydra.dsl.meta.phantoms import record, string, float64, TTerm
-from .views import SemiringView
+from ..views import SemiringView
 
 if TYPE_CHECKING:
-    from .backend import Backend
+    from ..backend import Backend
 
 
 # ---------------------------------------------------------------------------

@@ -11,13 +11,13 @@ from hydra.dsl.python import FrozenDict, Nothing, Left
 from hydra.typing import TypeConstraint
 from hydra.unification import unify_type_constraints
 
-from .views import EquationView, SortView
-from .sort import check_rank_junction, sort_type_from_term, is_product_sort
-from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
+from ..views import EquationView, SortView
+from ..algebra.sort import check_rank_junction, sort_type_from_term, is_product_sort
+from ..specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
 
 if TYPE_CHECKING:
     import hydra.graph
-    from .backend import Backend
+    from ..backend import Backend
 
 _CX = Context(trace=(), messages=(), other=FrozenDict({}))
 
@@ -40,7 +40,7 @@ def _st(eq_by_name, eq_name, field):
 def _register_sort_components(sort_term, schema):
     """Register structural sort type component names into schema (mutates schema)."""
     if is_product_sort(sort_term):
-        from .sort import product_sort_elements
+        from ..algebra.sort import product_sort_elements
         for elem in product_sort_elements(sort_term):
             _register_sort_components(elem, schema)
         return

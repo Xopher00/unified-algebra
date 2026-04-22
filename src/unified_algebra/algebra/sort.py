@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .views import EquationView, SortView, ProductSortView
+from ..views import EquationView, SortView, ProductSortView
 import hydra.core as core
 import hydra.graph
 from hydra.dsl.python import Right, Left

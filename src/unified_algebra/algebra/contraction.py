@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .backend import Backend
+    from ..backend import Backend
     from .semiring import ResolvedSemiring
 
 

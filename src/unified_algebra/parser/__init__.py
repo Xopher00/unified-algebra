@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .program import Program
+    from ..assembly.program import Program
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ def parse_ua(text: str, backend) -> "Program":
         SyntaxError: if the text cannot be parsed
         ValueError:  if sort junctions or references are invalid
     """
-    from .program import compile_program
+    from ..assembly.program import compile_program
 
     spec = parse_ua_spec(text)
 

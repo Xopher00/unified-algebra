@@ -28,14 +28,14 @@ from hydra.dsl.terms import apply, var
 import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
-from unified_algebra.backend import numpy_backend, Backend, BinaryOp, UnaryOp
-from unified_algebra.semiring import semiring
-from unified_algebra.sort import sort, tensor_coder, sort_coder
-from unified_algebra.morphism import equation, resolve_equation
-from unified_algebra.graph import build_graph, assemble_graph, rebind_hyperparams
-from unified_algebra import PathSpec, FoldSpec, UnfoldSpec, LensPathSpec
-from unified_algebra.composition import lens, lens_path
-from unified_algebra.recursion import fold, unfold
+from unified_algebra import (
+    numpy_backend, semiring, sort, tensor_coder, sort_coder,
+    equation, resolve_equation,
+    build_graph, assemble_graph, rebind_hyperparams,
+    lens, lens_path, fold, unfold,
+    PathSpec, FoldSpec, UnfoldSpec, LensPathSpec,
+)
+from unified_algebra.backend import BinaryOp, UnaryOp
 
 
 # ---------------------------------------------------------------------------

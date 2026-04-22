@@ -10,11 +10,10 @@ from hydra.dsl.python import FrozenDict, Right, Left
 from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
-from unified_algebra.backend import numpy_backend
-from unified_algebra.semiring import semiring
-from unified_algebra.sort import sort, tensor_coder
-from unified_algebra.graph import build_graph
-from unified_algebra.morphism import equation, resolve_equation
+from unified_algebra import (
+    numpy_backend, semiring, sort, tensor_coder,
+    build_graph, equation, resolve_equation,
+)
 
 
 # ---------------------------------------------------------------------------

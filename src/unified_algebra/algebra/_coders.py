@@ -11,7 +11,7 @@ import hydra.graph
 from hydra.dsl.meta.phantoms import binary as phantom_binary
 from hydra.dsl.python import Right
 from hydra.extract.core import binary as extract_binary
-from .backend import _np_from_wire, _np_to_wire
+from ..backend import _np_from_wire, _np_to_wire
 
 
 def tensor_coder() -> hydra.graph.TermCoder:

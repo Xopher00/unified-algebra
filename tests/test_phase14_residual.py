@@ -21,12 +21,12 @@ from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
-from unified_algebra.backend import numpy_backend
-from unified_algebra.semiring import semiring
-from unified_algebra.sort import sort, tensor_coder
-from unified_algebra.morphism import equation, resolve_equation, resolve_list_merge
-from unified_algebra.composition import path, fan
-from unified_algebra.graph import build_graph, assemble_graph, PathSpec, FanSpec
+from unified_algebra import (
+    numpy_backend, semiring, sort, tensor_coder,
+    equation, resolve_equation, resolve_list_merge,
+    path, fan,
+    build_graph, assemble_graph, PathSpec, FanSpec,
+)
 
 
 # ---------------------------------------------------------------------------

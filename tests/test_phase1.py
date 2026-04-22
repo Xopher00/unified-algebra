@@ -3,9 +3,10 @@
 import numpy as np
 import pytest
 
-from unified_algebra.backend import numpy_backend
-from unified_algebra.semiring import semiring, resolve_semiring
-from unified_algebra.contraction import compile_equation, semiring_contract
+from unified_algebra import (
+    numpy_backend, semiring, resolve_semiring,
+    compile_equation, semiring_contract,
+)
 
 
 @pytest.fixture

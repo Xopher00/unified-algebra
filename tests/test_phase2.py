@@ -3,12 +3,8 @@
 import numpy as np
 import pytest
 
-from unified_algebra.semiring import semiring
-from unified_algebra.sort import (
-    sort, sort_type_from_term, check_sort_compatibility,
-    tensor_coder,
-)
-from unified_algebra.graph import build_graph
+from unified_algebra import semiring, sort, tensor_coder, build_graph
+from unified_algebra.algebra import sort_type_from_term, check_sort_compatibility
 from hydra.core import Name, TypeVariable, TypeApplication
 
 

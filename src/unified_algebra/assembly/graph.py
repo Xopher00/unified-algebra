@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hydra.dsl.python import FrozenDict
-from .sort import sort_type_from_term
-from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
+from ..algebra.sort import sort_type_from_term
+from ..specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec
 from .validation import validate_pipeline, _register_sort_components
 from ._assembly import (
     _resolve_all_primitives, _register_hyperparams,
@@ -21,7 +21,7 @@ from ._assembly import (
 if TYPE_CHECKING:
     import hydra.core as core
     import hydra.graph
-    from .backend import Backend
+    from ..backend import Backend
 
 
 # ---------------------------------------------------------------------------

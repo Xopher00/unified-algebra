@@ -22,7 +22,7 @@ import hydra.graph
 from hydra.dsl import prims
 from hydra.dsl.meta.phantoms import var, int32, TTerm
 from hydra.sources.libraries import fun as _fun
-from .utils import bind_composition
+from ..utils import bind_composition
 
 
 # ---------------------------------------------------------------------------

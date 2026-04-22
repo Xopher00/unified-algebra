@@ -24,10 +24,10 @@ from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_
 from .semiring import resolve_semiring
 from .sort import tensor_coder, sort_coder, is_batched
 from .contraction import compile_equation, semiring_contract
-from .views import EquationView
+from ..views import EquationView
 
 if TYPE_CHECKING:
-    from .backend import Backend
+    from ..backend import Backend
 
 
 # ---------------------------------------------------------------------------

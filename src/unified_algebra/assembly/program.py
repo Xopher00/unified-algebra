@@ -202,7 +202,7 @@ def compile_program(
     from hydra.context import Context
     from hydra.dsl.python import FrozenDict
     from .graph import assemble_graph
-    from .sort import tensor_coder
+    from ..algebra.sort import tensor_coder
 
     graph = assemble_graph(
         equations,

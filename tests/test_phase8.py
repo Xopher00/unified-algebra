@@ -11,15 +11,13 @@ from hydra.dsl.terms import apply, var
 import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
-from unified_algebra.backend import numpy_backend
-from unified_algebra.semiring import semiring
-from unified_algebra.sort import sort, tensor_coder, sort_coder
-from unified_algebra.graph import build_graph, assemble_graph, rebind_hyperparams
-from unified_algebra.graph import PathSpec, FanSpec
-from unified_algebra.morphism import equation, resolve_equation, resolve_list_merge
-from unified_algebra.composition import path, fan
-from unified_algebra.validation import validate_spec
-from unified_algebra import PathSpec, FanSpec
+from unified_algebra import (
+    numpy_backend, semiring, sort, tensor_coder, sort_coder,
+    build_graph, assemble_graph, rebind_hyperparams,
+    equation, resolve_equation, resolve_list_merge,
+    path, fan, validate_spec,
+    PathSpec, FanSpec,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +321,7 @@ class TestParamSlots:
     @pytest.fixture
     def temp_backend(self):
         """Backend extended with a temperature-scaled softplus: log(1 + exp(x/temp))."""
-        from unified_algebra.backend import Backend, BinaryOp, UnaryOp
+        from unified_algebra.backend import BinaryOp, UnaryOp
         b = numpy_backend()
         # Parametric op: (tensor, temperature) -> tensor
         b.unary_ops["temp_softplus"] = UnaryOp(

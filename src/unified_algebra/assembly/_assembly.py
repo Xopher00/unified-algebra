@@ -7,18 +7,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .views import EquationView, LensView
-from .sort import sort_type_from_term
-from .morphism import resolve_equation, resolve_list_merge
-from .specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec, LensFanSpec
-from .composition import path, fan, validate_lens, lens_path, lens_fan
-from .recursion import fold, unfold, _unfold_n_primitive, fixpoint, _fixpoint_primitive
-from ._lens_threading import _lens_fwd_primitive, _lens_bwd_primitive
+from ..views import EquationView, LensView
+from ..algebra.sort import sort_type_from_term
+from ..algebra.morphism import resolve_equation, resolve_list_merge
+from ..specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, FixpointSpec, LensFanSpec
+from ..composition.paths import path, fan
+from ..composition.lenses import validate_lens, lens_path, lens_fan
+from ..composition.recursion import fold, unfold, _unfold_n_primitive, fixpoint, _fixpoint_primitive
+from ..composition._lens_threading import _lens_fwd_primitive, _lens_bwd_primitive
 from .validation import validate_spec
 
 if TYPE_CHECKING:
     import hydra.core as core
-    from .backend import Backend
+    from ..backend import Backend
 
 
 
@@ -159,9 +160,9 @@ def _register_residual_prims(
     """
     import hydra.core as core
     from hydra.dsl.prims import prim2
-    from .sort import tensor_coder
-    from .semiring import resolve_semiring
-    from .views import EquationView, SemiringView
+    from ..algebra.sort import tensor_coder
+    from ..algebra.semiring import resolve_semiring
+    from ..views import EquationView, SemiringView
 
     for spec in specs:
         if not isinstance(spec, PathSpec) or not spec.residual:

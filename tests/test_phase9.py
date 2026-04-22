@@ -15,20 +15,14 @@ from hydra.dsl.terms import apply, var
 import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
-from unified_algebra.backend import numpy_backend
-from unified_algebra.semiring import semiring
-from unified_algebra.sort import (
-    sort, sort_type_from_term, tensor_coder, sort_coder,
-    is_batched,
+from unified_algebra import (
+    numpy_backend, semiring, sort, tensor_coder, sort_coder,
+    is_batched, validate_pipeline, equation, resolve_equation,
+    resolve_list_merge, path, fan, validate_spec,
+    build_graph, assemble_graph, PathSpec, FanSpec,
 )
-from unified_algebra.validation import validate_pipeline
-from unified_algebra.morphism import (
-    equation, resolve_equation, resolve_list_merge, _prepend_batch_dim,
-)
-from unified_algebra.composition import path, fan
-from unified_algebra.validation import validate_spec
-from unified_algebra.graph import build_graph, assemble_graph
-from unified_algebra import PathSpec, FanSpec
+from unified_algebra.algebra import sort_type_from_term
+from unified_algebra.algebra.morphism import _prepend_batch_dim
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +127,7 @@ class TestBatchedSortConstruction:
         """is_batched returns False when batched flag is absent (old records)."""
         # Create a sort without the batched field by constructing the record manually
         import hydra.dsl.terms as T
-        from unified_algebra.sort import SORT_TYPE_NAME
+        from unified_algebra.algebra.sort import SORT_TYPE_NAME
         old_style = T.record(SORT_TYPE_NAME, [
             T.field("name", T.string("legacy")),
             T.field("semiring", real_sr),

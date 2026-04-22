@@ -10,15 +10,13 @@ from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var, list_
 from hydra.reduction import reduce_term
 
-from unified_algebra.backend import numpy_backend
-from unified_algebra.semiring import semiring
-from unified_algebra.sort import sort, tensor_coder
-from unified_algebra.morphism import equation, resolve_equation
-from unified_algebra.recursion import fold, unfold, _unfold_n_primitive
-from unified_algebra.validation import validate_spec
-from unified_algebra import FoldSpec, UnfoldSpec
-from unified_algebra.graph import build_graph, assemble_graph
-from unified_algebra.graph import PathSpec, FoldSpec, UnfoldSpec
+from unified_algebra import (
+    numpy_backend, semiring, sort, tensor_coder,
+    equation, resolve_equation, fold, unfold,
+    validate_spec, build_graph, assemble_graph,
+    PathSpec, FoldSpec, UnfoldSpec,
+)
+from unified_algebra.composition.recursion import _unfold_n_primitive
 
 
 # ---------------------------------------------------------------------------

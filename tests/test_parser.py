@@ -7,9 +7,10 @@ All 'program runs correctly' tests verify against a numpy oracle.
 import numpy as np
 import pytest
 
-from unified_algebra.backend import numpy_backend
-from unified_algebra.parser import parse_ua, parse_ua_spec, UASpec
-from unified_algebra.specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, LensPathSpec, LensFanSpec
+from unified_algebra import (
+    numpy_backend, parse_ua, parse_ua_spec, UASpec,
+    PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, LensPathSpec, LensFanSpec,
+)
 from unified_algebra.views import EquationView
 
 
@@ -673,7 +674,7 @@ sort hidden_batched(real, batched)
 """
         spec = parse_ua_spec(text)
         assert 'hidden_batched' in spec.sorts
-        from unified_algebra.sort import is_batched
+        from unified_algebra import is_batched
         assert is_batched(spec.sorts['hidden_batched'])
 
     def test_equation_with_nonlinearity_only(self):

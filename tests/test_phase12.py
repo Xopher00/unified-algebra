@@ -36,21 +36,18 @@ import hydra.dsl.terms as Terms
 from hydra.dsl.prims import prim1, float32 as float32_coder
 from hydra.reduction import reduce_term
 
-from unified_algebra.backend import numpy_backend, UnaryOp
-from unified_algebra.semiring import semiring
-from unified_algebra.sort import (
-    sort, tensor_coder, sort_coder,
-    product_sort, is_product_sort, product_sort_elements,
-    product_sort_coder, sort_type_from_term,
-    PRODUCT_SORT_TYPE_NAME,
+from unified_algebra import (
+    numpy_backend, semiring, sort, tensor_coder, sort_coder,
+    product_sort, is_product_sort,
+    equation, resolve_equation,
+    lens, validate_lens, lens_path, fixpoint,
+    validate_spec, assemble_graph, build_graph,
+    FixpointSpec, LensPathSpec,
 )
-from unified_algebra.morphism import equation, resolve_equation
-from unified_algebra.composition import lens, validate_lens, lens_path
-from unified_algebra.recursion import fixpoint, _fixpoint_primitive
-from unified_algebra.validation import validate_spec
-from unified_algebra import FixpointSpec
-from unified_algebra.graph import assemble_graph, build_graph
-from unified_algebra import LensPathSpec
+from unified_algebra.algebra import sort_type_from_term
+from unified_algebra.algebra.sort import product_sort_elements, product_sort_coder, PRODUCT_SORT_TYPE_NAME
+from unified_algebra.backend import UnaryOp
+from unified_algebra.composition.recursion import _fixpoint_primitive
 from unified_algebra.utils import record_fields
 
 
@@ -529,7 +526,7 @@ class TestSemiringResidualField:
 
     def test_semiring_with_residual_creates_record_with_residual_field(self):
         """semiring(..., residual='divide') creates a TermRecord with a 'residual' field."""
-        from unified_algebra.utils import record_fields, string_value
+        from unified_algebra.utils import string_value
         sr = semiring("real_res", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
         fields = record_fields(sr)
@@ -538,7 +535,7 @@ class TestSemiringResidualField:
 
     def test_resolve_semiring_extracts_residual_elementwise(self, backend):
         """resolve_semiring extracts residual_elementwise as the divide callable."""
-        from unified_algebra.semiring import resolve_semiring
+        from unified_algebra import resolve_semiring
         sr = semiring("real_res2", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
         rsr = resolve_semiring(sr, backend)
@@ -552,7 +549,7 @@ class TestSemiringResidualField:
 
     def test_resolve_semiring_without_residual_gives_none(self, backend):
         """resolve_semiring with no residual gives residual_elementwise=None."""
-        from unified_algebra.semiring import resolve_semiring
+        from unified_algebra import resolve_semiring
         sr = semiring("real_nores", plus="add", times="multiply", zero=0.0, one=1.0)
         rsr = resolve_semiring(sr, backend)
         assert rsr.residual_name is None
@@ -565,7 +562,7 @@ class TestSemiringResidualField:
         positional: divide(a, c) = a / c.  The residual satisfies the adjoint
         condition a * b <= c <=> b <= c / a, so callers swap arguments as needed.
         """
-        from unified_algebra.semiring import resolve_semiring
+        from unified_algebra import resolve_semiring
         sr = semiring("real_div", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
         rsr = resolve_semiring(sr, backend)
@@ -581,7 +578,7 @@ class TestSemiringResidualField:
         positional: subtract(a, c) = a - c.  The tropical residual satisfies
         a + b <= c <=> b <= c - a, so callers swap arguments as needed.
         """
-        from unified_algebra.semiring import resolve_semiring
+        from unified_algebra import resolve_semiring
         sr = semiring("tropical_res", plus="minimum", times="add",
                       residual="subtract", zero=float("inf"), one=0.0)
         rsr = resolve_semiring(sr, backend)
@@ -616,7 +613,6 @@ class TestBackendAxisAwareOps:
         """A custom axis-0 softmax via functools.partial works when registered."""
         import functools
         from scipy.special import softmax as scipy_softmax
-        from unified_algebra.backend import UnaryOp
         backend.unary_ops["softmax_axis0"] = UnaryOp(
             fn=functools.partial(scipy_softmax, axis=0)
         )

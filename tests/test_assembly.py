@@ -15,7 +15,7 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
-    equation, topo_edges, validate_pipeline, assemble_graph,
+    Equation, topo_edges, validate_pipeline, assemble_graph,
 )
 
 
@@ -62,8 +62,8 @@ class TestSortNameMismatch:
         real = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         hidden = sort("hidden", real)
         output = sort("output", real)
-        eq1 = equation("eq1", "ij,j->i", hidden, hidden, real)
-        eq2 = equation("eq2", "ij,j->i", output, output, real, inputs=("eq1",))
+        eq1 = Equation("eq1", "ij,j->i", hidden, hidden, real)
+        eq2 = Equation("eq2", "ij,j->i", output, output, real, inputs=("eq1",))
         with pytest.raises(TypeError):
             validate_pipeline([eq1, eq2])
 
@@ -80,8 +80,8 @@ class TestSemiringMismatch:
                             zero=float("inf"), one=0.0)
         hidden_real = sort("hidden", real)
         hidden_trop = sort("hidden", tropical)
-        eq1 = equation("real_eq", "ij,j->i", hidden_real, hidden_real, real)
-        eq2 = equation("trop_eq", "ij,j->i", hidden_trop, hidden_trop, tropical, inputs=("real_eq",))
+        eq1 = Equation("real_eq", "ij,j->i", hidden_real, hidden_real, real)
+        eq2 = Equation("trop_eq", "ij,j->i", hidden_trop, hidden_trop, tropical, inputs=("real_eq",))
         with pytest.raises(TypeError):
             validate_pipeline([eq1, eq2])
 
@@ -95,16 +95,16 @@ class TestValidComposition:
     def test_single_equation_trivially_valid(self):
         real = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         hidden = sort("hidden", real)
-        eq = equation("linear", "ij,j->i", hidden, hidden, real)
+        eq = Equation("linear", "ij,j->i", hidden, hidden, real)
         validate_pipeline([eq])  # no error
 
     def test_three_equation_pipeline(self, backend):
         real = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         hidden = sort("hidden", real)
         eqs = [
-            equation("linear1", "ij,j->i", hidden, hidden, real),
-            equation("relu", None, hidden, hidden, nonlinearity="relu", inputs=("linear1",)),
-            equation("linear2", "ij,j->i", hidden, hidden, real, inputs=("relu",)),
+            Equation("linear1", "ij,j->i", hidden, hidden, real),
+            Equation("relu", None, hidden, hidden, nonlinearity="relu", inputs=("linear1",)),
+            Equation("linear2", "ij,j->i", hidden, hidden, real, inputs=("relu",)),
         ]
         validate_pipeline(eqs)  # no error
         graph = assemble_graph(eqs, backend)
@@ -115,7 +115,7 @@ class TestValidComposition:
     def test_sorts_registered_in_schema(self, backend):
         real = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         hidden = sort("hidden", real)
-        eqs = [equation("linear", "ij,j->i", hidden, hidden, real)]
+        eqs = [Equation("linear", "ij,j->i", hidden, hidden, real)]
         graph = assemble_graph(eqs, backend)
         assert Name("ua.sort.hidden") in graph.schema_types
         assert Name("ua.semiring.real") in graph.schema_types
@@ -131,8 +131,8 @@ class TestAssembleAndRun:
         real = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         hidden = sort("hidden", real)
         eqs = [
-            equation("linear", "ij,j->i", hidden, hidden, real),
-            equation("act", None, hidden, hidden, nonlinearity="relu", inputs=("linear",)),
+            Equation("linear", "ij,j->i", hidden, hidden, real),
+            Equation("act", None, hidden, hidden, nonlinearity="relu", inputs=("linear",)),
         ]
         graph = assemble_graph(eqs, backend)
 
@@ -155,7 +155,7 @@ class TestAssembleAndRun:
         """Single equation with contraction + nonlinearity: relu(W @ x)."""
         real = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         hidden = sort("hidden", real)
-        eqs = [equation("lr", "ij,j->i", hidden, hidden, real, nonlinearity="relu")]
+        eqs = [Equation("lr", "ij,j->i", hidden, hidden, real, nonlinearity="relu")]
         graph = assemble_graph(eqs, backend)
 
         W = np.array([[1.0, -2.0], [-3.0, 4.0]])
@@ -176,42 +176,42 @@ class TestAssembleAndRun:
 class TestDAGResolution:
 
     def test_linear_with_inputs(self, real, hidden):
-        a = equation("A", "ij,j->i", hidden, hidden, real)
-        b = equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
+        a = Equation("A", "ij,j->i", hidden, hidden, real)
+        b = Equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
         edges = topo_edges([a, b])
         assert len(edges) == 1
         assert edges[0][2] == 0  # slot 0
 
     def test_fan_out(self, real, hidden):
-        a = equation("A", "ij,j->i", hidden, hidden, real)
-        b = equation("B", "ij,j->i", hidden, hidden, real, inputs=("A",))
-        c = equation("C", "ij,j->i", hidden, hidden, real, inputs=("A",))
+        a = Equation("A", "ij,j->i", hidden, hidden, real)
+        b = Equation("B", "ij,j->i", hidden, hidden, real, inputs=("A",))
+        c = Equation("C", "ij,j->i", hidden, hidden, real, inputs=("A",))
         edges = topo_edges([a, b, c])
         assert len(edges) == 2  # A→B and A→C
 
     def test_fan_in(self, real, hidden):
-        a = equation("A", "ij,j->i", hidden, hidden, real)
-        b = equation("B", "ij,j->i", hidden, hidden, real)
-        c = equation("C", "ij,jk->ik", hidden, hidden, real, inputs=("A", "B"))
+        a = Equation("A", "ij,j->i", hidden, hidden, real)
+        b = Equation("B", "ij,j->i", hidden, hidden, real)
+        c = Equation("C", "ij,jk->ik", hidden, hidden, real, inputs=("A", "B"))
         edges = topo_edges([a, b, c])
         assert len(edges) == 2  # A→C slot 0, B→C slot 1
 
     def test_diamond(self, real, hidden):
-        a = equation("A", "ij,j->i", hidden, hidden, real)
-        b = equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
-        c = equation("C", None, hidden, hidden, nonlinearity="tanh", inputs=("A",))
-        d = equation("D", "ij,jk->ik", hidden, hidden, real, inputs=("B", "C"))
+        a = Equation("A", "ij,j->i", hidden, hidden, real)
+        b = Equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
+        c = Equation("C", None, hidden, hidden, nonlinearity="tanh", inputs=("A",))
+        d = Equation("D", "ij,jk->ik", hidden, hidden, real, inputs=("B", "C"))
         edges = topo_edges([a, b, c, d])
         assert len(edges) == 4  # A→B, A→C, B→D, C→D
 
     def test_external_inputs_ignored(self, real, hidden):
-        a = equation("A", "ij,j->i", hidden, hidden, real, inputs=("X",))
+        a = Equation("A", "ij,j->i", hidden, hidden, real, inputs=("X",))
         edges = topo_edges([a])
         assert len(edges) == 0  # X is external, no edge
 
     def test_cycle_raises(self, real, hidden):
-        a = equation("A", None, hidden, hidden, nonlinearity="relu", inputs=("B",))
-        b = equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
+        a = Equation("A", None, hidden, hidden, nonlinearity="relu", inputs=("B",))
+        b = Equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
         with pytest.raises(ValueError, match="Cycle"):
             topo_edges([a, b])
 
@@ -223,26 +223,26 @@ class TestDAGResolution:
 class TestRankChecking:
 
     def test_matching_ranks_pass(self, real, hidden):
-        a2 = equation("A2", "ij,jk->ik", hidden, hidden, real)
-        b2 = equation("B2", "ij,jk->ik", hidden, hidden, real, inputs=("A2",))
+        a2 = Equation("A2", "ij,jk->ik", hidden, hidden, real)
+        b2 = Equation("B2", "ij,jk->ik", hidden, hidden, real, inputs=("A2",))
         validate_pipeline([a2, b2])  # rank 2 → rank 2 at slot 0, should pass
 
     def test_rank_mismatch_raises(self, real, hidden):
         # A outputs rank 1 ("i"), B expects rank 2 at slot 0 ("ij")
-        a = equation("A", "ij,j->i", hidden, hidden, real)
-        b = equation("B", "ij,j->i", hidden, hidden, real, inputs=("A",))
+        a = Equation("A", "ij,j->i", hidden, hidden, real)
+        b = Equation("B", "ij,j->i", hidden, hidden, real, inputs=("A",))
         with pytest.raises(TypeError, match="Rank mismatch"):
             validate_pipeline([a, b])
 
     def test_pointwise_skips_rank(self, real, hidden):
-        a = equation("A", "ij,j->i", hidden, hidden, real)
-        b = equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
+        a = Equation("A", "ij,j->i", hidden, hidden, real)
+        b = Equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
         validate_pipeline([a, b])  # pointwise has no einsum, skip rank check
 
     def test_rank_match_pointwise_to_parametric(self, real, hidden):
         # Pointwise → parametric: pointwise has no rank, skip check
-        a = equation("A", None, hidden, hidden, nonlinearity="relu")
-        b = equation("B", "ij,j->i", hidden, hidden, real, inputs=("A",))
+        a = Equation("A", None, hidden, hidden, nonlinearity="relu")
+        b = Equation("B", "ij,j->i", hidden, hidden, real, inputs=("A",))
         validate_pipeline([a, b])  # should pass — can't check rank on pointwise
 
 
@@ -253,9 +253,9 @@ class TestRankChecking:
 class TestDAGAssemble:
 
     def test_fan_out_assembled(self, real, hidden, backend):
-        a = equation("A", "ij,j->i", hidden, hidden, real)
-        b = equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
-        c = equation("C", None, hidden, hidden, nonlinearity="sigmoid", inputs=("A",))
+        a = Equation("A", "ij,j->i", hidden, hidden, real)
+        b = Equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
+        c = Equation("C", None, hidden, hidden, nonlinearity="sigmoid", inputs=("A",))
         graph = assemble_graph([a, b, c], backend)
         assert Name("ua.equation.A") in graph.primitives
         assert Name("ua.equation.B") in graph.primitives
@@ -263,9 +263,9 @@ class TestDAGAssemble:
 
     def test_fan_out_executes(self, real, hidden, backend, cx, coder):
         """Two equations reading the same input — fan-out."""
-        a = equation("linear", "ij,j->i", hidden, hidden, real)
-        b = equation("relu_out", None, hidden, hidden, nonlinearity="relu", inputs=("linear",))
-        c = equation("sig_out", None, hidden, hidden, nonlinearity="sigmoid", inputs=("linear",))
+        a = Equation("linear", "ij,j->i", hidden, hidden, real)
+        b = Equation("relu_out", None, hidden, hidden, nonlinearity="relu", inputs=("linear",))
+        c = Equation("sig_out", None, hidden, hidden, nonlinearity="sigmoid", inputs=("linear",))
         graph = assemble_graph([a, b, c], backend)
 
         W = np.array([[1.0, -2.0], [-3.0, 4.0]])
@@ -290,9 +290,9 @@ class TestDAGAssemble:
 
     def test_diamond_executes(self, real, hidden, backend, cx, coder):
         """Diamond: A → B, A → C, then D reads B and C."""
-        a = equation("A", "ij,j->i", hidden, hidden, real)
-        b = equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
-        c = equation("C", None, hidden, hidden, nonlinearity="tanh", inputs=("A",))
+        a = Equation("A", "ij,j->i", hidden, hidden, real)
+        b = Equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
+        c = Equation("C", None, hidden, hidden, nonlinearity="tanh", inputs=("A",))
         graph = assemble_graph([a, b, c], backend)
 
         W = np.array([[1.0, -1.0], [-1.0, 1.0]])

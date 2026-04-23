@@ -30,7 +30,7 @@ from hydra.core import Name
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
-    equation, compile_program, PathSpec,
+    Equation, compile_program, PathSpec,
 )
 
 
@@ -105,7 +105,7 @@ class TestGNNMessagePassing:
 
     def test_output_matches_matmul(self, node_sort, real_sr, backend, coder):
         """GNN aggregation 'ij,j->i' with A produces A @ x."""
-        eq = equation("gnn_agg_basic", "ij,j->i", node_sort, node_sort, real_sr)
+        eq = Equation("gnn_agg_basic", "ij,j->i", node_sort, node_sort, real_sr)
         x = np.array([1.0, 2.0, 3.0])
 
         a_enc = encode_array(coder, A3)
@@ -122,13 +122,13 @@ class TestGNNMessagePassing:
 
     def test_entry_points_includes_equation(self, node_sort, real_sr, backend):
         """compile_program makes the equation accessible as an entry point."""
-        eq = equation("gnn_agg_ep", "ij,j->i", node_sort, node_sort, real_sr)
+        eq = Equation("gnn_agg_ep", "ij,j->i", node_sort, node_sort, real_sr)
         prog = compile_program([eq], backend=backend)
         assert "gnn_agg_ep" in prog.entry_points()
 
     def test_different_features(self, node_sort, real_sr, backend, coder):
         """Aggregation is correct for different initial feature vectors."""
-        eq = equation("gnn_agg_feat", "ij,j->i", node_sort, node_sort, real_sr)
+        eq = Equation("gnn_agg_feat", "ij,j->i", node_sort, node_sort, real_sr)
         x = np.array([0.5, -1.0, 2.0])
 
         a_enc = encode_array(coder, A3)
@@ -144,7 +144,7 @@ class TestGNNMessagePassing:
 
     def test_graph_has_primitive(self, node_sort, real_sr, backend):
         """The equation primitive appears in the compiled graph."""
-        eq = equation("gnn_agg_prim", "ij,j->i", node_sort, node_sort, real_sr)
+        eq = Equation("gnn_agg_prim", "ij,j->i", node_sort, node_sort, real_sr)
         prog = compile_program([eq], backend=backend)
         assert Name("ua.equation.gnn_agg_prim") in prog.graph.primitives
 
@@ -181,9 +181,9 @@ class TestGNNLayer:
         # inputs= would require rank compatibility at the DAG slot level, which
         # breaks when a rank-1 output feeds slot 0 of a rank-2 einsum.
         eqs = [
-            equation("gnn_l_agg",  "ij,j->i", node_sort, node_sort, real_sr),
-            equation("gnn_l_lin",  "ij,j->i", node_sort, node_sort, real_sr),
-            equation("gnn_l_relu", None, node_sort, node_sort,
+            Equation("gnn_l_agg",  "ij,j->i", node_sort, node_sort, real_sr),
+            Equation("gnn_l_lin",  "ij,j->i", node_sort, node_sort, real_sr),
+            Equation("gnn_l_relu", None, node_sort, node_sort,
                      nonlinearity="relu"),
         ]
         return compile_program(
@@ -264,13 +264,13 @@ class TestGNNTwoLayer:
         # No inputs= wiring: PathSpec handles sequencing without rank-check
         # conflicts between agg (rank-1 output) and lin (rank-2 slot 0).
         eqs = [
-            equation("gnn_2l_agg1",  "ij,j->i", node_sort, node_sort, real_sr),
-            equation("gnn_2l_lin1",  "ij,j->i", node_sort, node_sort, real_sr),
-            equation("gnn_2l_relu1", None, node_sort, node_sort,
+            Equation("gnn_2l_agg1",  "ij,j->i", node_sort, node_sort, real_sr),
+            Equation("gnn_2l_lin1",  "ij,j->i", node_sort, node_sort, real_sr),
+            Equation("gnn_2l_relu1", None, node_sort, node_sort,
                      nonlinearity="relu"),
-            equation("gnn_2l_agg2",  "ij,j->i", node_sort, node_sort, real_sr),
-            equation("gnn_2l_lin2",  "ij,j->i", node_sort, node_sort, real_sr),
-            equation("gnn_2l_relu2", None, node_sort, node_sort,
+            Equation("gnn_2l_agg2",  "ij,j->i", node_sort, node_sort, real_sr),
+            Equation("gnn_2l_lin2",  "ij,j->i", node_sort, node_sort, real_sr),
+            Equation("gnn_2l_relu2", None, node_sort, node_sort,
                      nonlinearity="relu"),
         ]
         return compile_program(
@@ -341,7 +341,7 @@ class TestGNNKHops:
         eq_names = [f"gnn_khop_agg_{i}" for i in range(k)]
         # No inputs= wiring: PathSpec sequences equations without rank checks
         # across the agg→agg boundary (rank-1 output to rank-2 slot 0).
-        eqs = [equation(name, "ij,j->i", node_sort, node_sort, real_sr)
+        eqs = [Equation(name, "ij,j->i", node_sort, node_sort, real_sr)
                for name in eq_names]
         params = {name: [A_enc] for name in eq_names}
         return compile_program(
@@ -428,7 +428,7 @@ class TestGNNTropicalSemiring:
 
     def test_single_hop_bellman_ford(self, node_sort_trop, tropical_sr, backend, coder):
         """One tropical aggregation step gives 1-hop shortest distances."""
-        eq = equation("gnn_trop_agg1", "ij,j->i",
+        eq = Equation("gnn_trop_agg1", "ij,j->i",
                       node_sort_trop, node_sort_trop, tropical_sr)
         w_enc = encode_array(coder, self.W_trop)
         prog = compile_program(
@@ -445,9 +445,9 @@ class TestGNNTropicalSemiring:
         w_enc = encode_array(coder, self.W_trop)
         # No inputs= wiring: PathSpec handles sequencing without rank checks.
         eqs = [
-            equation("gnn_trop_agg2a", "ij,j->i",
+            Equation("gnn_trop_agg2a", "ij,j->i",
                      node_sort_trop, node_sort_trop, tropical_sr),
-            equation("gnn_trop_agg2b", "ij,j->i",
+            Equation("gnn_trop_agg2b", "ij,j->i",
                      node_sort_trop, node_sort_trop, tropical_sr),
         ]
         prog = compile_program(
@@ -465,9 +465,9 @@ class TestGNNTropicalSemiring:
         """The 2-hop path entry point is reachable after compilation."""
         w_enc = encode_array(coder, self.W_trop)
         eqs = [
-            equation("gnn_trop_ep_agg1", "ij,j->i",
+            Equation("gnn_trop_ep_agg1", "ij,j->i",
                      node_sort_trop, node_sort_trop, tropical_sr),
-            equation("gnn_trop_ep_agg2", "ij,j->i",
+            Equation("gnn_trop_ep_agg2", "ij,j->i",
                      node_sort_trop, node_sort_trop, tropical_sr),
         ]
         prog = compile_program(
@@ -492,7 +492,7 @@ class TestGNNTropicalSemiring:
         w_enc = encode_array(coder, self.W_trop)
 
         # Tropical equation
-        eq_trop = equation("gnn_tvr_trop", "ij,j->i",
+        eq_trop = Equation("gnn_tvr_trop", "ij,j->i",
                            node_sort_trop, node_sort_trop, tropical_sr)
         prog_trop = compile_program(
             [eq_trop], backend=backend,
@@ -503,7 +503,7 @@ class TestGNNTropicalSemiring:
 
         # Real equation (matrix-multiply semantics)
         x_real = np.array([1.0, 1.0, 1.0])
-        eq_real = equation("gnn_tvr_real", "ij,j->i",
+        eq_real = Equation("gnn_tvr_real", "ij,j->i",
                            node_sort_real, node_sort_real, real_sr)
         prog_real = compile_program(
             [eq_real], backend=backend,

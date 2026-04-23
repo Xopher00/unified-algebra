@@ -19,7 +19,7 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder, sort_coder,
-    product_sort, equation, resolve_equation, path, fan,
+    product_sort, Equation, path, fan,
     build_graph, assemble_graph, lens, validate_lens, lens_path,
     FoldSpec, LensPathSpec,
 )
@@ -170,8 +170,8 @@ class TestLensValidation:
     def _make_matching_pair(self, hidden, output_sort):
         """Build a valid fwd (hidden→output) + bwd (output→hidden) pair."""
         real_sr = record_fields(hidden)["semiring"]
-        eq_fwd = equation("fwd", "i->j", hidden, output_sort, real_sr)
-        eq_bwd = equation("bwd", "j->i", output_sort, hidden, real_sr)
+        eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
+        eq_bwd = Equation("bwd", "j->i", output_sort, hidden, real_sr)
         return eq_fwd, eq_bwd
 
     def test_valid_lens_passes(self, hidden, output_sort):
@@ -181,36 +181,36 @@ class TestLensValidation:
         validate_lens(eq_by_name, l)
 
     def test_valid_lens_same_sort_passes(self, hidden):
-        eq_fwd = equation("fwd_id", None, hidden, hidden, nonlinearity="relu")
-        eq_bwd = equation("bwd_id", None, hidden, hidden, nonlinearity="relu")
+        eq_fwd = Equation("fwd_id", None, hidden, hidden, nonlinearity="relu")
+        eq_bwd = Equation("bwd_id", None, hidden, hidden, nonlinearity="relu")
         l = lens("identity_lens", "fwd_id", "bwd_id")
         eq_by_name = {"fwd_id": eq_fwd, "bwd_id": eq_bwd}
         validate_lens(eq_by_name, l)
 
     def test_invalid_lens_forward_not_found(self, hidden):
-        eq_bwd = equation("bwd", None, hidden, hidden, nonlinearity="relu")
+        eq_bwd = Equation("bwd", None, hidden, hidden, nonlinearity="relu")
         l = lens("bad_lens", "nonexistent_fwd", "bwd")
         with pytest.raises(TypeError, match="forward equation 'nonexistent_fwd' not found"):
             validate_lens({"bwd": eq_bwd}, l)
 
     def test_invalid_lens_backward_not_found(self, hidden):
-        eq_fwd = equation("fwd", None, hidden, hidden, nonlinearity="relu")
+        eq_fwd = Equation("fwd", None, hidden, hidden, nonlinearity="relu")
         l = lens("bad_lens", "fwd", "nonexistent_bwd")
         with pytest.raises(TypeError, match="backward equation 'nonexistent_bwd' not found"):
             validate_lens({"fwd": eq_fwd}, l)
 
     def test_invalid_lens_domain_mismatch(self, hidden, output_sort):
         real_sr = record_fields(hidden)["semiring"]
-        eq_fwd = equation("fwd", "i->j", hidden, output_sort, real_sr)
-        eq_bwd = equation("bwd", "i->j", hidden, output_sort, real_sr)
+        eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
+        eq_bwd = Equation("bwd", "i->j", hidden, output_sort, real_sr)
         l = lens("bad", "fwd", "bwd")
         with pytest.raises(TypeError, match="forward domain.*!=.*backward codomain"):
             validate_lens({"fwd": eq_fwd, "bwd": eq_bwd}, l)
 
     def test_invalid_lens_codomain_mismatch(self, hidden, output_sort):
         real_sr = record_fields(hidden)["semiring"]
-        eq_fwd = equation("fwd", "i->j", hidden, output_sort, real_sr)
-        eq_bwd = equation("bwd", None, hidden, hidden, nonlinearity="relu")
+        eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
+        eq_bwd = Equation("bwd", None, hidden, hidden, nonlinearity="relu")
         l = lens("bad", "fwd", "bwd")
         with pytest.raises(TypeError, match="forward codomain.*!=.*backward domain"):
             validate_lens({"fwd": eq_fwd, "bwd": eq_bwd}, l)
@@ -225,8 +225,8 @@ class TestLensPath:
 
     def _make_id_lens(self, name, hidden):
         """Make a self-inverse lens (identity-like, hidden→hidden in both dirs)."""
-        eq_fwd = equation(f"{name}_fwd", None, hidden, hidden, nonlinearity="relu")
-        eq_bwd = equation(f"{name}_bwd", None, hidden, hidden, nonlinearity="relu")
+        eq_fwd = Equation(f"{name}_fwd", None, hidden, hidden, nonlinearity="relu")
+        eq_bwd = Equation(f"{name}_bwd", None, hidden, hidden, nonlinearity="relu")
         l = lens(name, f"{name}_fwd", f"{name}_bwd")
         return eq_fwd, eq_bwd, l
 
@@ -289,8 +289,8 @@ class TestLensEndToEnd:
 
     def test_lens_path_forward_executes(self, cx, hidden, backend, coder):
         """Forward path through a single relu lens executes correctly."""
-        eq_fwd = equation("relu_fwd", None, hidden, hidden, nonlinearity="relu")
-        eq_bwd = equation("relu_bwd", None, hidden, hidden, nonlinearity="relu")
+        eq_fwd = Equation("relu_fwd", None, hidden, hidden, nonlinearity="relu")
+        eq_bwd = Equation("relu_bwd", None, hidden, hidden, nonlinearity="relu")
         l = lens("relu_lens", "relu_fwd", "relu_bwd")
 
         graph = assemble_graph(
@@ -309,8 +309,8 @@ class TestLensEndToEnd:
 
     def test_lens_path_backward_executes(self, cx, hidden, backend, coder):
         """Backward path through a single lens executes correctly."""
-        eq_fwd = equation("relu_fwd2", None, hidden, hidden, nonlinearity="relu")
-        eq_bwd = equation("tanh_bwd2", None, hidden, hidden, nonlinearity="tanh")
+        eq_fwd = Equation("relu_fwd2", None, hidden, hidden, nonlinearity="relu")
+        eq_bwd = Equation("tanh_bwd2", None, hidden, hidden, nonlinearity="tanh")
         l = lens("mixed_lens", "relu_fwd2", "tanh_bwd2")
 
         graph = assemble_graph(
@@ -329,10 +329,10 @@ class TestLensEndToEnd:
 
     def test_two_lens_path_forward_composed(self, cx, hidden, backend, coder):
         """Forward path across two composed lenses: relu then tanh."""
-        eq_relu_fwd = equation("relu_f", None, hidden, hidden, nonlinearity="relu")
-        eq_relu_bwd = equation("relu_b", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh_fwd = equation("tanh_f", None, hidden, hidden, nonlinearity="tanh")
-        eq_tanh_bwd = equation("tanh_b", None, hidden, hidden, nonlinearity="tanh")
+        eq_relu_fwd = Equation("relu_f", None, hidden, hidden, nonlinearity="relu")
+        eq_relu_bwd = Equation("relu_b", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh_fwd = Equation("tanh_f", None, hidden, hidden, nonlinearity="tanh")
+        eq_tanh_bwd = Equation("tanh_b", None, hidden, hidden, nonlinearity="tanh")
 
         l_relu = lens("relu_l", "relu_f", "relu_b")
         l_tanh = lens("tanh_l", "tanh_f", "tanh_b")
@@ -353,10 +353,10 @@ class TestLensEndToEnd:
 
     def test_two_lens_path_backward_reversed(self, cx, hidden, backend, coder):
         """Backward path reverses order: tanh_bwd then relu_bwd (reversed composition)."""
-        eq_abs_fwd = equation("abs_f", None, hidden, hidden, nonlinearity="abs")
-        eq_abs_bwd = equation("abs_b", None, hidden, hidden, nonlinearity="neg")
-        eq_relu_fwd = equation("relu_f2", None, hidden, hidden, nonlinearity="relu")
-        eq_relu_bwd = equation("relu_b2", None, hidden, hidden, nonlinearity="tanh")
+        eq_abs_fwd = Equation("abs_f", None, hidden, hidden, nonlinearity="abs")
+        eq_abs_bwd = Equation("abs_b", None, hidden, hidden, nonlinearity="neg")
+        eq_relu_fwd = Equation("relu_f2", None, hidden, hidden, nonlinearity="relu")
+        eq_relu_bwd = Equation("relu_b2", None, hidden, hidden, nonlinearity="tanh")
 
         l_abs = lens("abs_l", "abs_f", "abs_b")
         l_relu = lens("relu_l2", "relu_f2", "relu_b2")
@@ -384,8 +384,8 @@ class TestAssembleGraphWithLenses:
     """Integration tests: lenses wired through assemble_graph."""
 
     def test_assemble_graph_registers_both_paths(self, hidden, backend):
-        eq_fwd = equation("id_fwd", None, hidden, hidden, nonlinearity="relu")
-        eq_bwd = equation("id_bwd", None, hidden, hidden, nonlinearity="relu")
+        eq_fwd = Equation("id_fwd", None, hidden, hidden, nonlinearity="relu")
+        eq_bwd = Equation("id_bwd", None, hidden, hidden, nonlinearity="relu")
         l = lens("id_lens", "id_fwd", "id_bwd")
 
         graph = assemble_graph(
@@ -399,16 +399,16 @@ class TestAssembleGraphWithLenses:
 
     def test_assemble_graph_with_invalid_lens_raises(self, hidden, output_sort, backend):
         real_sr = record_fields(hidden)["semiring"]
-        eq_fwd = equation("enc_fwd", None, hidden, output_sort, real_sr, nonlinearity="relu")
-        eq_bwd = equation("enc_bwd", None, hidden, output_sort, real_sr, nonlinearity="relu")
+        eq_fwd = Equation("enc_fwd", None, hidden, output_sort, real_sr, nonlinearity="relu")
+        eq_bwd = Equation("enc_bwd", None, hidden, output_sort, real_sr, nonlinearity="relu")
         l = lens("bad_enc", "enc_fwd", "enc_bwd")
 
         with pytest.raises(TypeError):
             assemble_graph([eq_fwd, eq_bwd], backend, lenses=[l])
 
     def test_assemble_graph_no_lens_paths_still_validates(self, hidden, backend):
-        eq_fwd = equation("enc2_fwd", None, hidden, hidden, nonlinearity="relu")
-        eq_bwd = equation("enc2_bwd", None, hidden, hidden, nonlinearity="tanh")
+        eq_fwd = Equation("enc2_fwd", None, hidden, hidden, nonlinearity="relu")
+        eq_bwd = Equation("enc2_bwd", None, hidden, hidden, nonlinearity="tanh")
         l = lens("enc2", "enc2_fwd", "enc2_bwd")
 
         graph = assemble_graph([eq_fwd, eq_bwd], backend, lenses=[l])
@@ -416,10 +416,10 @@ class TestAssembleGraphWithLenses:
 
     def test_multiple_lenses_in_one_graph(self, hidden, backend):
         eqs = [
-            equation("relu_g_fwd", None, hidden, hidden, nonlinearity="relu"),
-            equation("relu_g_bwd", None, hidden, hidden, nonlinearity="relu"),
-            equation("tanh_g_fwd", None, hidden, hidden, nonlinearity="tanh"),
-            equation("tanh_g_bwd", None, hidden, hidden, nonlinearity="tanh"),
+            Equation("relu_g_fwd", None, hidden, hidden, nonlinearity="relu"),
+            Equation("relu_g_bwd", None, hidden, hidden, nonlinearity="relu"),
+            Equation("tanh_g_fwd", None, hidden, hidden, nonlinearity="tanh"),
+            Equation("tanh_g_bwd", None, hidden, hidden, nonlinearity="tanh"),
         ]
         l_relu = lens("relu_g", "relu_g_fwd", "relu_g_bwd")
         l_tanh = lens("tanh_g", "tanh_g_fwd", "tanh_g_bwd")
@@ -450,8 +450,8 @@ class TestLensFoldIntegration:
         """fold() using a lens's forward equation works normally."""
         add_sr = semiring("addsem", plus="add", times="add", zero=0.0, one=0.0)
         acc_sort = sort("acc", add_sr)
-        eq_step_fwd = equation("acc_fwd", "i,i->i", acc_sort, acc_sort, add_sr)
-        eq_step_bwd = equation("acc_bwd", "i,i->i", acc_sort, acc_sort, add_sr)
+        eq_step_fwd = Equation("acc_fwd", "i,i->i", acc_sort, acc_sort, add_sr)
+        eq_step_bwd = Equation("acc_bwd", "i,i->i", acc_sort, acc_sort, add_sr)
         l = lens("acc_lens", "acc_fwd", "acc_bwd")
 
         init = encode_array(coder, np.zeros(3))
@@ -477,9 +477,9 @@ class TestLensFoldIntegration:
     def test_lens_coexists_with_fold_and_path(self, cx, hidden, backend, coder):
         """A graph can contain lenses, lens_paths, and folds simultaneously."""
         real_sr = record_fields(hidden)["semiring"]
-        eq_relu_fwd = equation("rl_fwd", None, hidden, hidden, nonlinearity="relu")
-        eq_relu_bwd = equation("rl_bwd", None, hidden, hidden, nonlinearity="relu")
-        eq_step = equation("fold_step", "i,i->i", hidden, hidden, real_sr)
+        eq_relu_fwd = Equation("rl_fwd", None, hidden, hidden, nonlinearity="relu")
+        eq_relu_bwd = Equation("rl_bwd", None, hidden, hidden, nonlinearity="relu")
+        eq_step = Equation("fold_step", "i,i->i", hidden, hidden, real_sr)
         l = lens("rl", "rl_fwd", "rl_bwd")
 
         init = encode_array(coder, np.zeros(4))
@@ -504,8 +504,8 @@ class TestLensSemiringPolymorphism:
     """Demonstrate that the lens structure is semiring-agnostic."""
 
     def test_tropical_lens_declaration(self, tropical_sr, tropic_sort):
-        eq_fwd = equation("tp_fwd", "i->j", tropic_sort, tropic_sort, tropical_sr)
-        eq_bwd = equation("tp_bwd", "j->i", tropic_sort, tropic_sort, tropical_sr)
+        eq_fwd = Equation("tp_fwd", "i->j", tropic_sort, tropic_sort, tropical_sr)
+        eq_bwd = Equation("tp_bwd", "j->i", tropic_sort, tropic_sort, tropical_sr)
         l = lens("tropical_lens", "tp_fwd", "tp_bwd")
         lf = LensView(l)
         assert lf.name == "tropical_lens"
@@ -513,16 +513,16 @@ class TestLensSemiringPolymorphism:
         assert lf.backward == "tp_bwd"
 
     def test_tropical_lens_validates(self, tropical_sr, tropic_sort):
-        eq_fwd = equation("tp2_fwd", None, tropic_sort, tropic_sort, nonlinearity="relu")
-        eq_bwd = equation("tp2_bwd", None, tropic_sort, tropic_sort, nonlinearity="relu")
+        eq_fwd = Equation("tp2_fwd", None, tropic_sort, tropic_sort, nonlinearity="relu")
+        eq_bwd = Equation("tp2_bwd", None, tropic_sort, tropic_sort, nonlinearity="relu")
         l = lens("tropic_id", "tp2_fwd", "tp2_bwd")
         eq_by_name = {"tp2_fwd": eq_fwd, "tp2_bwd": eq_bwd}
         validate_lens(eq_by_name, l)
 
     def test_tropical_lens_end_to_end(self, cx, tropical_sr, tropic_sort, backend, coder):
         """Tropical unary identity lens path executes correctly."""
-        eq_fwd = equation("trp_fwd", "i->i", tropic_sort, tropic_sort, tropical_sr)
-        eq_bwd = equation("trp_bwd", "i->i", tropic_sort, tropic_sort, tropical_sr)
+        eq_fwd = Equation("trp_fwd", "i->i", tropic_sort, tropic_sort, tropical_sr)
+        eq_bwd = Equation("trp_bwd", "i->i", tropic_sort, tropic_sort, tropical_sr)
         l = lens("trp_lens", "trp_fwd", "trp_bwd")
 
         graph = assemble_graph(
@@ -548,8 +548,8 @@ class TestLensSemiringPolymorphism:
         """Real and tropical lenses can coexist in separate graphs."""
         real_sort = sort("real_s", real_sr)
 
-        eq_real_fwd = equation("real_relu", None, real_sort, real_sort, nonlinearity="relu")
-        eq_real_bwd = equation("real_tanh", None, real_sort, real_sort, nonlinearity="tanh")
+        eq_real_fwd = Equation("real_relu", None, real_sort, real_sort, nonlinearity="relu")
+        eq_real_bwd = Equation("real_tanh", None, real_sort, real_sort, nonlinearity="tanh")
         l_real = lens("real_l", "real_relu", "real_tanh")
 
         graph = assemble_graph(
@@ -581,8 +581,8 @@ class TestOpticLensValidation:
 
     def _make_eq_with_product_codomain(self, hidden, output_sort, residual_sort):
         prod_sort = product_sort([output_sort, residual_sort])
-        eq_fwd = equation("optic_fwd", None, hidden, prod_sort, nonlinearity="relu")
-        eq_bwd = equation("optic_bwd", None, prod_sort, hidden, nonlinearity="relu")
+        eq_fwd = Equation("optic_fwd", None, hidden, prod_sort, nonlinearity="relu")
+        eq_bwd = Equation("optic_bwd", None, prod_sort, hidden, nonlinearity="relu")
         return eq_fwd, eq_bwd, prod_sort
 
     def test_validate_lens_passes_with_residual_and_product_codomain(
@@ -598,8 +598,8 @@ class TestOpticLensValidation:
     def test_validate_lens_raises_when_residual_set_but_codomain_not_product(
         self, hidden, output_sort, residual_sort
     ):
-        eq_fwd = equation("plain_fwd", None, hidden, output_sort, nonlinearity="relu")
-        eq_bwd = equation("plain_bwd", None, output_sort, hidden, nonlinearity="relu")
+        eq_fwd = Equation("plain_fwd", None, hidden, output_sort, nonlinearity="relu")
+        eq_bwd = Equation("plain_bwd", None, output_sort, hidden, nonlinearity="relu")
         l = lens("bad_optic", "plain_fwd", "plain_bwd", residual_sort=residual_sort)
         eq_by_name = {"plain_fwd": eq_fwd, "plain_bwd": eq_bwd}
         with pytest.raises(TypeError, match="product sort"):
@@ -609,16 +609,16 @@ class TestOpticLensValidation:
         self, hidden, output_sort, residual_sort
     ):
         wrong_prod = product_sort([output_sort, hidden])
-        eq_fwd = equation("missing_fwd", None, hidden, wrong_prod, nonlinearity="relu")
-        eq_bwd = equation("missing_bwd", None, wrong_prod, hidden, nonlinearity="relu")
+        eq_fwd = Equation("missing_fwd", None, hidden, wrong_prod, nonlinearity="relu")
+        eq_bwd = Equation("missing_bwd", None, wrong_prod, hidden, nonlinearity="relu")
         l = lens("missing_optic", "missing_fwd", "missing_bwd", residual_sort=residual_sort)
         eq_by_name = {"missing_fwd": eq_fwd, "missing_bwd": eq_bwd}
         with pytest.raises(TypeError, match="missing residual"):
             validate_lens(eq_by_name, l)
 
     def test_validate_lens_plain_still_works_with_residual_none(self, hidden, output_sort, real_sr):
-        eq_fwd = equation("plain2_fwd", "i->j", hidden, output_sort, real_sr)
-        eq_bwd = equation("plain2_bwd", "j->i", output_sort, hidden, real_sr)
+        eq_fwd = Equation("plain2_fwd", "i->j", hidden, output_sort, real_sr)
+        eq_bwd = Equation("plain2_bwd", "j->i", output_sort, hidden, real_sr)
         l = lens("plain2", "plain2_fwd", "plain2_bwd")
         eq_by_name = {"plain2_fwd": eq_fwd, "plain2_bwd": eq_bwd}
         validate_lens(eq_by_name, l)
@@ -632,8 +632,8 @@ class TestOpticLensValidation:
 
         backend.unary_ops["pair_relu"] = UnaryOp(fn=lambda x: (np.maximum(0, x), x))
 
-        eq_fwd = equation("optic2_fwd", None, h_sort, prod, nonlinearity="pair_relu")
-        eq_bwd = equation("optic2_bwd", None, prod, h_sort, nonlinearity="relu")
+        eq_fwd = Equation("optic2_fwd", None, h_sort, prod, nonlinearity="pair_relu")
+        eq_bwd = Equation("optic2_bwd", None, prod, h_sort, nonlinearity="relu")
 
         l = lens("optic2", "optic2_fwd", "optic2_bwd", residual_sort=r_sort)
 
@@ -732,9 +732,9 @@ class TestLensPathRouting:
         backend.unary_ops[f"pair_{name}"] = UnaryOp(fn=pair_relu)
         backend.unary_ops[f"bwd_{name}"] = UnaryOp(fn=lambda p: p[0] * 0.5)
 
-        eq_fwd = equation(f"{name}_fwd", None, hidden, prod,
+        eq_fwd = Equation(f"{name}_fwd", None, hidden, prod,
                           nonlinearity=f"pair_{name}")
-        eq_bwd = equation(f"{name}_bwd", None, prod, hidden,
+        eq_bwd = Equation(f"{name}_bwd", None, prod, hidden,
                           nonlinearity=f"bwd_{name}")
         l = lens(name, f"{name}_fwd", f"{name}_bwd", residual_sort=residual_sort)
         return eq_fwd, eq_bwd, l
@@ -742,8 +742,8 @@ class TestLensPathRouting:
     def test_single_optic_with_residual_uses_plain_path(self, hidden, residual_sort):
         """Single optic with residual_sort uses plain path (not optic_fwd/bwd)."""
         prod = product_sort([hidden, residual_sort])
-        eq_fwd = equation("so_fwd", None, hidden, prod, nonlinearity="relu")
-        eq_bwd = equation("so_bwd", None, prod, hidden, nonlinearity="relu")
+        eq_fwd = Equation("so_fwd", None, hidden, prod, nonlinearity="relu")
+        eq_bwd = Equation("so_bwd", None, prod, hidden, nonlinearity="relu")
         l = lens("so", "so_fwd", "so_bwd", residual_sort=residual_sort)
         lens_by_name = {"so": l}
 
@@ -756,10 +756,10 @@ class TestLensPathRouting:
     def test_multi_optic_with_residual_uses__lens_path_threaded(self, hidden, residual_sort):
         """Multi-optic with residual_sort uses _lens_path_threaded (optic_fwd/bwd)."""
         prod = product_sort([hidden, residual_sort])
-        eq_fwd_a = equation("mo_fwd_a", None, hidden, prod, nonlinearity="relu")
-        eq_bwd_a = equation("mo_bwd_a", None, prod, hidden, nonlinearity="relu")
-        eq_fwd_b = equation("mo_fwd_b", None, hidden, prod, nonlinearity="relu")
-        eq_bwd_b = equation("mo_bwd_b", None, prod, hidden, nonlinearity="relu")
+        eq_fwd_a = Equation("mo_fwd_a", None, hidden, prod, nonlinearity="relu")
+        eq_bwd_a = Equation("mo_bwd_a", None, prod, hidden, nonlinearity="relu")
+        eq_fwd_b = Equation("mo_fwd_b", None, hidden, prod, nonlinearity="relu")
+        eq_bwd_b = Equation("mo_bwd_b", None, prod, hidden, nonlinearity="relu")
         l_a = lens("mo_a", "mo_fwd_a", "mo_bwd_a", residual_sort=residual_sort)
         l_b = lens("mo_b", "mo_fwd_b", "mo_bwd_b", residual_sort=residual_sort)
         lens_by_name = {"mo_a": l_a, "mo_b": l_b}
@@ -774,8 +774,8 @@ class TestLensPathRouting:
 
     def test_plain_lens_without_residual_unaffected(self, hidden):
         """Plain lens (no residual_sort) still uses the original path composition."""
-        eq_fwd = equation("pl_fwd", None, hidden, hidden, nonlinearity="relu")
-        eq_bwd = equation("pl_bwd", None, hidden, hidden, nonlinearity="relu")
+        eq_fwd = Equation("pl_fwd", None, hidden, hidden, nonlinearity="relu")
+        eq_bwd = Equation("pl_bwd", None, hidden, hidden, nonlinearity="relu")
         l = lens("pl", "pl_fwd", "pl_bwd")
         lens_by_name = {"pl": l}
 
@@ -802,10 +802,10 @@ class TestMultiOpticEndToEnd:
         backend.unary_ops["pair_tanh13"] = UnaryOp(fn=pair_tanh)
         backend.unary_ops["bwd_half13"] = UnaryOp(fn=lambda p: p[0] * 0.5)
 
-        eq_a_fwd = equation("a13_fwd", None, hidden, prod, nonlinearity="pair_relu13")
-        eq_a_bwd = equation("a13_bwd", None, prod, hidden, nonlinearity="bwd_half13")
-        eq_b_fwd = equation("b13_fwd", None, hidden, prod, nonlinearity="pair_tanh13")
-        eq_b_bwd = equation("b13_bwd", None, prod, hidden, nonlinearity="bwd_half13")
+        eq_a_fwd = Equation("a13_fwd", None, hidden, prod, nonlinearity="pair_relu13")
+        eq_a_bwd = Equation("a13_bwd", None, prod, hidden, nonlinearity="bwd_half13")
+        eq_b_fwd = Equation("b13_fwd", None, hidden, prod, nonlinearity="pair_tanh13")
+        eq_b_bwd = Equation("b13_bwd", None, prod, hidden, nonlinearity="bwd_half13")
 
         l_a = lens("la13", "a13_fwd", "a13_bwd", residual_sort=residual_sort)
         l_b = lens("lb13", "b13_fwd", "b13_bwd", residual_sort=residual_sort)
@@ -958,10 +958,10 @@ class TestOpticSemiringPolymorphism:
         backend.unary_ops["pair_tanh13t"] = UnaryOp(fn=pair_tanh)
         backend.unary_ops["bwd_half13t"] = UnaryOp(fn=lambda p: p[0] * 0.5)
 
-        eq_a_fwd = equation("at13_fwd", None, t_sort, prod, nonlinearity="pair_relu13t")
-        eq_a_bwd = equation("at13_bwd", None, prod, t_sort, nonlinearity="bwd_half13t")
-        eq_b_fwd = equation("bt13_fwd", None, t_sort, prod, nonlinearity="pair_tanh13t")
-        eq_b_bwd = equation("bt13_bwd", None, prod, t_sort, nonlinearity="bwd_half13t")
+        eq_a_fwd = Equation("at13_fwd", None, t_sort, prod, nonlinearity="pair_relu13t")
+        eq_a_bwd = Equation("at13_bwd", None, prod, t_sort, nonlinearity="bwd_half13t")
+        eq_b_fwd = Equation("bt13_fwd", None, t_sort, prod, nonlinearity="pair_tanh13t")
+        eq_b_bwd = Equation("bt13_bwd", None, prod, t_sort, nonlinearity="bwd_half13t")
 
         l_a = lens("lat13", "at13_fwd", "at13_bwd", residual_sort=r_sort)
         l_b = lens("lbt13", "bt13_fwd", "bt13_bwd", residual_sort=r_sort)

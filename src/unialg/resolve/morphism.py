@@ -1,15 +1,18 @@
 """Tensor equations as Hydra Primitives.
 
-An equation is the fundamental construct of the DSL — simultaneously a
-morphism (typed: domain → codomain) and a tensor equation (einsum +
-semiring, with optional pointwise nonlinearity).
+An equation is simultaneously a morphism (typed: domain → codomain) and a
+tensor equation (einsum + semiring + optional nonlinearity). The Equation
+class unifies declaration, field access, and resolution in one object.
 
-    equation()          → Hydra record term (the declaration)
-    resolve_equation()  → Hydra Primitive (the compiled callable)
+    Equation(...)           → create an equation
+    Equation.from_term(t)   → wrap an existing Hydra record term
+    eq.resolve(backend)     → compile to a Hydra Primitive
+    eq.resolve_as_merge(b)  → compile as a list-consuming fan-merge Primitive
 
-This follows the same pattern as semiring.py:
-    semiring()          → Hydra record term
-    resolve_semiring()  → ResolvedSemiring with callables
+Compat aliases (public API unchanged):
+    equation(...)           → Equation(...)
+    resolve_equation(t, b)  → Equation.from_term(t).resolve(b)
+    resolve_list_merge(t,b) → Equation.from_term(t).resolve_as_merge(b)
 """
 
 from __future__ import annotations
@@ -21,31 +24,22 @@ from hydra.core import Name
 from hydra.dsl.meta.phantoms import record, string, list_, unit, TTerm
 from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
 
+from unialg.utils import record_fields, string_value
+from unialg.views import _RecordView, _StringField, _TermField
 from unialg.resolve.ops import resolve_semiring
-from unialg.algebra.sort import tensor_coder, sort_coder, is_batched
+from unialg.algebra.sort import sort_coder, is_batched
 from unialg.resolve.contraction import compile_einsum, semiring_contract
-import unialg.views as vw
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
 
 
 # ---------------------------------------------------------------------------
-# Batch-dimension helpers
+# Batch-dimension helper
 # ---------------------------------------------------------------------------
 
 def _prepend_batch_dim(einsum_str: str) -> str:
-    """Prepend a fresh batch dimension to every operand of an einsum string.
-
-    Picks the first lowercase letter not already used as an index as the
-    batch character, so the result is unambiguous regardless of the original
-    equation.
-
-    Examples::
-
-        "ij,j->i"   →  "bij,bj->bi"    (batch char = 'b')
-        "ij,jk->ik" →  "aij,ajk->aik"  (if 'a' is unused and 'b' is used)
-    """
+    """Prepend a fresh batch dimension to every operand of an einsum string."""
     if not einsum_str:
         return einsum_str
     used = set(einsum_str) - {",", "-", ">"}
@@ -53,92 +47,7 @@ def _prepend_batch_dim(einsum_str: str) -> str:
     lhs, rhs = einsum_str.split("->")
     inputs = lhs.split(",")
     batched_inputs = ",".join(batch_char + inp for inp in inputs)
-    batched_output = batch_char + rhs
-    return f"{batched_inputs}->{batched_output}"
-
-
-# ---------------------------------------------------------------------------
-# Equation as Hydra record term
-# ---------------------------------------------------------------------------
-
-EQUATION_TYPE_NAME = core.Name("ua.equation.Equation")
-
-
-def equation(name: str, einsum: str | None,
-             domain_sort: core.Term, codomain_sort: core.Term,
-             semiring_term: core.Term | None = None,
-             nonlinearity: str | None = None,
-             inputs: tuple[str, ...] = (),
-             param_slots: tuple[str, ...] = ()) -> core.Term:
-    """Create a tensor equation as a Hydra record term.
-
-    Args:
-        name:           identifier (e.g. "linear1", "attention")
-        einsum:         einsum equation string, or None for pure pointwise
-        domain_sort:    sort term for input (from sort())
-        codomain_sort:  sort term for output (from sort())
-        semiring_term:  semiring term (from semiring()), required if einsum is set
-        nonlinearity:   optional pointwise op name (e.g. "relu"), applied after contraction
-        inputs:         names of upstream tensors this equation reads from
-        param_slots:    names of scalar hyperparameters this equation expects
-                        before its tensor input(s) (e.g. ("temperature",))
-    """
-    return record(EQUATION_TYPE_NAME, [
-        Name("name") >> string(name),
-        Name("einsum") >> string(einsum or ""),
-        Name("domainSort") >> TTerm(domain_sort),
-        Name("codomainSort") >> TTerm(codomain_sort),
-        Name("semiring") >> (TTerm(semiring_term) if semiring_term is not None else unit()),
-        Name("nonlinearity") >> string(nonlinearity or ""),
-        Name("inputs") >> list_([string(n) for n in inputs]),
-        Name("paramSlots") >> list_([string(p) for p in param_slots]),
-    ]).value
-
-
-# ---------------------------------------------------------------------------
-# Shared field-extraction helper
-# ---------------------------------------------------------------------------
-
-def _resolve_equation_fields(eq_term: core.Term, backend: "Backend"):
-    """Extract and resolve common equation fields from a Hydra record term.
-
-    Returns a tuple of:
-        (fields, name, einsum_str, has_einsum, has_nl, nl_fn,
-         in_coder, out_coder, prim_name, sr, eq)
-
-    ``sr`` and ``eq`` are ``None`` when ``has_einsum`` is ``False``.
-    ``nl_fn`` is ``None`` when ``has_nl`` is ``False``.
-
-    The returned ``in_coder`` is the bare sort coder for the domain sort.
-    Callers that need a wrapped form (e.g. ``list_coder(in_coder)``) must
-    apply that wrapping themselves.
-    """
-    v = vw.EquationView(eq_term)
-    name = v.name
-    einsum_str = v.einsum
-    nl_str = v.nonlinearity
-
-    # Auto-prepend batch dimension when the domain sort is batched.
-    # The declaration stores the logical (unbatched) einsum; resolution
-    # produces the physical (batched) einsum for the backend.
-    has_einsum = bool(einsum_str)
-    if has_einsum and is_batched(v.domain_sort):
-        einsum_str = _prepend_batch_dim(einsum_str)
-
-    has_nl = bool(nl_str)
-    nl_fn = backend.unary(nl_str) if has_nl else None
-
-    in_coder = sort_coder(v.domain_sort, backend)
-    out_coder = sort_coder(v.codomain_sort, backend)
-    prim_name = core.Name(f"ua.equation.{name}")
-
-    sr = None
-    eq = None
-    if has_einsum:
-        sr = resolve_semiring(v.semiring, backend)
-        eq = compile_einsum(einsum_str)
-
-    return v, name, einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq
+    return f"{','.join(batch_char + inp for inp in inputs)}->{batch_char + rhs}"
 
 
 def _make_prim(prim_name, compute, coders, out_coder):
@@ -155,128 +64,191 @@ def _make_prim(prim_name, compute, coders, out_coder):
 
 
 # ---------------------------------------------------------------------------
-# Resolve equation → Hydra Primitive
+# Equation
 # ---------------------------------------------------------------------------
 
-def resolve_equation(eq_term: core.Term, backend: Backend) -> "hydra.graph.Primitive":
-    """Resolve an equation term into a Hydra Primitive.
+EQUATION_TYPE_NAME = core.Name("ua.equation.Equation")
 
-    Reads the equation's fields, resolves its semiring against the backend,
-    compiles the einsum, and produces a Primitive with the correct arity.
-    Uses sort-aware TermCoders so the Primitive's type scheme reflects
-    the actual domain/codomain sorts.
+
+class Equation(_RecordView):
+    """A tensor equation: declaration, field access, and resolution in one object.
+
+    The underlying Hydra record term is the source of truth. Use .term to
+    retrieve it for Hydra interop. Field access reads directly from the term
+    on every call — there is no cached copy.
+
+    Construct:
+        eq = Equation("linear", "ij,j->i", hidden, output, real_sr)
+
+    Wrap an existing term (e.g. from the parser):
+        eq = Equation.from_term(term)
     """
-    v, name, einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq = \
-        _resolve_equation_fields(eq_term, backend)
 
-    # Determine param_slots (scalar hyperparameters before tensor inputs).
-    # This is specific to resolve_equation and not shared with resolve_list_merge.
-    param_slots = v.param_slots
-    n_params = len(param_slots)
+    name         = _StringField("name")
+    einsum       = _StringField("einsum")
+    nonlinearity = _StringField("nonlinearity")
+    domain_sort  = _TermField("domainSort")
+    codomain_sort = _TermField("codomainSort")
+    semiring      = _TermField("semiring")
 
-    if has_einsum:
-        n_inputs = len(eq.input_vars)
-    elif has_nl:
-        n_inputs = 1
-    else:
-        raise ValueError(f"Equation '{name}' has neither einsum nor nonlinearity")
+    def __init__(
+        self,
+        name: str,
+        einsum: str | None,
+        domain_sort: core.Term,
+        codomain_sort: core.Term,
+        semiring_term: core.Term | None = None,
+        nonlinearity: str | None = None,
+        inputs: tuple[str, ...] = (),
+        param_slots: tuple[str, ...] = (),
+    ):
+        super().__init__(record(EQUATION_TYPE_NAME, [
+            Name("name") >> string(name),
+            Name("einsum") >> string(einsum or ""),
+            Name("domainSort") >> TTerm(domain_sort),
+            Name("codomainSort") >> TTerm(codomain_sort),
+            Name("semiring") >> (TTerm(semiring_term) if semiring_term is not None else unit()),
+            Name("nonlinearity") >> string(nonlinearity or ""),
+            Name("inputs") >> list_([string(n) for n in inputs]),
+            Name("paramSlots") >> list_([string(p) for p in param_slots]),
+        ]).value)
 
-    total_arity = n_params + n_inputs
-    if total_arity > 3:
-        raise ValueError(
-            f"Equation '{name}': total arity {total_arity} "
-            f"({n_params} params + {n_inputs} tensor inputs) exceeds max 3"
-        )
+    @classmethod
+    def from_term(cls, term) -> "Equation":
+        """Wrap an existing Hydra record term as an Equation.
 
-    # Build compute closure: params come first, then tensor inputs
-    def _compute(*args):
-        params_args = args[:n_params]
-        tensor_args = list(args[n_params:])
+        Idempotent: if term is already an Equation, returns it unchanged.
+        """
+        if isinstance(term, cls):
+            return term
+        obj = cls.__new__(cls)
+        obj._term = term
+        return obj
+
+    @property
+    def inputs(self) -> list[str]:
+        return [string_value(t) for t in record_fields(self._term)["inputs"].value]
+
+    @property
+    def param_slots(self) -> list[str]:
+        ps = record_fields(self._term).get("paramSlots")
+        if ps is None:
+            return []
+        if hasattr(ps, "value") and isinstance(ps.value, (list, tuple)):
+            return [string_value(t) for t in ps.value]
+        return []
+
+    # ------------------------------------------------------------------
+    # Resolution
+    # ------------------------------------------------------------------
+
+    def resolve(self, backend: "Backend"):
+        """Compile to a Hydra Primitive. Standard (non-merge) resolution."""
+        einsum_str = self.einsum
+        has_einsum = bool(einsum_str)
+        if has_einsum and is_batched(self.domain_sort):
+            einsum_str = _prepend_batch_dim(einsum_str)
+
+        has_nl = bool(self.nonlinearity)
+        nl_fn = backend.unary(self.nonlinearity) if has_nl else None
+        in_coder = sort_coder(self.domain_sort, backend)
+        out_coder = sort_coder(self.codomain_sort, backend)
+        prim_name = core.Name(f"ua.equation.{self.name}")
+        param_slots = self.param_slots
+        n_params = len(param_slots)
+
         if has_einsum:
-            r = semiring_contract(eq, tensor_args, sr, backend)
+            sr = resolve_semiring(self.semiring, backend)
+            eq = compile_einsum(einsum_str)
+            n_inputs = len(eq.input_vars)
+        elif has_nl:
+            n_inputs = 1
+            sr = eq = None
         else:
-            r = tensor_args[0]
-        if nl_fn:
-            return nl_fn(r, *params_args) if params_args else nl_fn(r)
-        return r
+            raise ValueError(f"Equation '{self.name}' has neither einsum nor nonlinearity")
 
-    coders = [float32_coder()] * n_params + [in_coder] * n_inputs
-    return _make_prim(prim_name, _compute, coders, out_coder)
+        total_arity = n_params + n_inputs
+        if total_arity > 3:
+            raise ValueError(
+                f"Equation '{self.name}': total arity {total_arity} "
+                f"({n_params} params + {n_inputs} tensor inputs) exceeds max 3"
+            )
 
+        def _compute(*args):
+            params_args = args[:n_params]
+            tensor_args = list(args[n_params:])
+            r = semiring_contract(eq, tensor_args, sr, backend) if has_einsum else tensor_args[0]
+            if nl_fn:
+                return nl_fn(r, *params_args) if params_args else nl_fn(r)
+            return r
 
-# ---------------------------------------------------------------------------
-# List-merge resolution (for fan compositions)
-# ---------------------------------------------------------------------------
+        coders = [float32_coder()] * n_params + [in_coder] * n_inputs
+        return _make_prim(prim_name, _compute, coders, out_coder)
 
-def resolve_list_merge(eq_term: core.Term, backend: Backend) -> "hydra.graph.Primitive":
-    """Resolve a binary-einsum equation as a list-consuming merge Primitive.
+    def resolve_as_merge(self, backend: "Backend"):
+        """Compile as a list-consuming merge Primitive (for fan compositions)."""
+        einsum_str = self.einsum
+        has_einsum = bool(einsum_str)
+        if has_einsum and is_batched(self.domain_sort):
+            einsum_str = _prepend_batch_dim(einsum_str)
+        has_nl = bool(self.nonlinearity)
+        nl_fn = backend.unary(self.nonlinearity) if has_nl else None
+        in_coder = sort_coder(self.domain_sort, backend)
+        out_coder = sort_coder(self.codomain_sort, backend)
+        prim_name = core.Name(f"ua.equation.{self.name}")
+        name = self.name
 
-    Used by fan compositions: the merge receives a list of branch outputs
-    and folds the binary combiner pairwise over them.
+        if has_einsum:
+            sr = resolve_semiring(self.semiring, backend)
+            eq = compile_einsum(einsum_str)
+            n_inputs = len(eq.input_vars)
 
-    The equation must have a 2-input einsum (the binary combiner, e.g. "i,i->i").
-    Produces a prim1: list<tensor> → tensor.
-    """
-    _, name, _einsum_str, has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, eq = \
-        _resolve_equation_fields(eq_term, backend)
+            if n_inputs == 2:
+                def compute_list_merge(tensors):
+                    result = tensors[0]
+                    for t in tensors[1:]:
+                        result = semiring_contract(eq, [result, t], sr, backend)
+                    if nl_fn:
+                        result = nl_fn(result)
+                    return result
+            elif n_inputs == 1:
+                def compute_list_merge(tensors):
+                    if len(tensors) != 1:
+                        raise ValueError(
+                            f"Unary merge '{name}' expects 1-element list, got {len(tensors)}")
+                    result = semiring_contract(eq, [tensors[0]], sr, backend)
+                    if nl_fn:
+                        result = nl_fn(result)
+                    return result
+            else:
+                raise ValueError(
+                    f"List-merge equation '{name}': einsum must have 1 or 2 inputs, got {n_inputs}")
 
-    if has_einsum:
-        n_inputs = len(eq.input_vars)
+            return _make_prim(prim_name, compute_list_merge, [list_coder(in_coder)], out_coder)
 
-        if n_inputs == 2:
-            def compute_list_merge(tensors):
+        elif has_nl:
+            def compute_list_nl(tensors):
                 result = tensors[0]
                 for t in tensors[1:]:
-                    result = semiring_contract(eq, [result, t], sr, backend)
-                if nl_fn:
-                    result = nl_fn(result)
-                return result
-        elif n_inputs == 1:
-            def compute_list_merge(tensors):
-                if len(tensors) != 1:
-                    raise ValueError(f"Unary merge '{name}' expects 1-element list, got {len(tensors)}")
-                result = semiring_contract(eq, [tensors[0]], sr, backend)
-                if nl_fn:
-                    result = nl_fn(result)
-                return result
+                    result = result + t
+                return nl_fn(result)
+            return _make_prim(prim_name, compute_list_nl, [list_coder(in_coder)], out_coder)
+
         else:
-            raise ValueError(f"List-merge equation '{name}': einsum must have 1 or 2 inputs, got {n_inputs}")
+            raise ValueError(f"List-merge equation '{name}' has neither einsum nor nonlinearity")
 
-        return _make_prim(prim_name, compute_list_merge, [list_coder(in_coder)], out_coder)
-
-    elif has_nl:
-        def compute_list_nl(tensors):
-            result = tensors[0]
-            for t in tensors[1:]:
-                result = result + t
-            return nl_fn(result)
-
-        return _make_prim(prim_name, compute_list_nl, [list_coder(in_coder)], out_coder)
-
-    else:
-        raise ValueError(f"List-merge equation '{name}' has neither einsum nor nonlinearity")
-
-
-# ---------------------------------------------------------------------------
-# Batch equation resolution
-# ---------------------------------------------------------------------------
 
 def resolve_all_primitives(
     eq_terms: list[core.Term],
     backend: "Backend",
     merge_names: set[str],
 ) -> tuple[dict, dict[str, core.Term]]:
-    """Resolve equations to primitives and build eq_by_name lookup.
-
-    Fan merges get list-merge resolution; all others get standard resolution.
-    Returns (primitives_dict, eq_by_name_dict).
-    The primitives_dict is pre-populated with Hydra's standard_library().
-    """
+    """Resolve equations to primitives and build eq_by_name lookup."""
     from hydra.sources.libraries import standard_library
     primitives = dict(standard_library())
-    eq_by_name: dict[str, core.Term] = {vw.EquationView(eq).name: eq for eq in eq_terms}
-    for eq_term in eq_terms:
-        name = vw.EquationView(eq_term).name
-        prim = resolve_list_merge(eq_term, backend) if name in merge_names else resolve_equation(eq_term, backend)
+    equations = [Equation.from_term(eq) for eq in eq_terms]
+    eq_by_name: dict[str, Equation] = {eq.name: eq for eq in equations}
+    for eq in equations:
+        prim = eq.resolve_as_merge(backend) if eq.name in merge_names else eq.resolve(backend)
         primitives[prim.name] = prim
     return primitives, eq_by_name

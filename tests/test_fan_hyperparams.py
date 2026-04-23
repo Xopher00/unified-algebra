@@ -14,7 +14,7 @@ from hydra.reduction import reduce_term
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder, sort_coder,
     build_graph, assemble_graph, rebind_hyperparams,
-    equation, resolve_equation, resolve_list_merge,
+    Equation,
     path, fan, validate_spec,
     PathSpec, FanSpec,
 )
@@ -80,11 +80,11 @@ class TestListFanArity:
 
     def test_four_branch_fan(self, cx, real_sr, hidden, backend, coder):
         """4-branch fan: relu * tanh * sigmoid * identity (Hadamard fold)."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        eq_sig = equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
-        eq_ident = equation("ident", None, hidden, hidden, nonlinearity="abs")
-        eq_merge = equation("merge4", "i,i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_sig = Equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
+        eq_ident = Equation("ident", None, hidden, hidden, nonlinearity="abs")
+        eq_merge = Equation("merge4", "i,i->i", hidden, hidden, real_sr)
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_sig, eq_ident, eq_merge], backend,
@@ -110,8 +110,8 @@ class TestListFanArity:
         # All branches are the same equation (relu) with different names
         eqs = []
         for i in range(8):
-            eqs.append(equation(f"head{i}", None, hidden, hidden, nonlinearity="relu"))
-        eq_merge = equation("merge8", "i,i->i", hidden, hidden, real_sr)
+            eqs.append(Equation(f"head{i}", None, hidden, hidden, nonlinearity="relu"))
+        eq_merge = Equation("merge8", "i,i->i", hidden, hidden, real_sr)
 
         graph = assemble_graph(
             eqs + [eq_merge], backend,
@@ -131,8 +131,8 @@ class TestListFanArity:
 
     def test_single_branch_list_fan(self, cx, real_sr, hidden, backend, coder):
         """Single branch fan with binary merge — merge gets 1-element list."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_merge = equation("merge1", "i,i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_merge = Equation("merge1", "i,i->i", hidden, hidden, real_sr)
 
         graph = assemble_graph(
             [eq_relu, eq_merge], backend,
@@ -158,10 +158,10 @@ class TestListFanWithAdditiveMerge:
         add_sr = semiring("add", plus="add", times="add", zero=0.0, one=0.0)
         hidden_add = sort("hidden", add_sr)
 
-        eq_relu = equation("relu", None, hidden_add, hidden_add, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden_add, hidden_add, nonlinearity="tanh")
+        eq_relu = Equation("relu", None, hidden_add, hidden_add, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden_add, hidden_add, nonlinearity="tanh")
         # "i,i->i" with times=add → elementwise addition
-        eq_merge = equation("sum_merge", "i,i->i", hidden_add, hidden_add, add_sr)
+        eq_merge = Equation("sum_merge", "i,i->i", hidden_add, hidden_add, add_sr)
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_merge], backend,
@@ -202,8 +202,8 @@ class TestHyperparams:
         # We use a simpler approach: relu then multiply by a constant vector
         # Actually simplest: just test that bound_terms are accessible
 
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
 
         graph = assemble_graph(
             [eq_relu, eq_tanh], backend,
@@ -229,8 +229,8 @@ class TestHyperparams:
         Test by using the hyperparam as a pre-applied weight to a 2-input equation.
         """
         # scale equation: "i,i->i" with times=multiply, so scale(w, x) = w * x
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_scale = equation("scale", "i,i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_scale = Equation("scale", "i,i->i", hidden, hidden, real_sr)
 
         # Encode a "weight" vector as the hyperparam
         weight1 = np.array([2.0, 2.0, 2.0, 2.0])
@@ -267,8 +267,8 @@ class TestHyperparams:
 
     def test_rebind_preserves_other_terms(self, cx, real_sr, hidden, backend, coder):
         """rebind_hyperparams doesn't affect other bound_terms or primitives."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_scale = equation("scale", "i,i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_scale = Equation("scale", "i,i->i", hidden, hidden, real_sr)
 
         weight = np.array([3.0, 3.0, 3.0])
         w_enc = encode_array(coder, weight)
@@ -303,10 +303,10 @@ class TestHyperparams:
 
         # Equation: multiply scalar by vector. Einsum ",i->i"
         # Input0 = scalar (rank 0), Input1 = vector (rank 1)
-        eq_scale = equation("scale", ",i->i", scalar_sort, hidden, real_sr)
+        eq_scale = Equation("scale", ",i->i", scalar_sort, hidden, real_sr)
 
         # This is a 2-input equation — resolve as normal prim2
-        prim = resolve_equation(eq_scale, backend)
+        prim = eq_scale.resolve(backend)
         assert prim.name == core.Name("ua.equation.scale")
 
 
@@ -331,10 +331,10 @@ class TestParamSlots:
 
     def test_param_slots_pointwise(self, cx, real_sr, hidden, coder, temp_backend):
         """param_slots equation with a user-defined parametric nonlinearity."""
-        eq = equation("tsoftplus", None, hidden, hidden,
+        eq = Equation("tsoftplus", None, hidden, hidden,
                       nonlinearity="temp_softplus", param_slots=("temperature",))
 
-        prim = resolve_equation(eq, temp_backend)
+        prim = eq.resolve(temp_backend)
         assert prim.name == core.Name("ua.equation.tsoftplus")
 
         # Build graph and test via reduce_term
@@ -359,10 +359,10 @@ class TestParamSlots:
 
     def test_param_slots_different_temperatures(self, cx, real_sr, hidden, coder, temp_backend):
         """Different temperature values produce different outputs."""
-        eq = equation("tsoftplus", None, hidden, hidden,
+        eq = Equation("tsoftplus", None, hidden, hidden,
                       nonlinearity="temp_softplus", param_slots=("temperature",))
 
-        prim = resolve_equation(eq, temp_backend)
+        prim = eq.resolve(temp_backend)
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
         primitives[prim.name] = prim
@@ -386,8 +386,8 @@ class TestParamSlots:
 
     def test_param_slots_in_path_with_hyperparam(self, cx, real_sr, hidden, coder, temp_backend):
         """param_slots equation in a path, with temperature from bound_terms."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tsoftplus = equation("tsoftplus", None, hidden, hidden,
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tsoftplus = Equation("tsoftplus", None, hidden, hidden,
                                 nonlinearity="temp_softplus", param_slots=("temperature",))
 
         graph = assemble_graph(
@@ -411,7 +411,7 @@ class TestParamSlots:
 
     def test_param_slots_rebind_temperature(self, cx, real_sr, hidden, coder, temp_backend):
         """Rebinding temperature changes the output of param_slots equations."""
-        eq_tsoftplus = equation("tsoftplus", None, hidden, hidden,
+        eq_tsoftplus = Equation("tsoftplus", None, hidden, hidden,
                                 nonlinearity="temp_softplus", param_slots=("temperature",))
 
         graph = assemble_graph(
@@ -445,7 +445,7 @@ class TestHyperparamsValidation:
 
     def test_multiple_hyperparams(self, cx, real_sr, hidden, backend, coder):
         """Multiple hyperparams can coexist in the same graph."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
 
         w1 = encode_array(coder, np.array([1.0, 1.0]))
         w2 = encode_array(coder, np.array([2.0, 2.0]))
@@ -460,7 +460,7 @@ class TestHyperparamsValidation:
 
     def test_rebind_nonexistent_creates_new(self, cx, real_sr, hidden, backend, coder):
         """rebind_hyperparams can add new params that didn't exist before."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
 
         graph = assemble_graph([eq_relu], backend)
 

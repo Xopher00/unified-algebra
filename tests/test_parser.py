@@ -11,7 +11,7 @@ from unialg import (
     numpy_backend, parse_ua, parse_ua_spec, UASpec,
     PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, LensPathSpec, LensFanSpec,
 )
-from unialg.views import EquationView
+from unialg import Equation
 
 
 # ---------------------------------------------------------------------------
@@ -901,7 +901,7 @@ fan kv : hidden -> hidden
   merge = merge
 """
         spec = parse_ua_spec(text)
-        eq_names_in_spec = [EquationView(eq).name for eq in spec.equations]
+        eq_names_in_spec = [eq.name for eq in spec.equations]
         assert 'q_proj' in eq_names_in_spec
         assert 'k_proj' in eq_names_in_spec
         assert 'v_proj' in eq_names_in_spec
@@ -914,7 +914,7 @@ fan kv : hidden -> hidden
 path qk : hidden -> hidden = proj[q] >> proj[k]
 """
         spec = parse_ua_spec(text)
-        eq_names_in_spec = [EquationView(eq).name for eq in spec.equations]
+        eq_names_in_spec = [eq.name for eq in spec.equations]
         assert 'q_proj' in eq_names_in_spec
         assert 'k_proj' in eq_names_in_spec
         path_spec = spec.specs[0]
@@ -926,7 +926,7 @@ path qk : hidden -> hidden = proj[q] >> proj[k]
 path qq : hidden -> hidden = proj[q] >> proj[q]
 """
         spec = parse_ua_spec(text)
-        eq_names_in_spec = [EquationView(eq).name for eq in spec.equations]
+        eq_names_in_spec = [eq.name for eq in spec.equations]
         q_proj_count = eq_names_in_spec.count('q_proj')
         assert q_proj_count == 1
 
@@ -952,7 +952,7 @@ equation relu : hidden -> hidden
 path qr : hidden -> hidden = proj[q] >> relu
 """
         spec = parse_ua_spec(text)
-        eq_names_in_spec = [EquationView(eq).name for eq in spec.equations]
+        eq_names_in_spec = [eq.name for eq in spec.equations]
         assert 'q_proj' in eq_names_in_spec
         assert 'relu' in eq_names_in_spec
         path_spec = spec.specs[0]

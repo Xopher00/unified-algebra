@@ -23,7 +23,7 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
-    equation, resolve_equation, resolve_list_merge,
+    Equation,
     path, fan,
     build_graph, assemble_graph, PathSpec, FanSpec,
 )
@@ -105,11 +105,11 @@ def make_residual_equations(hidden, real_sr, add_sr):
     identity:  pass-through       "i->i"    — the skip connection x
     add_merge: additive merge     "i,i->i"  — element-wise addition y = a + b
     """
-    transform = equation("transform", "ij,j->i", hidden, hidden, real_sr)
-    identity = equation("identity", "i->i", hidden, hidden, real_sr)
+    transform = Equation("transform", "ij,j->i", hidden, hidden, real_sr)
+    identity = Equation("identity", "i->i", hidden, hidden, real_sr)
     # add_sr shares the semiring NAME "real", so the hidden sort TypeVariable
     # is identical to the branch sorts — junction validation passes.
-    add_merge = equation("add_merge", "i,i->i", hidden, hidden, add_sr)
+    add_merge = Equation("add_merge", "i,i->i", hidden, hidden, add_sr)
     return transform, identity, add_merge
 
 

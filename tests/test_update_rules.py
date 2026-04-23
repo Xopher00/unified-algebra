@@ -30,7 +30,7 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder, sort_coder,
-    equation, resolve_equation,
+    Equation,
     build_graph, assemble_graph, rebind_hyperparams,
     lens, lens_path, fold, unfold,
     PathSpec, FoldSpec, UnfoldSpec, LensPathSpec,
@@ -107,7 +107,7 @@ class TestUpdateEquations:
         param_sort = sort("param", sgd_sr)
 
         # "i,i->i" with sgd semiring: no reduction indices → elementwise ⊗ = sgd_step
-        eq_update = equation("sgd_update", "i,i->i", param_sort, param_sort, sgd_sr)
+        eq_update = Equation("sgd_update", "i,i->i", param_sort, param_sort, sgd_sr)
 
         graph = assemble_graph([eq_update], backend)
 
@@ -129,7 +129,7 @@ class TestUpdateEquations:
                              zero=float("inf"), one=float("inf"))
         dist_sort = sort("dist", bellman_sr)
 
-        eq_relax = equation("bellman", "i,i->i", dist_sort, dist_sort, bellman_sr)
+        eq_relax = Equation("bellman", "i,i->i", dist_sort, dist_sort, bellman_sr)
         graph = assemble_graph([eq_relax], backend)
 
         current = np.array([5.0, 3.0, 7.0, 1.0])
@@ -148,7 +148,7 @@ class TestUpdateEquations:
                             zero=0.0, one=1.0)
         cap_sort = sort("capacity", maxmin_sr)
 
-        eq_close = equation("closure", "i,i->i", cap_sort, cap_sort, maxmin_sr)
+        eq_close = Equation("closure", "i,i->i", cap_sort, cap_sort, maxmin_sr)
         graph = assemble_graph([eq_close], backend)
 
         current = np.array([0.3, 0.7, 0.1])
@@ -180,8 +180,8 @@ class TestLensUpdateComposition:
         The update equation uses a custom binary op registered on the same backend.
         """
         # Forward and backward equations form a lens
-        eq_fwd = equation("act_fwd", None, hidden, hidden, nonlinearity="relu")
-        eq_bwd = equation("act_bwd", None, hidden, hidden, nonlinearity="tanh")
+        eq_fwd = Equation("act_fwd", None, hidden, hidden, nonlinearity="relu")
+        eq_bwd = Equation("act_bwd", None, hidden, hidden, nonlinearity="tanh")
         l = lens("activation", "act_fwd", "act_bwd")
 
         # SGD update uses the same sort but a custom binary op
@@ -191,7 +191,7 @@ class TestLensUpdateComposition:
         )
         sgd_sr = semiring("sgd", plus="add", times="sgd_step", zero=0.0, one=1.0)
         upd_sort = sort("hidden", sgd_sr)  # same name "hidden", different semiring
-        eq_update = equation("sgd", "i,i->i", upd_sort, upd_sort, sgd_sr)
+        eq_update = Equation("sgd", "i,i->i", upd_sort, upd_sort, sgd_sr)
 
         # Build two separate graphs: one for the lens, one for the update.
         # In practice a user would wire these in a single graph if the sorts
@@ -242,8 +242,8 @@ class TestLensUpdateComposition:
         trop_sort = sort("trop", tropical_sr)
 
         # Forward: identity-like "i->i" (tropical times=add, no reduction → identity)
-        eq_fwd = equation("trop_fwd", "i->i", trop_sort, trop_sort, tropical_sr)
-        eq_bwd = equation("trop_bwd", "i->i", trop_sort, trop_sort, tropical_sr)
+        eq_fwd = Equation("trop_fwd", "i->i", trop_sort, trop_sort, tropical_sr)
+        eq_bwd = Equation("trop_bwd", "i->i", trop_sort, trop_sort, tropical_sr)
         l = lens("trop_lens", "trop_fwd", "trop_bwd")
 
         lens_graph = assemble_graph(
@@ -256,7 +256,7 @@ class TestLensUpdateComposition:
         bellman_sr = semiring("bellman", plus="minimum", times="minimum",
                              zero=float("inf"), one=float("inf"))
         bell_sort = sort("bell", bellman_sr)
-        eq_relax = equation("relax", "i,i->i", bell_sort, bell_sort, bellman_sr)
+        eq_relax = Equation("relax", "i,i->i", bell_sort, bell_sort, bellman_sr)
         update_graph = assemble_graph([eq_relax], backend)
 
         dist = np.array([5.0, 3.0, 7.0])
@@ -299,7 +299,7 @@ class TestIteratedUpdate:
         acc_sort = sort("acc", add_sr)
 
         # 2-input equation: "i,i->i" with times=add → elementwise addition
-        eq_step = equation("add_step", "i,i->i", acc_sort, acc_sort, add_sr)
+        eq_step = Equation("add_step", "i,i->i", acc_sort, acc_sort, add_sr)
 
         init = encode_array(coder, np.zeros(3))
         graph = assemble_graph(
@@ -328,7 +328,7 @@ class TestIteratedUpdate:
         real_sr = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         state_sort = sort("state", real_sr)
 
-        eq_decay = equation("decay", None, state_sort, state_sort, nonlinearity="decay")
+        eq_decay = Equation("decay", None, state_sort, state_sort, nonlinearity="decay")
 
         graph = assemble_graph(
             [eq_decay], backend,
@@ -360,7 +360,7 @@ class TestIteratedUpdate:
         sgd_sr = semiring("sgd_fold", plus="add", times="sgd_fold", zero=0.0, one=1.0)
         w_sort = sort("weight", sgd_sr)
 
-        eq_step = equation("sgd_step", "i,i->i", w_sort, w_sort, sgd_sr)
+        eq_step = Equation("sgd_step", "i,i->i", w_sort, w_sort, sgd_sr)
 
         init_w = encode_array(coder, np.array([1.0, 1.0, 1.0]))
         graph = assemble_graph(
@@ -393,7 +393,7 @@ class TestHyperparamsInUpdate:
         Path: scale(lr_vector, x) where lr_vector is a hyperparam.
         Two different lr_vectors produce different scaling.
         """
-        eq_scale = equation("lr_scale", "i,i->i", hidden, hidden, real_sr)
+        eq_scale = Equation("lr_scale", "i,i->i", hidden, hidden, real_sr)
 
         lr1 = encode_array(coder, np.array([0.1, 0.1, 0.1]))
         lr2 = encode_array(coder, np.array([0.01, 0.01, 0.01]))
@@ -432,7 +432,7 @@ class TestHyperparamsInUpdate:
         real_sr = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         state_sort = sort("state", real_sr)
 
-        eq = equation("scaled_decay", None, state_sort, state_sort,
+        eq = Equation("scaled_decay", None, state_sort, state_sort,
                       nonlinearity="scaled_decay", param_slots=("rate",))
 
         graph = assemble_graph(
@@ -483,7 +483,7 @@ class TestSemiringPolymorphicUpdate:
         ]:
             sr = semiring(sr_name, plus=plus_op, times=times_op, zero=zero, one=one)
             s = sort(f"s_{sr_name}", sr)
-            eq = equation(f"update_{sr_name}", "i,i->i", s, s, sr)
+            eq = Equation(f"update_{sr_name}", "i,i->i", s, s, sr)
 
             graph = assemble_graph([eq], backend)
 

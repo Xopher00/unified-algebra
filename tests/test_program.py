@@ -5,7 +5,7 @@ import pytest
 
 from unialg import (
     compile_program, Program,
-    semiring, sort, equation, numpy_backend, tensor_coder,
+    semiring, sort, Equation, numpy_backend, tensor_coder,
     path, fan,
     PathSpec, FanSpec, FoldSpec,
 )
@@ -44,7 +44,7 @@ class TestSingleEquation:
 
     def test_single_linear_equation(self, hidden, real_sr, backend):
         """compile_program on a single equation; call by equation name."""
-        eq = equation("t1_linear", "ij,j->i", hidden, hidden, real_sr)
+        eq = Equation("t1_linear", "ij,j->i", hidden, hidden, real_sr)
         prog = compile_program([eq], backend=backend)
 
         W = np.array([[1.0, 2.0], [3.0, 4.0]])
@@ -60,7 +60,7 @@ class TestSingleEquation:
         from hydra.reduction import reduce_term
         from unialg import assemble_graph
 
-        eq = equation("t1_relu", None, hidden, hidden, nonlinearity="relu")
+        eq = Equation("t1_relu", None, hidden, hidden, nonlinearity="relu")
         graph = assemble_graph([eq], backend)
         cx = Context(trace=(), messages=(), other=FrozenDict({}))
 
@@ -84,8 +84,8 @@ class TestPathRoundtrip:
 
     def test_two_step_path(self, hidden, real_sr, backend, coder):
         """Path: linear → relu. compile_program result matches numpy oracle."""
-        eq_lin = equation("t2_linear", "ij,j->i", hidden, hidden, real_sr)
-        eq_relu = equation("t2_relu", None, hidden, hidden, nonlinearity="relu")
+        eq_lin = Equation("t2_linear", "ij,j->i", hidden, hidden, real_sr)
+        eq_relu = Equation("t2_relu", None, hidden, hidden, nonlinearity="relu")
 
         W = np.array([[1.0, -1.0], [-1.0, 1.0]])
         x = np.array([2.0, 1.0])
@@ -101,7 +101,7 @@ class TestPathRoundtrip:
 
     def test_program_is_program_instance(self, hidden, real_sr, backend):
         """compile_program returns a Program."""
-        eq = equation("t2b_eq", None, hidden, hidden, nonlinearity="relu")
+        eq = Equation("t2b_eq", None, hidden, hidden, nonlinearity="relu")
         prog = compile_program([eq], backend=backend)
         assert isinstance(prog, Program)
 
@@ -115,7 +115,7 @@ class TestTropicalSemiring:
     def test_bellman_ford_one_hop(self, tropical_sr, backend, coder):
         """Tropical 'ij,j->i' computes min-plus: h_i = min_j(W_ij + x_j)."""
         trop_sort = sort("t3_node", tropical_sr)
-        eq = equation("t3_sp", "ij,j->i", trop_sort, trop_sort, tropical_sr)
+        eq = Equation("t3_sp", "ij,j->i", trop_sort, trop_sort, tropical_sr)
 
         # W[i,j] = cost to reach node i from node j (incoming-edge convention)
         # 3-node DAG: 0→1 cost 2, 0→2 cost 5, 1→2 cost 1
@@ -143,8 +143,8 @@ class TestRebind:
         import hydra.core as core
         from hydra.dsl.terms import var
 
-        eq_relu = equation("t4_relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("t4_tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_relu = Equation("t4_relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("t4_tanh", None, hidden, hidden, nonlinearity="tanh")
 
         # hyperparams creates a ua.param.dummy bound_term (not used in path,
         # just verifying the rebind machinery round-trips)
@@ -177,8 +177,8 @@ class TestEntryPoints:
 
     def test_entry_points_include_path_and_equations(self, hidden, real_sr, backend, coder):
         """entry_points lists path + equations; not internal ua.prim names."""
-        eq1 = equation("t5_lin", "ij,j->i", hidden, hidden, real_sr)
-        eq2 = equation("t5_relu", None, hidden, hidden, nonlinearity="relu")
+        eq1 = Equation("t5_lin", "ij,j->i", hidden, hidden, real_sr)
+        eq2 = Equation("t5_relu", None, hidden, hidden, nonlinearity="relu")
         W = coder.decode(None, np.eye(2)).value
 
         prog = compile_program(
@@ -193,7 +193,7 @@ class TestEntryPoints:
 
     def test_entry_points_excludes_stdlib_primitives(self, hidden, real_sr, backend):
         """entry_points does not expose Hydra stdlib names."""
-        eq = equation("t5b_eq", None, hidden, hidden, nonlinearity="relu")
+        eq = Equation("t5b_eq", None, hidden, hidden, nonlinearity="relu")
         prog = compile_program([eq], backend=backend)
         for ep in prog.entry_points():
             assert not ep.startswith("hydra.")
@@ -207,7 +207,7 @@ class TestErrorPath:
 
     def test_unknown_entry_point_raises_valueerror(self, hidden, real_sr, backend):
         """Invoking an unknown entry point raises ValueError naming the entry."""
-        eq = equation("t6_eq", None, hidden, hidden, nonlinearity="relu")
+        eq = Equation("t6_eq", None, hidden, hidden, nonlinearity="relu")
         prog = compile_program([eq], backend=backend)
 
         with pytest.raises(ValueError, match="nonexistent"):
@@ -215,7 +215,7 @@ class TestErrorPath:
 
     def test_error_message_lists_available(self, hidden, real_sr, backend):
         """The ValueError message lists available entry points."""
-        eq = equation("t6b_eq", None, hidden, hidden, nonlinearity="relu")
+        eq = Equation("t6b_eq", None, hidden, hidden, nonlinearity="relu")
         prog = compile_program([eq], backend=backend)
 
         with pytest.raises(ValueError, match="t6b_eq"):

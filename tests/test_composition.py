@@ -12,8 +12,8 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
-    build_graph, assemble_graph, equation, resolve_equation,
-    resolve_list_merge, path, fan, validate_spec,
+    build_graph, assemble_graph, Equation,
+    path, fan, validate_spec,
     PathSpec, FanSpec,
 )
 
@@ -128,29 +128,29 @@ class TestPathStructure:
 class TestPathValidation:
 
     def test_valid_path(self, real_sr, hidden):
-        eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
-        eq_b = equation("b", None, hidden, hidden, nonlinearity="tanh")
+        eq_a = Equation("a", None, hidden, hidden, nonlinearity="relu")
+        eq_b = Equation("b", None, hidden, hidden, nonlinearity="tanh")
         validate_spec({"a": eq_a, "b": eq_b}, PathSpec("_", ["a", "b"], hidden, hidden))
 
     def test_domain_mismatch(self, real_sr, hidden, output_sort):
-        eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
+        eq_a = Equation("a", None, hidden, hidden, nonlinearity="relu")
         with pytest.raises(TypeError, match="Path domain"):
             validate_spec({"a": eq_a}, PathSpec("_", ["a"], output_sort, hidden))
 
     def test_codomain_mismatch(self, real_sr, hidden, output_sort):
-        eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
+        eq_a = Equation("a", None, hidden, hidden, nonlinearity="relu")
         with pytest.raises(TypeError, match="Path codomain"):
             validate_spec({"a": eq_a}, PathSpec("_", ["a"], hidden, output_sort))
 
     def test_junction_mismatch(self, real_sr, hidden, output_sort):
-        eq_a = equation("a", None, hidden, output_sort, nonlinearity="relu")
-        eq_b = equation("b", None, hidden, hidden, nonlinearity="relu")
+        eq_a = Equation("a", None, hidden, output_sort, nonlinearity="relu")
+        eq_b = Equation("b", None, hidden, hidden, nonlinearity="relu")
         with pytest.raises(TypeError, match="Attempted to unify schema names"):
             validate_spec({"a": eq_a, "b": eq_b}, PathSpec("_", ["a", "b"], hidden, hidden))
 
     def test_cross_semiring_path(self, real_sr, hidden, tropical_sort):
-        eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
-        eq_b = equation("b", None, tropical_sort, tropical_sort, nonlinearity="relu")
+        eq_a = Equation("a", None, hidden, hidden, nonlinearity="relu")
+        eq_b = Equation("b", None, tropical_sort, tropical_sort, nonlinearity="relu")
         with pytest.raises(TypeError, match="Attempted to unify schema names"):
             validate_spec(
                 {"a": eq_a, "b": eq_b}, PathSpec("_", ["a", "b"], hidden, tropical_sort)
@@ -165,11 +165,11 @@ class TestPathReduce:
 
     def test_pointwise_path(self, cx, real_sr, hidden, backend, coder):
         """path("act", ["relu", "tanh"]) == tanh(relu(x))."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
 
-        prim_relu = resolve_equation(eq_relu, backend)
-        prim_tanh = resolve_equation(eq_tanh, backend)
+        prim_relu = eq_relu.resolve(backend)
+        prim_tanh = eq_tanh.resolve(backend)
 
         p_name, p_term = path("act", ["relu", "tanh"])
 
@@ -199,13 +199,13 @@ class TestPathReduce:
 
     def test_three_step_path(self, cx, real_sr, hidden, backend, coder):
         """relu -> tanh -> sigmoid chain matches sequential individual calls."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        eq_sig = equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_sig = Equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
 
         prims = {}
         for eq in [eq_relu, eq_tanh, eq_sig]:
-            p = resolve_equation(eq, backend)
+            p = eq.resolve(backend)
             prims[p.name] = p
 
         p_name, p_term = path("deep", ["relu", "tanh", "sigmoid"])
@@ -232,8 +232,8 @@ class TestPathReduce:
 
     def test_single_step_path(self, cx, real_sr, hidden, backend, coder):
         """Degenerate path with one equation == calling the equation directly."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        prim = resolve_equation(eq_relu, backend)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        prim = eq_relu.resolve(backend)
 
         p_name, p_term = path("just_relu", ["relu"])
 
@@ -257,11 +257,11 @@ class TestPathReduce:
 
     def test_path_with_params(self, cx, real_sr, hidden, backend, coder):
         """Path with pre-bound weights: linear(W, x) then relu."""
-        eq_lin = equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_lin = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
 
-        prim_lin = resolve_equation(eq_lin, backend)
-        prim_relu = resolve_equation(eq_relu, backend)
+        prim_lin = eq_lin.resolve(backend)
+        prim_relu = eq_relu.resolve(backend)
 
         W = np.array([[1.0, -2.0], [-3.0, 4.0]])
         W_enc = encode_array(coder, W)
@@ -326,15 +326,15 @@ class TestFanStructure:
 class TestFanValidation:
 
     def test_valid_fan(self, real_sr, hidden):
-        eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
-        eq_b = equation("b", None, hidden, hidden, nonlinearity="tanh")
-        eq_m = equation("m", "ij,ij->ij", hidden, hidden, real_sr)
+        eq_a = Equation("a", None, hidden, hidden, nonlinearity="relu")
+        eq_b = Equation("b", None, hidden, hidden, nonlinearity="tanh")
+        eq_m = Equation("m", "ij,ij->ij", hidden, hidden, real_sr)
         validate_spec({"a": eq_a, "b": eq_b, "m": eq_m}, FanSpec("_", ["a", "b"], "m", hidden, hidden))
 
     def test_branch_domain_mismatch(self, real_sr, hidden, output_sort):
-        eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
-        eq_b = equation("b", None, output_sort, hidden, nonlinearity="tanh")
-        eq_m = equation("m", "ij,ij->ij", hidden, hidden, real_sr)
+        eq_a = Equation("a", None, hidden, hidden, nonlinearity="relu")
+        eq_b = Equation("b", None, output_sort, hidden, nonlinearity="tanh")
+        eq_m = Equation("m", "ij,ij->ij", hidden, hidden, real_sr)
         with pytest.raises(TypeError, match="Fan branch 'b' domain"):
             validate_spec(
                 {"a": eq_a, "b": eq_b, "m": eq_m},
@@ -342,8 +342,8 @@ class TestFanValidation:
             )
 
     def test_merge_codomain_mismatch(self, real_sr, hidden, output_sort):
-        eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
-        eq_m = equation("m", None, hidden, output_sort, nonlinearity="relu")
+        eq_a = Equation("a", None, hidden, hidden, nonlinearity="relu")
+        eq_m = Equation("m", None, hidden, output_sort, nonlinearity="relu")
         with pytest.raises(TypeError, match="Fan merge codomain mismatch"):
             validate_spec(
                 {"a": eq_a, "m": eq_m}, FanSpec("_", ["a"], "m", hidden, hidden),
@@ -358,16 +358,16 @@ class TestFanReduce:
 
     def test_two_branch_fan(self, cx, real_sr, hidden, backend, coder):
         """Fan: merge([relu(x), tanh(x)]) where merge is einsum "i,i->i" (Hadamard)."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        eq_merge = equation("merge", "i,i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_merge = Equation("merge", "i,i->i", hidden, hidden, real_sr)
 
         prims = {}
         for eq in [eq_relu, eq_tanh]:
-            p = resolve_equation(eq, backend)
+            p = eq.resolve(backend)
             prims[p.name] = p
         # Merge is resolved as list-merge (prim1 over list<tensor>)
-        prims[resolve_list_merge(eq_merge, backend).name] = resolve_list_merge(eq_merge, backend)
+        prims[eq_merge.resolve_as_merge(backend).name] = eq_merge.resolve_as_merge(backend)
 
         f_name, f_term = fan("res", ["relu", "tanh"], "merge")
 
@@ -388,14 +388,14 @@ class TestFanReduce:
 
     def test_single_branch_fan(self, cx, real_sr, hidden, backend, coder):
         """Degenerate fan: one branch + identity merge == branch alone."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_ident = equation("ident", "i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_ident = Equation("ident", "i->i", hidden, hidden, real_sr)
 
         prims = {}
-        p = resolve_equation(eq_relu, backend)
+        p = eq_relu.resolve(backend)
         prims[p.name] = p
         # Merge is resolved as list-merge (unary: 1-element list passthrough)
-        p = resolve_list_merge(eq_ident, backend)
+        p = eq_ident.resolve_as_merge(backend)
         prims[p.name] = p
 
         f_name, f_term = fan("single", ["relu"], "ident")
@@ -427,8 +427,8 @@ class TestAssembleWithComposition:
 
     def test_assemble_with_path(self, cx, real_sr, hidden, backend, coder):
         """assemble_graph with a path: verify via individual primitive calls."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
 
         graph = assemble_graph(
             [eq_relu, eq_tanh], backend,
@@ -452,9 +452,9 @@ class TestAssembleWithComposition:
 
     def test_assemble_with_fan(self, cx, real_sr, hidden, backend, coder):
         """assemble_graph with a fan: merge([relu(x), tanh(x)]) = Hadamard product."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        eq_merge = equation("merge", "i,i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_merge = Equation("merge", "i,i->i", hidden, hidden, real_sr)
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_merge], backend,
@@ -476,10 +476,10 @@ class TestAssembleWithComposition:
         """assemble_graph with both a path and a fan in the same graph."""
         from scipy.special import expit
 
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        eq_sig = equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
-        eq_merge = equation("merge", "i,i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_sig = Equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
+        eq_merge = Equation("merge", "i,i->i", hidden, hidden, real_sr)
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_sig, eq_merge], backend,
@@ -517,17 +517,17 @@ class TestNesting:
         fan("split", [relu, tanh], merge)  then  sigmoid
         Tests that reduce_term resolves bound_terms transitively.
         """
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        eq_sig = equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
-        eq_merge = equation("merge", "i,i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_sig = Equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
+        eq_merge = Equation("merge", "i,i->i", hidden, hidden, real_sr)
 
         prims = {}
         for eq in [eq_relu, eq_tanh, eq_sig]:
-            p = resolve_equation(eq, backend)
+            p = eq.resolve(backend)
             prims[p.name] = p
         # Merge resolved as list-merge for fan compatibility
-        p = resolve_list_merge(eq_merge, backend)
+        p = eq_merge.resolve_as_merge(backend)
         prims[p.name] = p
 
         f_name, f_term = fan("split", ["relu", "tanh"], "merge")
@@ -579,12 +579,12 @@ class TestOrderSensitivity:
         """
         from scipy.special import expit
 
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_sig = equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_sig = Equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
 
         prims = {}
         for eq in [eq_relu, eq_sig]:
-            p = resolve_equation(eq, backend)
+            p = eq.resolve(backend)
             prims[p.name] = p
 
         # Path A: sigmoid then relu
@@ -621,18 +621,18 @@ class TestThreeBranchFan:
 
     def test_three_branch_fan_end_to_end(self, cx, real_sr, hidden, backend, coder):
         """3-branch fan at the prim3 boundary: merge3(relu(x), tanh(x), sigmoid(x))."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        eq_sig = equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_sig = Equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
         # Binary merge via "i,i->i" — folded over 3 branches (triple Hadamard)
-        eq_merge3 = equation("merge3", "i,i->i", hidden, hidden, real_sr)
+        eq_merge3 = Equation("merge3", "i,i->i", hidden, hidden, real_sr)
 
         prims = {}
         for eq in [eq_relu, eq_tanh, eq_sig]:
-            p = resolve_equation(eq, backend)
+            p = eq.resolve(backend)
             prims[p.name] = p
         # Merge resolved as list-merge
-        p = resolve_list_merge(eq_merge3, backend)
+        p = eq_merge3.resolve_as_merge(backend)
         prims[p.name] = p
 
         f_name, f_term = fan(
@@ -662,8 +662,8 @@ class TestNegativeIntegration:
 
     def test_assemble_rejects_invalid_path(self, real_sr, hidden, output_sort, backend):
         """assemble_graph raises TypeError when path has sort junction mismatch."""
-        eq_a = equation("a", None, hidden, output_sort, nonlinearity="relu")
-        eq_b = equation("b", None, hidden, hidden, nonlinearity="tanh")
+        eq_a = Equation("a", None, hidden, output_sort, nonlinearity="relu")
+        eq_b = Equation("b", None, hidden, hidden, nonlinearity="tanh")
 
         with pytest.raises(TypeError):
             assemble_graph(
@@ -675,9 +675,9 @@ class TestNegativeIntegration:
         """assemble_graph raises TypeError when fan branch codomain mismatches merge domain."""
         # Pipeline order [a, m, b] passes linear validation (all hidden→hidden junctions)
         # but fan validation catches branch 'b' codomain (output_sort) != merge domain (hidden)
-        eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
-        eq_b = equation("b", None, hidden, output_sort, nonlinearity="tanh")
-        eq_m = equation("m", "i,i->i", hidden, hidden, real_sr)
+        eq_a = Equation("a", None, hidden, hidden, nonlinearity="relu")
+        eq_b = Equation("b", None, hidden, output_sort, nonlinearity="tanh")
+        eq_m = Equation("m", "i,i->i", hidden, hidden, real_sr)
 
         with pytest.raises(TypeError, match="Fan branch 'b' codomain != merge domain"):
             assemble_graph(
@@ -691,8 +691,8 @@ class TestBranchCodomainValidation:
     def test_branch_codomain_must_match_merge_domain(self, real_sr, hidden, output_sort):
         """validate_fan catches when branch codomains don't match merge's domain."""
         # Branch 'a' outputs to output_sort, but merge expects hidden as input
-        eq_a = equation("a", None, hidden, output_sort, nonlinearity="relu")
-        eq_m = equation("m", "i,i->i", hidden, hidden, real_sr)
+        eq_a = Equation("a", None, hidden, output_sort, nonlinearity="relu")
+        eq_m = Equation("m", "i,i->i", hidden, hidden, real_sr)
 
         with pytest.raises(TypeError, match="Fan branch 'a' codomain != merge domain"):
             validate_spec(
@@ -701,9 +701,9 @@ class TestBranchCodomainValidation:
 
     def test_mixed_branch_codomains_rejected(self, real_sr, hidden, output_sort):
         """Two branches with different codomains — first mismatch is caught."""
-        eq_a = equation("a", None, hidden, hidden, nonlinearity="relu")
-        eq_b = equation("b", None, hidden, output_sort, nonlinearity="tanh")
-        eq_m = equation("m", "i,i->i", hidden, hidden, real_sr)
+        eq_a = Equation("a", None, hidden, hidden, nonlinearity="relu")
+        eq_b = Equation("b", None, hidden, output_sort, nonlinearity="tanh")
+        eq_m = Equation("m", "i,i->i", hidden, hidden, real_sr)
 
         with pytest.raises(TypeError, match="Fan branch 'b' codomain != merge domain"):
             validate_spec(

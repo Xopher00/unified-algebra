@@ -12,7 +12,7 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
-    equation, resolve_equation, fold, unfold,
+    Equation, fold, unfold,
     validate_spec, build_graph, assemble_graph,
     PathSpec, FoldSpec, UnfoldSpec,
 )
@@ -109,7 +109,7 @@ class TestFoldStructure:
 class TestFoldValidation:
 
     def test_valid_fold(self, real_sr, hidden):
-        eq_step = equation("step", "i,i->i", hidden, hidden, real_sr)
+        eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
         validate_spec({"step": eq_step}, FoldSpec("_", "step", None, hidden, hidden))
 
     def test_fold_step_not_found(self, hidden):
@@ -117,7 +117,7 @@ class TestFoldValidation:
             validate_spec({}, FoldSpec("_", "missing", None, hidden, hidden))
 
     def test_fold_state_recurrence_mismatch(self, real_sr, hidden, output_sort):
-        eq_step = equation("step", "i,i->i", hidden, output_sort, real_sr)
+        eq_step = Equation("step", "i,i->i", hidden, output_sort, real_sr)
         with pytest.raises(TypeError, match="codomain.*state sort"):
             validate_spec({"step": eq_step}, FoldSpec("_", "step", None, hidden, hidden))
 
@@ -135,8 +135,8 @@ class TestFoldReduce:
         init = [1, 1, 1]
         fold([x1, x2, x3]) = x1 * x2 * x3 (elementwise)
         """
-        eq_step = equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step = resolve_equation(eq_step, backend)
+        eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
+        prim_step = eq_step.resolve(backend)
 
         init = np.ones(3)
         init_term = encode_array(coder, init)
@@ -175,8 +175,8 @@ class TestFoldReduce:
 
     def test_fold_single_element(self, cx, real_sr, hidden, backend, coder):
         """Fold over length-1 list = single step application."""
-        eq_step = equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step = resolve_equation(eq_step, backend)
+        eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
+        prim_step = eq_step.resolve(backend)
 
         init = np.ones(2)
         init_term = encode_array(coder, init)
@@ -203,8 +203,8 @@ class TestFoldReduce:
         If weights were different at each step, the result would differ
         from a manual loop using the same step.
         """
-        eq_step = equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step = resolve_equation(eq_step, backend)
+        eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
+        prim_step = eq_step.resolve(backend)
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
@@ -248,7 +248,7 @@ class TestUnfoldStructure:
 class TestUnfoldValidation:
 
     def test_valid_unfold(self, real_sr, hidden):
-        eq_step = equation("step", None, hidden, hidden, nonlinearity="tanh")
+        eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
         validate_spec({"step": eq_step}, UnfoldSpec("_", "step", 0, hidden, hidden))
 
     def test_unfold_step_not_found(self, hidden):
@@ -256,12 +256,12 @@ class TestUnfoldValidation:
             validate_spec({}, UnfoldSpec("_", "missing", 0, hidden, hidden))
 
     def test_unfold_domain_mismatch(self, real_sr, hidden, output_sort):
-        eq_step = equation("step", None, output_sort, hidden, nonlinearity="tanh")
+        eq_step = Equation("step", None, output_sort, hidden, nonlinearity="tanh")
         with pytest.raises(TypeError, match="domain.*state sort"):
             validate_spec({"step": eq_step}, UnfoldSpec("_", "step", 0, hidden, hidden))
 
     def test_unfold_codomain_mismatch(self, real_sr, hidden, output_sort):
-        eq_step = equation("step", None, hidden, output_sort, nonlinearity="tanh")
+        eq_step = Equation("step", None, hidden, output_sort, nonlinearity="tanh")
         with pytest.raises(TypeError, match="codomain.*state sort"):
             validate_spec({"step": eq_step}, UnfoldSpec("_", "step", 0, hidden, hidden))
 
@@ -274,8 +274,8 @@ class TestUnfoldReduce:
 
     def test_unfold_tanh(self, cx, real_sr, hidden, backend, coder):
         """Unfold tanh for 3 steps: s0 → tanh(s0) → tanh(tanh(s0)) → ..."""
-        eq_step = equation("step", None, hidden, hidden, nonlinearity="tanh")
-        prim_step = resolve_equation(eq_step, backend)
+        eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
+        prim_step = eq_step.resolve(backend)
 
         unfold_prim = unfold_n_primitive
         u_name, u_term = unfold("stream", "step", 3)
@@ -316,8 +316,8 @@ class TestUnfoldReduce:
 
     def test_unfold_single_step(self, cx, real_sr, hidden, backend, coder):
         """Unfold with n_steps=1."""
-        eq_step = equation("step", None, hidden, hidden, nonlinearity="relu")
-        prim_step = resolve_equation(eq_step, backend)
+        eq_step = Equation("step", None, hidden, hidden, nonlinearity="relu")
+        prim_step = eq_step.resolve(backend)
 
         unfold_prim = unfold_n_primitive
         u_name, u_term = unfold("one", "step", 1)
@@ -345,7 +345,7 @@ class TestAssembleWithRecursion:
 
     def test_assemble_with_fold(self, cx, real_sr, hidden, backend, coder):
         """assemble_graph with folds parameter produces a working graph."""
-        eq_step = equation("step", "i,i->i", hidden, hidden, real_sr)
+        eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
         init = encode_array(coder, np.ones(2))
 
         graph = assemble_graph(
@@ -364,7 +364,7 @@ class TestAssembleWithRecursion:
 
     def test_assemble_with_unfold(self, cx, real_sr, hidden, backend, coder):
         """assemble_graph with unfolds parameter produces a working graph."""
-        eq_step = equation("step", None, hidden, hidden, nonlinearity="tanh")
+        eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
 
         graph = assemble_graph(
             [eq_step], backend,
@@ -384,9 +384,9 @@ class TestAssembleWithRecursion:
 
     def test_assemble_mixed(self, cx, real_sr, hidden, backend, coder):
         """Equations + paths + folds coexisting in the same graph."""
-        eq_relu = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_tanh = equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        eq_step = equation("step", "i,i->i", hidden, hidden, real_sr)
+        eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
         init = encode_array(coder, np.ones(3))
 
         graph = assemble_graph(

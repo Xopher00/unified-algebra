@@ -50,7 +50,7 @@ def fixpoint_primitive(epsilon: float, max_iter: int) -> hydra.graph.Primitive:
     """
     from hydra.sources.libraries import fun
 
-    prim_name = core.Name("ua.prim.fixpoint")
+    prim_name = core.Name(f"ua.prim.fixpoint.{epsilon}.{max_iter}")
     a = prims.variable("a")
     _a = prims.v("a")
 

@@ -13,6 +13,7 @@ from hydra.unification import unify_type_constraints
 
 import unialg.views as vw
 import unialg.algebra as alg
+from unialg.resolve.morphism import Equation
 
 if TYPE_CHECKING:
     import hydra.graph
@@ -50,7 +51,7 @@ def _build_schema(eq_terms, extra_sorts=()):
     """
     schema = {}
     for eq in eq_terms:
-        v = vw.EquationView(eq)
+        v = Equation.from_term(eq)
         for st in (v.domain_sort, v.codomain_sort):
             _register_sort_components(st, schema)
     for st in extra_sorts:
@@ -73,15 +74,16 @@ def _unify(constraints, schema):
 
 def topo_edges(eq_terms):
     """Return (upstream, downstream, slot) edges in topological order."""
-    by_name = {vw.EquationView(eq).name: eq for eq in eq_terms}
+    by_name = {Equation.from_term(eq).name: eq for eq in eq_terms}
     edges, in_degree, children = [], {}, {}
     for eq in eq_terms:
-        n = vw.EquationView(eq).name
+        n = Equation.from_term(eq).name
         in_degree[n] = 0
         children[n] = []
     for eq in eq_terms:
-        n = vw.EquationView(eq).name
-        for slot, inp in enumerate(vw.EquationView(eq).inputs):
+        eq_obj = Equation.from_term(eq)
+        n = eq_obj.name
+        for slot, inp in enumerate(eq_obj.inputs):
             if inp in by_name:
                 edges.append((by_name[inp], eq, slot))
                 children[inp].append(n)
@@ -110,9 +112,24 @@ def validate_pipeline(eq_terms, schema_types=None):
         schema_types = _build_schema(eq_terms)
     cs = []
     for up, down, slot in topo_edges(eq_terms):
-        u, d = vw.EquationView(up), vw.EquationView(down)
+        u, d = Equation.from_term(up), Equation.from_term(down)
         cs.append(TypeConstraint(alg.sort_type_from_term(u.codomain_sort),
                                  alg.sort_type_from_term(d.domain_sort),
                                  f"'{u.name}' codomain != '{d.name}' domain"))
         alg.check_rank_junction(up, down, slot)
+    _unify(cs, schema_types)
+
+
+def validate_spec(eq_by_name: dict, spec, schema_types=None) -> None:
+    """Validate sort junctions for a composition spec.
+
+    Delegates constraint generation to spec.constraints(eq_by_name), then
+    unifies against the schema. Specs with no sort constraints (LensPathSpec,
+    LensFanSpec) return [] from constraints() and are silently skipped.
+    """
+    cs = spec.constraints(eq_by_name)
+    if not cs:
+        return
+    if schema_types is None:
+        schema_types = _build_schema(list(eq_by_name.values()), spec.sort_terms())
     _unify(cs, schema_types)

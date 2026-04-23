@@ -48,28 +48,6 @@ class _RecordView:
 # Concrete views
 # ---------------------------------------------------------------------------
 
-class EquationView(_RecordView):
-    """View over a ua.equation.Equation record term."""
-    name = _StringField("name")
-    einsum = _StringField("einsum")
-    nonlinearity = _StringField("nonlinearity")
-    domain_sort = _TermField("domainSort")
-    codomain_sort = _TermField("codomainSort")
-    semiring = _TermField("semiring")
-
-    @property
-    def inputs(self) -> list[str]:
-        return [string_value(t) for t in record_fields(self._term)["inputs"].value]
-
-    @property
-    def param_slots(self) -> list[str]:
-        ps = record_fields(self._term).get("paramSlots")
-        if ps is None:
-            return []
-        if hasattr(ps, "value") and isinstance(ps.value, (list, tuple)):
-            return [string_value(t) for t in ps.value]
-        return []
-
 
 class SortView(_RecordView):
     """View over a ua.sort.Sort record term."""

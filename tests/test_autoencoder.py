@@ -39,7 +39,7 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
-    equation, resolve_equation,
+    Equation,
     lens, validate_lens,
     assemble_graph, LensPathSpec,
 )
@@ -137,8 +137,8 @@ class TestAutoencoder:
         """
         # encoder: input_sort → latent_sort  (compression)
         # decoder: latent_sort → input_sort  (reconstruction)
-        eq_enc = equation("ae1_enc", "ij,j->i", input_sort, latent_sort, real_sr)
-        eq_dec = equation("ae1_dec", "ij,j->i", latent_sort, input_sort, real_sr)
+        eq_enc = Equation("ae1_enc", "ij,j->i", input_sort, latent_sort, real_sr)
+        eq_dec = Equation("ae1_dec", "ij,j->i", latent_sort, input_sort, real_sr)
         ae_lens = lens("ae1", "ae1_enc", "ae1_dec")
 
         # Weight matrices for path params
@@ -178,8 +178,8 @@ class TestAutoencoder:
         The encoder equation "ij,j->i" contracts a weight matrix W (latent x input)
         against input x (input,) to produce z (latent,).
         """
-        eq_enc = equation("ae2_enc", "ij,j->i", input_sort, latent_sort, real_sr)
-        prim = resolve_equation(eq_enc, backend)
+        eq_enc = Equation("ae2_enc", "ij,j->i", input_sort, latent_sort, real_sr)
+        prim = eq_enc.resolve(backend)
 
         # W: 3 x 6,  x: 6  →  z: 3
         W = np.array([
@@ -212,8 +212,8 @@ class TestAutoencoder:
         The decoder equation "ij,j->i" contracts a weight matrix W_dec
         (input x latent) against latent z (latent,) to reconstruct x_hat (input,).
         """
-        eq_dec = equation("ae3_dec", "ij,j->i", latent_sort, input_sort, real_sr)
-        prim = resolve_equation(eq_dec, backend)
+        eq_dec = Equation("ae3_dec", "ij,j->i", latent_sort, input_sort, real_sr)
+        prim = eq_dec.resolve(backend)
 
         # W_dec: 6 x 3,  z: 3  →  x_hat: 6
         W_dec = np.eye(6, 3)   # first 3 columns of identity
@@ -249,13 +249,13 @@ class TestAutoencoder:
         Backward: decoder1 then decoder2  (latent → hidden → input, reversed order)
         """
         # encoder1: input → hidden  (4 x 6)
-        eq_enc1 = equation("ae4_enc1", "ij,j->i", input_sort, hidden_sort, real_sr)
+        eq_enc1 = Equation("ae4_enc1", "ij,j->i", input_sort, hidden_sort, real_sr)
         # encoder2: hidden → latent  (3 x 4)
-        eq_enc2 = equation("ae4_enc2", "ij,j->i", hidden_sort, latent_sort, real_sr)
+        eq_enc2 = Equation("ae4_enc2", "ij,j->i", hidden_sort, latent_sort, real_sr)
         # decoder1: latent → hidden  (4 x 3)
-        eq_dec1 = equation("ae4_dec1", "ij,j->i", latent_sort, hidden_sort, real_sr)
+        eq_dec1 = Equation("ae4_dec1", "ij,j->i", latent_sort, hidden_sort, real_sr)
         # decoder2: hidden → input   (6 x 4)
-        eq_dec2 = equation("ae4_dec2", "ij,j->i", hidden_sort, input_sort, real_sr)
+        eq_dec2 = Equation("ae4_dec2", "ij,j->i", hidden_sort, input_sort, real_sr)
 
         lens1 = lens("ae_deep1", "ae4_enc1", "ae4_dec2")
         lens2 = lens("ae_deep2", "ae4_enc2", "ae4_dec1")
@@ -312,8 +312,8 @@ class TestAutoencoder:
         trop_latent = sort("ae_trop_latent", tropical_sr)
 
         # Identity contraction: no weight, no reduction — output equals input
-        eq_enc = equation("ae6_enc", "i->i", trop_input, trop_latent, tropical_sr)
-        eq_dec = equation("ae6_dec", "i->i", trop_latent, trop_input, tropical_sr)
+        eq_enc = Equation("ae6_enc", "i->i", trop_input, trop_latent, tropical_sr)
+        eq_dec = Equation("ae6_dec", "i->i", trop_latent, trop_input, tropical_sr)
         ae_lens = lens("ae6", "ae6_enc", "ae6_dec")
 
         graph = assemble_graph(

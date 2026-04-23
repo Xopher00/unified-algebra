@@ -17,6 +17,8 @@ def fixpoint(
     name: str,
     step_name: str,
     predicate_name: str,
+    epsilon: float,
+    max_iter: int,
 ) -> tuple[core.Name, core.Term]:
     """Build a fixpoint iteration as a Hydra lambda term.
 
@@ -24,6 +26,8 @@ def fixpoint(
         name:            identifier (e.g. "converge")
         step_name:       name of a 1-input equation: step(state) → new_state
         predicate_name:  name of a 1-input equation: pred(state) → float32 residual
+        epsilon:         convergence threshold (must match fixpoint_primitive)
+        max_iter:        iteration cap (must match fixpoint_primitive)
 
     Returns:
         (Name("ua.fixpoint.<name>"), lambda_term)
@@ -32,5 +36,5 @@ def fixpoint(
     """
     step_fn = var(f"ua.equation.{step_name}")
     pred_fn = var(f"ua.equation.{predicate_name}")
-    body = var("ua.prim.fixpoint") @ step_fn @ pred_fn @ var("state")
+    body = var(f"ua.prim.fixpoint.{epsilon}.{max_iter}") @ step_fn @ pred_fn @ var("state")
     return bind_composition("fixpoint", name, "state", body)

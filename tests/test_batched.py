@@ -17,8 +17,8 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder, sort_coder,
-    is_batched, validate_pipeline, equation, resolve_equation,
-    resolve_list_merge, path, fan, validate_spec,
+    is_batched, validate_pipeline, Equation,
+    path, fan, validate_spec,
     build_graph, assemble_graph, PathSpec, FanSpec,
 )
 from unialg.algebra import sort_type_from_term
@@ -205,29 +205,29 @@ class TestBatchedEquationResolution:
         Pointwise ops are elementwise and need no einsum rewriting.
         """
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        prim = resolve_equation(eq, backend)
+        eq = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
+        prim = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.relu_b")
 
     def test_batched_unary_einsum_resolves(self, real_sr, backend):
         """Unary einsum on batched sort resolves (the einsum gets prepended)."""
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq = equation("bn_scale", "i->i", hidden_b, hidden_b, real_sr)
-        prim = resolve_equation(eq, backend)
+        eq = Equation("bn_scale", "i->i", hidden_b, hidden_b, real_sr)
+        prim = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.bn_scale")
 
     def test_batched_binary_einsum_resolves(self, real_sr, backend):
         """Binary einsum on batched sort resolves — becomes a 2-input prim2."""
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq = equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
-        prim = resolve_equation(eq, backend)
+        eq = Equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
+        prim = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.linear_b")
 
     def test_unbatched_still_works(self, real_sr, backend):
         """sort() with default batched=False is unchanged from pre-Phase9 behaviour."""
         hidden = sort("hidden", real_sr)  # batched=False by default
-        eq = equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        prim = resolve_equation(eq, backend)
+        eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
+        prim = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.linear")
 
 
@@ -241,24 +241,24 @@ class TestBatchedSortJunctions:
     def test_batched_to_batched_ok(self, real_sr):
         """Batched codomain → batched domain: junction passes."""
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq1 = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        eq2 = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh", inputs=("relu_b",))
+        eq1 = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
+        eq2 = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh", inputs=("relu_b",))
         # Should not raise
         validate_pipeline([eq1, eq2])
 
     def test_unbatched_to_unbatched_ok(self, real_sr):
         """Unbatched codomain → unbatched domain: junction passes."""
         hidden = sort("hidden", real_sr, batched=False)
-        eq1 = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq2 = equation("tanh", None, hidden, hidden, nonlinearity="tanh", inputs=("relu",))
+        eq1 = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq2 = Equation("tanh", None, hidden, hidden, nonlinearity="tanh", inputs=("relu",))
         validate_pipeline([eq1, eq2])
 
     def test_batched_to_unbatched_fails(self, real_sr):
         """Batched codomain → unbatched domain: junction raises TypeError."""
         hidden_b = sort("hidden", real_sr, batched=True)
         hidden = sort("hidden", real_sr, batched=False)
-        eq_batched = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        eq_unbatched = equation("tanh", None, hidden, hidden, nonlinearity="tanh", inputs=("relu_b",))
+        eq_batched = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
+        eq_unbatched = Equation("tanh", None, hidden, hidden, nonlinearity="tanh", inputs=("relu_b",))
         with pytest.raises(TypeError):
             validate_pipeline([eq_batched, eq_unbatched])
 
@@ -266,8 +266,8 @@ class TestBatchedSortJunctions:
         """Unbatched codomain → batched domain: junction raises TypeError."""
         hidden_b = sort("hidden", real_sr, batched=True)
         hidden = sort("hidden", real_sr, batched=False)
-        eq_unbatched = equation("relu", None, hidden, hidden, nonlinearity="relu")
-        eq_batched = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh", inputs=("relu",))
+        eq_unbatched = Equation("relu", None, hidden, hidden, nonlinearity="relu")
+        eq_batched = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh", inputs=("relu",))
         with pytest.raises(TypeError):
             validate_pipeline([eq_unbatched, eq_batched])
 
@@ -282,8 +282,8 @@ class TestBatchedEndToEnd:
     def test_batched_pointwise(self, cx, real_sr, backend, coder):
         """Relu on a batch of vectors produces elementwise relu."""
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        prim = resolve_equation(eq, backend)
+        eq = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
+        prim = eq.resolve(backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -305,8 +305,8 @@ class TestBatchedEndToEnd:
         """Unary einsum 'i->i' on a batched sort sums nothing — becomes 'bi->bi'."""
         hidden_b = sort("hidden", real_sr, batched=True)
         # "i->i" is a trace/copy — with real semiring it's just identity copy
-        eq = equation("identity_b", "i->i", hidden_b, hidden_b, real_sr)
-        prim = resolve_equation(eq, backend)
+        eq = Equation("identity_b", "i->i", hidden_b, hidden_b, real_sr)
+        prim = eq.resolve(backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -328,8 +328,8 @@ class TestBatchedEndToEnd:
         W is tiled across the batch axis: shape (B, out, in).
         """
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq = equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
-        prim = resolve_equation(eq, backend)
+        eq = Equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
+        prim = eq.resolve(backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -356,9 +356,9 @@ class TestBatchedEndToEnd:
     def test_batched_linear_relu(self, cx, real_sr, backend, coder):
         """Combined batched equation: batched matmul + relu in one equation."""
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq = equation("linear_relu_b", "ij,j->i", hidden_b, hidden_b,
+        eq = Equation("linear_relu_b", "ij,j->i", hidden_b, hidden_b,
                       real_sr, nonlinearity="relu")
-        prim = resolve_equation(eq, backend)
+        prim = eq.resolve(backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -392,8 +392,8 @@ class TestBatchedPath:
     def test_batched_path_structure(self, real_sr, backend):
         """path() on batched equations builds the same lambda structure as unbatched."""
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq1 = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        eq2 = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
+        eq1 = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
+        eq2 = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
         p = path("b_pipe", ["relu_b", "tanh_b"])
         # path() returns a Hydra Term (lambda)
         assert p is not None
@@ -401,8 +401,8 @@ class TestBatchedPath:
     def test_batched_path_end_to_end(self, cx, real_sr, backend, coder):
         """Two-step batched path: relu then tanh applied to a batch."""
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq_relu = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        eq_tanh = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
+        eq_relu = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
+        eq_tanh = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
 
         graph = assemble_graph(
             [eq_relu, eq_tanh], backend,
@@ -422,9 +422,9 @@ class TestBatchedPath:
     def test_batched_three_step_path(self, cx, real_sr, backend, coder):
         """Three-step batched path: relu → tanh → relu."""
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq_relu = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        eq_tanh = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
-        eq_relu2 = equation("relu_b2", None, hidden_b, hidden_b, nonlinearity="relu")
+        eq_relu = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
+        eq_tanh = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
+        eq_relu2 = Equation("relu_b2", None, hidden_b, hidden_b, nonlinearity="relu")
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_relu2], backend,
@@ -447,9 +447,9 @@ class TestBatchedFan:
     def test_batched_fan_two_branches(self, cx, real_sr, backend, coder):
         """Two-branch fan over a batch: relu and tanh, merged by multiply."""
         hidden_b = sort("hidden", real_sr, batched=True)
-        eq_relu = equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        eq_tanh = equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
-        eq_merge = equation("merge_b", "i,i->i", hidden_b, hidden_b, real_sr)
+        eq_relu = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
+        eq_tanh = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
+        eq_merge = Equation("merge_b", "i,i->i", hidden_b, hidden_b, real_sr)
 
         graph = assemble_graph(
             [eq_relu, eq_tanh, eq_merge], backend,
@@ -471,12 +471,12 @@ class TestBatchedFan:
         add_sr = semiring("add", plus="add", times="add", zero=0.0, one=0.0)
         hidden_b = sort("hidden", add_sr, batched=True)
         eqs = [
-            equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu"),
-            equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh"),
-            equation("abs_b",  None, hidden_b, hidden_b, nonlinearity="abs"),
-            equation("neg_b",  None, hidden_b, hidden_b, nonlinearity="neg"),
+            Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu"),
+            Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh"),
+            Equation("abs_b",  None, hidden_b, hidden_b, nonlinearity="abs"),
+            Equation("neg_b",  None, hidden_b, hidden_b, nonlinearity="neg"),
         ]
-        eq_merge = equation("add_merge_b", "i,i->i", hidden_b, hidden_b, add_sr)
+        eq_merge = Equation("add_merge_b", "i,i->i", hidden_b, hidden_b, add_sr)
 
         graph = assemble_graph(
             eqs + [eq_merge], backend,

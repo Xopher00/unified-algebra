@@ -13,7 +13,7 @@ from unialg.algebra import (
 # Resolve (runtime compilation)
 from unialg.resolve import (
     resolve_semiring,
-    equation, resolve_equation, resolve_list_merge, resolve_all_primitives,
+    Equation, resolve_all_primitives,
     compile_einsum, semiring_contract,
 )
 

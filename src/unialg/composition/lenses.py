@@ -15,6 +15,7 @@ import unialg.views as vw
 import unialg.algebra as alg
 from unialg.utils import bind_composition
 from unialg.composition.paths import path, fan
+from unialg.resolve.morphism import Equation
 
 
 # ---------------------------------------------------------------------------
@@ -64,8 +65,8 @@ def validate_lens(
     if bwd_name not in eq_terms_by_name:
         raise TypeError(f"Lens '{lname}': backward equation '{bwd_name}' not found")
 
-    fwd_eq = vw.EquationView(eq_terms_by_name[fwd_name])
-    bwd_eq = vw.EquationView(eq_terms_by_name[bwd_name])
+    fwd_eq = Equation.from_term(eq_terms_by_name[fwd_name])
+    bwd_eq = Equation.from_term(eq_terms_by_name[bwd_name])
 
     # Base check: forward domain == backward codomain
     actual = alg.sort_type_from_term(fwd_eq.domain_sort)

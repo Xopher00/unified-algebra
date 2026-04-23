@@ -11,7 +11,7 @@ from hydra.core import Name
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
-    equation, compile_program, PathSpec,
+    Equation, compile_program, PathSpec,
 )
 
 
@@ -54,14 +54,14 @@ def encode_array(coder, arr):
 def build_ffn_equations(hidden, real_sr):
     """5 equations: 3 linear layers + 2 relu activations, wired with inputs=."""
     return [
-        equation("ffn_linear1", "ij,j->i", hidden, hidden, real_sr),
-        equation("ffn_relu1",   None, hidden, hidden,
+        Equation("ffn_linear1", "ij,j->i", hidden, hidden, real_sr),
+        Equation("ffn_relu1",   None, hidden, hidden,
                  nonlinearity="relu", inputs=("ffn_linear1",)),
-        equation("ffn_linear2", "ij,j->i", hidden, hidden, real_sr,
+        Equation("ffn_linear2", "ij,j->i", hidden, hidden, real_sr,
                  inputs=("ffn_relu1",)),
-        equation("ffn_relu2",   None, hidden, hidden,
+        Equation("ffn_relu2",   None, hidden, hidden,
                  nonlinearity="relu", inputs=("ffn_linear2",)),
-        equation("ffn_linear3", "ij,j->i", hidden, hidden, real_sr,
+        Equation("ffn_linear3", "ij,j->i", hidden, hidden, real_sr,
                  inputs=("ffn_relu2",)),
     ]
 
@@ -116,13 +116,13 @@ class TestFeedforward:
                         zero=float("inf"), one=0.0)
         h = sort("h14ff_t", trop)
         eqs = [
-            equation("tffn_linear1", "ij,j->i", h, h, trop),
-            equation("tffn_relu1",   None, h, h,
+            Equation("tffn_linear1", "ij,j->i", h, h, trop),
+            Equation("tffn_relu1",   None, h, h,
                      nonlinearity="relu", inputs=("tffn_linear1",)),
-            equation("tffn_linear2", "ij,j->i", h, h, trop, inputs=("tffn_relu1",)),
-            equation("tffn_relu2",   None, h, h,
+            Equation("tffn_linear2", "ij,j->i", h, h, trop, inputs=("tffn_relu1",)),
+            Equation("tffn_relu2",   None, h, h,
                      nonlinearity="relu", inputs=("tffn_linear2",)),
-            equation("tffn_linear3", "ij,j->i", h, h, trop, inputs=("tffn_relu2",)),
+            Equation("tffn_linear3", "ij,j->i", h, h, trop, inputs=("tffn_relu2",)),
         ]
         prog = compile_program(
             eqs, backend=backend,

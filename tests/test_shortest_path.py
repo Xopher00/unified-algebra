@@ -29,7 +29,7 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder,
-    equation, resolve_equation, path,
+    Equation, path,
     assemble_graph, build_graph, PathSpec,
 )
 
@@ -160,7 +160,7 @@ class TestShortestPath:
         min_j(W[i,j] + x[j]) — one hop of Bellman-Ford — and matches the
         numpy reference exactly.
         """
-        eq = equation("hop1", "ij,j->i", node_sort, node_sort, tropical_sr)
+        eq = Equation("hop1", "ij,j->i", node_sort, node_sort, tropical_sr)
         graph = assemble_graph([eq], backend)
 
         W_enc = enc(coder, W)
@@ -187,8 +187,8 @@ class TestShortestPath:
         PathSpec wires: hop2(hop1(x)) — each step is one Bellman-Ford
         relaxation, so the composition covers paths of length 2.
         """
-        eq1 = equation("sp1", "ij,j->i", node_sort, node_sort, tropical_sr)
-        eq2 = equation("sp2", "ij,j->i", node_sort, node_sort, tropical_sr)
+        eq1 = Equation("sp1", "ij,j->i", node_sort, node_sort, tropical_sr)
+        eq2 = Equation("sp2", "ij,j->i", node_sort, node_sort, tropical_sr)
 
         graph = assemble_graph(
             [eq1, eq2], backend,
@@ -208,8 +208,8 @@ class TestShortestPath:
         graph2 = build_graph(
             [],
             primitives={
-                Name("ua.equation.sp1"): resolve_equation(eq1, backend),
-                Name("ua.equation.sp2"): resolve_equation(eq2, backend),
+                Name("ua.equation.sp1"): eq1.resolve(backend),
+                Name("ua.equation.sp2"): eq2.resolve(backend),
             },
             bound_terms={p_name: p_term},
         )
@@ -244,8 +244,8 @@ class TestShortestPath:
         ], dtype=float)
         x_real = np.array([1.0, 0.0, 0.0], dtype=float)
 
-        eq1 = equation("real1", "ij,j->i", node_sort_real, node_sort_real, real_sr)
-        eq2 = equation("real2", "ij,j->i", node_sort_real, node_sort_real, real_sr)
+        eq1 = Equation("real1", "ij,j->i", node_sort_real, node_sort_real, real_sr)
+        eq2 = Equation("real2", "ij,j->i", node_sort_real, node_sort_real, real_sr)
 
         W_enc = enc(coder, W_real)
         x_enc = enc(coder, x_real)
@@ -259,8 +259,8 @@ class TestShortestPath:
         graph = build_graph(
             [],
             primitives={
-                Name("ua.equation.real1"): resolve_equation(eq1, backend),
-                Name("ua.equation.real2"): resolve_equation(eq2, backend),
+                Name("ua.equation.real1"): eq1.resolve(backend),
+                Name("ua.equation.real2"): eq2.resolve(backend),
             },
             bound_terms={p_name: p_term},
         )
@@ -292,8 +292,8 @@ class TestShortestPath:
 
         We verify both after one hop and after two hops.
         """
-        eq = equation("bfstep", "ij,j->i", node_sort, node_sort, tropical_sr)
-        prim = resolve_equation(eq, backend)
+        eq = Equation("bfstep", "ij,j->i", node_sort, node_sort, tropical_sr)
+        prim = eq.resolve(backend)
 
         W_enc = enc(coder, W)
         x_enc = enc(coder, x0)

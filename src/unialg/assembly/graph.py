@@ -14,8 +14,9 @@ import unialg.resolve as res
 import unialg.composition as comp
 import unialg.specs as sp
 import unialg.views as vw
+from unialg.resolve.morphism import Equation
 from unialg.assembly.topology import validate_pipeline, _register_sort_components, _build_schema
-from unialg.assembly.validation import validate_spec
+from unialg.assembly.topology import validate_spec
 from unialg.composition.catamorphism import fold, unfold
 from unialg.algebra.fixpoint import fixpoint
 from unialg.assembly.primitives import unfold_n_primitive, fixpoint_primitive, lens_fwd_primitive, lens_bwd_primitive
@@ -49,7 +50,7 @@ def _register_residual_prims(
 
         sr_term = None
         for eq_term in eq_by_name.values():
-            v = vw.EquationView(eq_term)
+            v = Equation.from_term(eq_term)
             sr_field = v.semiring
             if isinstance(sr_field, core.TermRecord):
                 sv = vw.SemiringView(sr_field)
@@ -99,9 +100,7 @@ def _build_compositions(
 ) -> None:
     """Validate and build all composition specs. Mutates primitives and bound_terms."""
     for spec in specs:
-        # sp.LensPathSpec and sp.LensFanSpec — lens validation handled by _build_lens_by_name
-        if not isinstance(spec, (sp.LensPathSpec, sp.LensFanSpec)):
-            validate_spec(eq_by_name, spec, schema_types)
+        validate_spec(eq_by_name, spec, schema_types)
 
         if isinstance(spec, sp.PathSpec):
             results = [comp.path(spec.name, spec.eq_names, spec.params,
@@ -132,8 +131,8 @@ def _build_compositions(
 
         elif isinstance(spec, sp.FixpointSpec):
             fp_prim = fixpoint_primitive(spec.epsilon, spec.max_iter)
-            primitives[fp_prim.name] = fp_prim
-            results = [fixpoint(spec.name, spec.step_name, spec.predicate_name)]
+            primitives.setdefault(fp_prim.name, fp_prim)
+            results = [fixpoint(spec.name, spec.step_name, spec.predicate_name, spec.epsilon, spec.max_iter)]
 
         else:
             raise TypeError(f"Unknown composition spec type: {type(spec).__name__}")
@@ -236,7 +235,7 @@ def assemble_graph(
 
     seen_sorts: dict[str, core.Term] = {}
     for eq_term in eq_terms:
-        v = vw.EquationView(eq_term)
+        v = Equation.from_term(eq_term)
         for st in (v.domain_sort, v.codomain_sort):
             seen_sorts.setdefault(str(alg.sort_type_from_term(st)), st)  # sort_type_from_term stays in algebra
     all_sorts = list(seen_sorts.values()) + list(extra_sorts or [])

@@ -57,7 +57,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                     f"declared templates: {list(templates_by_name)}"
                 )
             einsum, dom_sort, cod_sort, sr_term, nl = templates_by_name[tpl_name]
-            eq_term = res.equation(concrete_name, einsum, dom_sort, cod_sort,
+            eq_term = res.Equation(concrete_name, einsum, dom_sort, cod_sort,
                                   sr_term, nonlinearity=nl)
             equations_by_name[concrete_name] = eq_term
             equations_list.append(eq_term)
@@ -91,7 +91,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             if is_template:
                 templates_by_name[name] = (einsum, dom_sort, cod_sort, sr_term, nl)
             else:
-                eq_term = res.equation(name, einsum, dom_sort, cod_sort,
+                eq_term = res.Equation(name, einsum, dom_sort, cod_sort,
                                       sr_term, nonlinearity=nl)
                 equations_by_name[name] = eq_term
                 equations_list.append(eq_term)

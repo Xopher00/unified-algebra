@@ -84,8 +84,9 @@ def check_rank_junction(upstream_eq: core.Term, downstream_eq: core.Term,
 
     Only checks when both equations have non-empty einsum strings.
     """
-    up = vw.EquationView(upstream_eq)
-    down = vw.EquationView(downstream_eq)
+    from unialg.resolve.morphism import Equation
+    up = Equation.from_term(upstream_eq)
+    down = Equation.from_term(downstream_eq)
     up_einsum = up.einsum
     down_einsum = down.einsum
 

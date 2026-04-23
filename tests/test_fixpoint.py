@@ -18,7 +18,7 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     numpy_backend, semiring, sort, tensor_coder, sort_coder,
-    equation, resolve_equation, fixpoint,
+    Equation, fixpoint,
     validate_spec, build_graph,
     FixpointSpec,
 )
@@ -102,32 +102,47 @@ class TestFixpointValidation:
     def test_validate_fixpoint_passes_for_valid_step_and_predicate(
         self, hidden, output_sort, real_sr
     ):
-        """validate_fixpoint passes when step is endomorphism and predicate domain matches."""
-        step_eq = equation("fp_step", None, hidden, hidden, nonlinearity="relu")
-        pred_eq = equation("fp_pred", None, hidden, hidden, nonlinearity="abs")
+        """validate_fixpoint passes when step is endomorphism and predicate domain matches.
+
+        The predicate codomain must differ from the state sort (it should be a scalar
+        float32, not a tensor). output_sort stands in for a non-state codomain here;
+        full float32 enforcement requires a prim1-level predicate (see TestFixpointEndToEnd).
+        """
+        step_eq = Equation("fp_step", None, hidden, hidden, nonlinearity="relu")
+        pred_eq = Equation("fp_pred", None, hidden, output_sort, nonlinearity="abs")
         eq_by_name = {"fp_step": step_eq, "fp_pred": pred_eq}
         validate_spec(eq_by_name, FixpointSpec("_", "fp_step", "fp_pred", 0.0, 0, hidden))
+
+    def test_validate_fixpoint_raises_for_endomorphism_predicate(
+        self, hidden, real_sr
+    ):
+        """validate_fixpoint raises when predicate codomain == state sort (endomorphism)."""
+        step_eq = Equation("endo_step", None, hidden, hidden, nonlinearity="relu")
+        pred_eq = Equation("endo_pred", None, hidden, hidden, nonlinearity="abs")
+        eq_by_name = {"endo_step": step_eq, "endo_pred": pred_eq}
+        with pytest.raises(TypeError, match="scalar residual"):
+            validate_spec(eq_by_name, FixpointSpec("_", "endo_step", "endo_pred", 0.0, 0, hidden))
 
     def test_validate_fixpoint_raises_for_non_endomorphism_step(
         self, hidden, output_sort, real_sr
     ):
         """validate_fixpoint raises when step maps hidden -> output (not endo)."""
-        step_eq = equation("bad_step", "i->j", hidden, output_sort, real_sr)
-        pred_eq = equation("bad_pred", None, hidden, hidden, nonlinearity="abs")
+        step_eq = Equation("bad_step", "i->j", hidden, output_sort, real_sr)
+        pred_eq = Equation("bad_pred", None, hidden, output_sort, nonlinearity="abs")
         eq_by_name = {"bad_step": step_eq, "bad_pred": pred_eq}
         with pytest.raises(TypeError):
             validate_spec(eq_by_name, FixpointSpec("_", "bad_step", "bad_pred", 0.0, 0, hidden))
 
     def test_validate_fixpoint_raises_for_missing_predicate(self, hidden):
         """validate_fixpoint raises ValueError when predicate equation is not found."""
-        step_eq = equation("ms_step", None, hidden, hidden, nonlinearity="relu")
+        step_eq = Equation("ms_step", None, hidden, hidden, nonlinearity="relu")
         eq_by_name = {"ms_step": step_eq}
         with pytest.raises(ValueError, match="predicate equation 'missing_pred' not found"):
             validate_spec(eq_by_name, FixpointSpec("_", "ms_step", "missing_pred", 0.0, 0, hidden))
 
     def test_validate_fixpoint_raises_for_missing_step(self, hidden):
         """validate_fixpoint raises ValueError when step equation is not found."""
-        pred_eq = equation("ms_pred", None, hidden, hidden, nonlinearity="abs")
+        pred_eq = Equation("ms_pred", None, hidden, hidden, nonlinearity="abs")
         eq_by_name = {"ms_pred": pred_eq}
         with pytest.raises(ValueError, match="step equation 'missing_step' not found"):
             validate_spec(eq_by_name, FixpointSpec("_", "missing_step", "ms_pred", 0.0, 0, hidden))
@@ -148,8 +163,8 @@ class TestFixpointEndToEnd:
 
     def _make_step_prim(self, name, sort_term, nl_name, backend):
         """Resolve a unary endomorphism equation into a Primitive."""
-        eq = equation(name, None, sort_term, sort_term, nonlinearity=nl_name)
-        return resolve_equation(eq, backend)
+        eq = Equation(name, None, sort_term, sort_term, nonlinearity=nl_name)
+        return eq.resolve(backend)
 
     def _make_pred_prim(self, name, sort_term, fn, backend):
         """Build a predicate prim1 whose output is float32 (not tensor).
@@ -185,7 +200,7 @@ class TestFixpointEndToEnd:
         fp_prim = fixpoint_primitive(epsilon, max_iter)
 
         fp_name, fp_term = fixpoint(
-            "converge1", "fp1_step", "fp1_pred"
+            "converge1", "fp1_step", "fp1_pred", epsilon, max_iter
         )
 
         graph = make_graph_with_stdlib(
@@ -227,7 +242,7 @@ class TestFixpointEndToEnd:
         fp_prim = fixpoint_primitive(epsilon, max_iter)
 
         fp_name, fp_term = fixpoint(
-            "no_converge", "fp2_step", "fp2_pred"
+            "no_converge", "fp2_step", "fp2_pred", epsilon, max_iter
         )
 
         graph = make_graph_with_stdlib(
@@ -268,7 +283,7 @@ class TestFixpointEndToEnd:
 
         fp_prim = fixpoint_primitive(0.001, 50)
         fp_name, fp_term = fixpoint(
-            "conv_scalar", "fp3_step", "fp3_pred"
+            "conv_scalar", "fp3_step", "fp3_pred", 0.001, 50
         )
 
         graph = make_graph_with_stdlib(

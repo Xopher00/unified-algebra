@@ -237,7 +237,7 @@ def assemble_graph(
     for eq_term in eq_terms:
         v = Equation.from_term(eq_term)
         for st in (v.domain_sort, v.codomain_sort):
-            seen_sorts.setdefault(str(alg.sort_type_from_term(st)), st)  # sort_type_from_term stays in algebra
+            seen_sorts.setdefault(str(alg.Sort.from_term(st).type_), st)
     all_sorts = list(seen_sorts.values()) + list(extra_sorts or [])
     return build_graph(all_sorts, primitives=primitives, bound_terms=bound_terms)
 

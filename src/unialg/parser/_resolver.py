@@ -76,7 +76,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         elif kind == 'sort':
             _, name, sr_name, batched = decl
             sr_term = _get_sr(sr_name)
-            sort_term = alg.sort(name, sr_term, batched=batched)
+            sort_term = alg.Sort(name, sr_term, batched=batched)
             sorts[name] = sort_term
 
         elif kind == 'equation':

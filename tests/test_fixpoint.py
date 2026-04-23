@@ -17,7 +17,7 @@ from hydra.dsl.prims import prim1, float32 as float32_coder
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder, sort_coder,
+    numpy_backend, Semiring, Sort, tensor_coder, sort_coder,
     Equation, fixpoint,
     validate_spec, build_graph,
     FixpointSpec,
@@ -53,12 +53,12 @@ def coder():
 
 @pytest.fixture
 def hidden(real_sr):
-    return sort("hidden", real_sr)
+    return Sort("hidden", real_sr)
 
 
 @pytest.fixture
 def output_sort(real_sr):
-    return sort("output", real_sr)
+    return Sort("output", real_sr)
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ class TestFixpointEndToEnd:
         backend.unary_ops["halve"] = UnaryOp(fn=lambda x: 0.5 * x)
 
         real_sr = Semiring("real_fp1", plus="add", times="multiply", zero=0.0, one=1.0)
-        s_sort = sort("state_fp1", real_sr)
+        s_sort = Sort("state_fp1", real_sr)
 
         step_prim = self._make_step_prim("fp1_step", s_sort, "halve", backend)
         pred_prim = self._make_pred_prim(
@@ -232,7 +232,7 @@ class TestFixpointEndToEnd:
         backend.unary_ops["increment"] = UnaryOp(fn=lambda x: x + 1.0)
 
         real_sr = Semiring("real_fp2", plus="add", times="multiply", zero=0.0, one=1.0)
-        s_sort = sort("state_fp2", real_sr)
+        s_sort = Sort("state_fp2", real_sr)
 
         step_prim = self._make_step_prim("fp2_step", s_sort, "increment", backend)
         pred_prim = self._make_pred_prim("fp2_pred", s_sort, lambda x: 999.0, backend)
@@ -272,7 +272,7 @@ class TestFixpointEndToEnd:
         backend.unary_ops["halve2"] = UnaryOp(fn=lambda x: 0.5 * x)
 
         real_sr = Semiring("real_fp3", plus="add", times="multiply", zero=0.0, one=1.0)
-        s_sort = sort("state_fp3", real_sr)
+        s_sort = Sort("state_fp3", real_sr)
 
         step_prim = self._make_step_prim("fp3_step", s_sort, "halve2", backend)
         pred_prim = self._make_pred_prim(

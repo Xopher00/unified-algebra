@@ -674,8 +674,8 @@ sort hidden_batched(real, batched)
 """
         spec = parse_ua_spec(text)
         assert 'hidden_batched' in spec.sorts
-        from unialg import is_batched
-        assert is_batched(spec.sorts['hidden_batched'])
+        from unialg.algebra.sort import Sort
+        assert Sort.from_term(spec.sorts['hidden_batched']).batched
 
     def test_equation_with_nonlinearity_only(self):
         text = """

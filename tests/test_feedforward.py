@@ -10,7 +10,7 @@ import pytest
 from hydra.core import Name
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation, compile_program, PathSpec,
 )
 
@@ -29,7 +29,7 @@ def real_sr():
 
 @pytest.fixture
 def hidden(real_sr):
-    return sort("h14ff", real_sr)
+    return Sort("h14ff", real_sr)
 
 @pytest.fixture
 def coder():
@@ -114,7 +114,7 @@ class TestFeedforward:
         """Same 5-equation architecture with tropical semiring assembles without error."""
         trop = Semiring("tropical14ff", plus="minimum", times="add",
                         zero=float("inf"), one=0.0)
-        h = sort("h14ff_t", trop)
+        h = Sort("h14ff_t", trop)
         eqs = [
             Equation("tffn_linear1", "ij,j->i", h, h, trop),
             Equation("tffn_relu1",   None, h, h,

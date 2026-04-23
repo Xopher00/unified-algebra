@@ -29,7 +29,7 @@ import pytest
 from hydra.core import Name
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation, compile_program, PathSpec,
 )
 
@@ -55,12 +55,12 @@ def tropical_sr():
 
 @pytest.fixture
 def node_sort(real_sr):
-    return sort("node_gnn", real_sr)
+    return Sort("node_gnn", real_sr)
 
 
 @pytest.fixture
 def node_sort_trop(tropical_sr):
-    return sort("node_gnn_trop", tropical_sr)
+    return Sort("node_gnn_trop", tropical_sr)
 
 
 @pytest.fixture
@@ -488,7 +488,7 @@ class TestGNNTropicalSemiring:
         Demonstrates semiring polymorphism: swapping ⊕/⊗ changes the semantics
         without changing the equation structure.
         """
-        node_sort_real = sort("node_gnn_trop_vs_real", real_sr)
+        node_sort_real = Sort("node_gnn_trop_vs_real", real_sr)
         w_enc = encode_array(coder, self.W_trop)
 
         # Tropical equation

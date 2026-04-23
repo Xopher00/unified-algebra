@@ -11,7 +11,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     build_graph, Equation,
 )
 
@@ -42,7 +42,7 @@ def fuzzy_sr():
 
 @pytest.fixture
 def hidden(real_sr):
-    return sort("hidden", real_sr)
+    return Sort("hidden", real_sr)
 
 
 @pytest.fixture
@@ -221,7 +221,7 @@ class TestSemiringVariants:
 
     def test_tropical(self, cx, backend, coder):
         trop_sr = Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
-        hidden = sort("hidden", trop_sr)
+        hidden = Sort("hidden", trop_sr)
         eq = Equation("trop_linear", "ij,j->i", hidden, hidden, trop_sr)
         prim = eq.resolve(backend)
         graph = make_graph(primitives={prim.name: prim})
@@ -237,7 +237,7 @@ class TestSemiringVariants:
 
     def test_fuzzy(self, cx, backend, coder):
         fuz_sr = Semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0)
-        hidden = sort("hidden", fuz_sr)
+        hidden = Sort("hidden", fuz_sr)
         eq = Equation("fuz_linear", "ij,j->i", hidden, hidden, fuz_sr)
         prim = eq.resolve(backend)
         graph = make_graph(primitives={prim.name: prim})

@@ -11,8 +11,8 @@ from hydra.dsl.python import FrozenDict, Nothing, Left
 from hydra.typing import TypeConstraint
 from hydra.unification import unify_type_constraints
 
-import unialg.views as vw
 import unialg.algebra as alg
+from unialg.algebra.sort import Sort, ProductSort
 from unialg.resolve.morphism import Equation
 
 if TYPE_CHECKING:
@@ -28,11 +28,11 @@ _CX = Context(trace=(), messages=(), other=FrozenDict({}))
 
 def _register_sort_components(sort_term, schema):
     """Register structural sort type component names into schema (mutates schema)."""
-    if alg.is_product_sort(sort_term):
-        for elem in alg.product_sort_elements(sort_term):
+    if isinstance(Sort.from_term(sort_term), ProductSort):
+        for elem in ProductSort.from_term(sort_term).elements:
             _register_sort_components(elem, schema)
         return
-    sv = vw.SortView(sort_term)
+    sv = Sort.from_term(sort_term)
     sn = core.Name(f"ua.sort.{sv.name}")
     schema[sn] = core.TypeScheme((), core.TypeVariable(sn), Nothing())
     srn = core.Name(f"ua.semiring.{sv.semiring_name}")
@@ -113,8 +113,8 @@ def validate_pipeline(eq_terms, schema_types=None):
     cs = []
     for up, down, slot in topo_edges(eq_terms):
         u, d = Equation.from_term(up), Equation.from_term(down)
-        cs.append(TypeConstraint(alg.sort_type_from_term(u.codomain_sort),
-                                 alg.sort_type_from_term(d.domain_sort),
+        cs.append(TypeConstraint(Sort.from_term(u.codomain_sort).type_,
+                                 Sort.from_term(d.domain_sort).type_,
                                  f"'{u.name}' codomain != '{d.name}' domain"))
         alg.check_rank_junction(up, down, slot)
     _unify(cs, schema_types)

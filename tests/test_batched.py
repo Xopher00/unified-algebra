@@ -16,12 +16,11 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder, sort_coder,
-    is_batched, validate_pipeline, Equation,
+    numpy_backend, Semiring, Sort, tensor_coder, sort_coder,
+    validate_pipeline, Equation,
     path, fan, validate_spec,
     build_graph, assemble_graph, PathSpec, FanSpec,
 )
-from unialg.algebra import sort_type_from_term
 from unialg.resolve.morphism import _prepend_batch_dim
 
 
@@ -81,11 +80,11 @@ class TestBatchedSortConstruction:
     def test_batched_sort_identity(self, real_sr):
         """Batched and unbatched sorts with the same name produce distinct types."""
         import hydra.core as core
-        unbatched = sort("hidden", real_sr, batched=False)
-        batched = sort("hidden", real_sr, batched=True)
+        unbatched = Sort("hidden", real_sr, batched=False)
+        batched = Sort("hidden", real_sr, batched=True)
 
-        t_unbatched = sort_type_from_term(unbatched)
-        t_batched = sort_type_from_term(batched)
+        t_unbatched = Sort.from_term(unbatched).type_
+        t_batched = Sort.from_term(batched).type_
 
         assert t_unbatched != t_batched
         # Unbatched: TypeApplication(ua.sort.hidden, ua.semiring.real)
@@ -98,8 +97,8 @@ class TestBatchedSortConstruction:
     def test_batched_type_from_term(self, real_sr):
         """sort_type_from_term with batched=True wraps in ua.batched TypeApplication."""
         tropical_sr = Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
-        s = sort("output", tropical_sr, batched=True)
-        t = sort_type_from_term(s)
+        s = Sort("output", tropical_sr, batched=True)
+        t = Sort.from_term(s).type_
         assert t.value.function == core.TypeVariable(core.Name("ua.batched"))
         inner = t.value.argument
         assert inner.value.function == core.TypeVariable(core.Name("ua.sort.output"))
@@ -108,36 +107,35 @@ class TestBatchedSortConstruction:
     def test_unbatched_type_from_term(self, real_sr):
         """sort_type_from_term with batched=False has no batched wrapper."""
         tropical_sr = Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
-        s = sort("output", tropical_sr, batched=False)
-        t = sort_type_from_term(s)
+        s = Sort("output", tropical_sr, batched=False)
+        t = Sort.from_term(s).type_
         assert t.value.function == core.TypeVariable(core.Name("ua.sort.output"))
         assert t.value.argument == core.TypeVariable(core.Name("ua.semiring.tropical"))
 
     def test_is_batched_helper_true(self, real_sr):
         """is_batched returns True for batched=True sorts."""
-        s = sort("hidden", real_sr, batched=True)
-        assert is_batched(s) is True
+        s = Sort("hidden", real_sr, batched=True)
+        assert Sort.from_term(s).batched is True
 
     def test_is_batched_helper_false(self, real_sr):
         """is_batched returns False for batched=False sorts."""
-        s = sort("hidden", real_sr, batched=False)
-        assert is_batched(s) is False
+        s = Sort("hidden", real_sr, batched=False)
+        assert Sort.from_term(s).batched is False
 
     def test_is_batched_helper_default(self, real_sr):
         """is_batched returns False when batched flag is absent (old records)."""
         # Create a sort without the batched field by constructing the record manually
         import hydra.dsl.terms as T
-        from unialg.algebra.sort import SORT_TYPE_NAME
-        old_style = T.record(SORT_TYPE_NAME, [
+        old_style = T.record(Sort._type_name, [
             T.field("name", T.string("legacy")),
             T.field("semiring", real_sr),
         ])
-        assert is_batched(old_style) is False
+        assert Sort.from_term(old_style).batched is False
 
     def test_sort_type_from_term_batched_structure(self, real_sr):
-        """sort_type_from_term for a batched sort produces the expected TypeApplication structure."""
-        s = sort("encoder", real_sr, batched=True)
-        t = sort_type_from_term(s)
+        """Sort.from_term for a batched sort produces the expected TypeApplication structure."""
+        s = Sort("encoder", real_sr, batched=True)
+        t = Sort.from_term(s).type_
         assert t.value.function == core.TypeVariable(core.Name("ua.batched"))
         inner = t.value.argument
         assert inner.value.function == core.TypeVariable(core.Name("ua.sort.encoder"))
@@ -204,28 +202,28 @@ class TestBatchedEquationResolution:
 
         Pointwise ops are elementwise and need no einsum rewriting.
         """
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         prim = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.relu_b")
 
     def test_batched_unary_einsum_resolves(self, real_sr, backend):
         """Unary einsum on batched sort resolves (the einsum gets prepended)."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("bn_scale", "i->i", hidden_b, hidden_b, real_sr)
         prim = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.bn_scale")
 
     def test_batched_binary_einsum_resolves(self, real_sr, backend):
         """Binary einsum on batched sort resolves — becomes a 2-input prim2."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
         prim = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.linear_b")
 
     def test_unbatched_still_works(self, real_sr, backend):
-        """sort() with default batched=False is unchanged from pre-Phase9 behaviour."""
-        hidden = sort("hidden", real_sr)  # batched=False by default
+        """Sort() with default batched=False is unchanged from pre-Phase9 behaviour."""
+        hidden = Sort("hidden", real_sr)  # batched=False by default
         eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
         prim = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.linear")
@@ -240,7 +238,7 @@ class TestBatchedSortJunctions:
 
     def test_batched_to_batched_ok(self, real_sr):
         """Batched codomain → batched domain: junction passes."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq1 = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq2 = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh", inputs=("relu_b",))
         # Should not raise
@@ -248,15 +246,15 @@ class TestBatchedSortJunctions:
 
     def test_unbatched_to_unbatched_ok(self, real_sr):
         """Unbatched codomain → unbatched domain: junction passes."""
-        hidden = sort("hidden", real_sr, batched=False)
+        hidden = Sort("hidden", real_sr, batched=False)
         eq1 = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq2 = Equation("tanh", None, hidden, hidden, nonlinearity="tanh", inputs=("relu",))
         validate_pipeline([eq1, eq2])
 
     def test_batched_to_unbatched_fails(self, real_sr):
         """Batched codomain → unbatched domain: junction raises TypeError."""
-        hidden_b = sort("hidden", real_sr, batched=True)
-        hidden = sort("hidden", real_sr, batched=False)
+        hidden_b = Sort("hidden", real_sr, batched=True)
+        hidden = Sort("hidden", real_sr, batched=False)
         eq_batched = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq_unbatched = Equation("tanh", None, hidden, hidden, nonlinearity="tanh", inputs=("relu_b",))
         with pytest.raises(TypeError):
@@ -264,8 +262,8 @@ class TestBatchedSortJunctions:
 
     def test_unbatched_to_batched_fails(self, real_sr):
         """Unbatched codomain → batched domain: junction raises TypeError."""
-        hidden_b = sort("hidden", real_sr, batched=True)
-        hidden = sort("hidden", real_sr, batched=False)
+        hidden_b = Sort("hidden", real_sr, batched=True)
+        hidden = Sort("hidden", real_sr, batched=False)
         eq_unbatched = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_batched = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh", inputs=("relu",))
         with pytest.raises(TypeError):
@@ -281,7 +279,7 @@ class TestBatchedEndToEnd:
 
     def test_batched_pointwise(self, cx, real_sr, backend, coder):
         """Relu on a batch of vectors produces elementwise relu."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         prim = eq.resolve(backend)
 
@@ -303,7 +301,7 @@ class TestBatchedEndToEnd:
 
     def test_batched_unary_einsum(self, cx, real_sr, backend, coder):
         """Unary einsum 'i->i' on a batched sort sums nothing — becomes 'bi->bi'."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         # "i->i" is a trace/copy — with real semiring it's just identity copy
         eq = Equation("identity_b", "i->i", hidden_b, hidden_b, real_sr)
         prim = eq.resolve(backend)
@@ -327,7 +325,7 @@ class TestBatchedEndToEnd:
         Equation declared as 'ij,j->i'; resolved as 'bij,bj->bi'.
         W is tiled across the batch axis: shape (B, out, in).
         """
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
         prim = eq.resolve(backend)
 
@@ -355,7 +353,7 @@ class TestBatchedEndToEnd:
 
     def test_batched_linear_relu(self, cx, real_sr, backend, coder):
         """Combined batched equation: batched matmul + relu in one equation."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_relu_b", "ij,j->i", hidden_b, hidden_b,
                       real_sr, nonlinearity="relu")
         prim = eq.resolve(backend)
@@ -391,7 +389,7 @@ class TestBatchedPath:
 
     def test_batched_path_structure(self, real_sr, backend):
         """path() on batched equations builds the same lambda structure as unbatched."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq1 = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq2 = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
         p = path("b_pipe", ["relu_b", "tanh_b"])
@@ -400,7 +398,7 @@ class TestBatchedPath:
 
     def test_batched_path_end_to_end(self, cx, real_sr, backend, coder):
         """Two-step batched path: relu then tanh applied to a batch."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq_relu = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq_tanh = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
 
@@ -421,7 +419,7 @@ class TestBatchedPath:
 
     def test_batched_three_step_path(self, cx, real_sr, backend, coder):
         """Three-step batched path: relu → tanh → relu."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq_relu = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq_tanh = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
         eq_relu2 = Equation("relu_b2", None, hidden_b, hidden_b, nonlinearity="relu")
@@ -446,7 +444,7 @@ class TestBatchedFan:
 
     def test_batched_fan_two_branches(self, cx, real_sr, backend, coder):
         """Two-branch fan over a batch: relu and tanh, merged by multiply."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         eq_relu = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq_tanh = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
         eq_merge = Equation("merge_b", "i,i->i", hidden_b, hidden_b, real_sr)
@@ -469,7 +467,7 @@ class TestBatchedFan:
     def test_batched_fan_four_branches(self, cx, real_sr, backend, coder):
         """Four-branch batched fan with additive merge."""
         add_sr = Semiring("add", plus="add", times="add", zero=0.0, one=0.0)
-        hidden_b = sort("hidden", add_sr, batched=True)
+        hidden_b = Sort("hidden", add_sr, batched=True)
         eqs = [
             Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu"),
             Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh"),
@@ -504,7 +502,7 @@ class TestBatchedGraphRegistration:
 
     def test_batched_sort_in_schema(self, real_sr):
         """build_graph registers component names (ua.sort.X, ua.semiring.Y, ua.batched)."""
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         graph = build_graph([hidden_b])
         assert core.Name("ua.sort.hidden") in graph.schema_types
         assert core.Name("ua.semiring.real") in graph.schema_types
@@ -512,15 +510,15 @@ class TestBatchedGraphRegistration:
 
     def test_unbatched_sort_in_schema(self, real_sr):
         """build_graph registers component names for unbatched sort."""
-        hidden = sort("hidden", real_sr, batched=False)
+        hidden = Sort("hidden", real_sr, batched=False)
         graph = build_graph([hidden])
         assert core.Name("ua.sort.hidden") in graph.schema_types
         assert core.Name("ua.semiring.real") in graph.schema_types
 
     def test_both_sorts_in_schema(self, real_sr):
         """Both batched and unbatched variants share component name entries."""
-        hidden = sort("hidden", real_sr, batched=False)
-        hidden_b = sort("hidden", real_sr, batched=True)
+        hidden = Sort("hidden", real_sr, batched=False)
+        hidden_b = Sort("hidden", real_sr, batched=True)
         graph = build_graph([hidden, hidden_b])
         assert core.Name("ua.sort.hidden") in graph.schema_types
         assert core.Name("ua.semiring.real") in graph.schema_types

@@ -22,7 +22,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation,
     path, fan,
     build_graph, assemble_graph, PathSpec, FanSpec,
@@ -69,7 +69,7 @@ def add_sr():
 @pytest.fixture
 def hidden(real_sr):
     """Hidden sort bound to the real semiring."""
-    return sort("hidden", real_sr)
+    return Sort("hidden", real_sr)
 
 
 # ---------------------------------------------------------------------------

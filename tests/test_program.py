@@ -5,7 +5,7 @@ import pytest
 
 from unialg import (
     compile_program, Program,
-    Semiring, sort, Equation, numpy_backend, tensor_coder,
+    Semiring, Sort, Equation, numpy_backend, tensor_coder,
     path, fan,
     PathSpec, FanSpec, FoldSpec,
 )
@@ -29,7 +29,7 @@ def tropical_sr():
 
 @pytest.fixture
 def hidden(real_sr):
-    return sort("hidden", real_sr)
+    return Sort("hidden", real_sr)
 
 @pytest.fixture
 def coder():
@@ -114,7 +114,7 @@ class TestTropicalSemiring:
 
     def test_bellman_ford_one_hop(self, tropical_sr, backend, coder):
         """Tropical 'ij,j->i' computes min-plus: h_i = min_j(W_ij + x_j)."""
-        trop_sort = sort("t3_node", tropical_sr)
+        trop_sort = Sort("t3_node", tropical_sr)
         eq = Equation("t3_sp", "ij,j->i", trop_sort, trop_sort, tropical_sr)
 
         # W[i,j] = cost to reach node i from node j (incoming-edge convention)

@@ -11,7 +11,7 @@ from hydra.dsl.terms import apply, var, list_
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation, fold, unfold,
     validate_spec, build_graph, assemble_graph,
     PathSpec, FoldSpec, UnfoldSpec,
@@ -35,12 +35,12 @@ def real_sr():
 
 @pytest.fixture
 def hidden(real_sr):
-    return sort("hidden", real_sr)
+    return Sort("hidden", real_sr)
 
 
 @pytest.fixture
 def output_sort(real_sr):
-    return sort("output", real_sr)
+    return Sort("output", real_sr)
 
 
 @pytest.fixture

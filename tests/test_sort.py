@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from unialg import Semiring, sort, tensor_coder, build_graph
-from unialg.algebra import sort_type_from_term, check_sort_compatibility
+from unialg import Semiring, Sort, tensor_coder, build_graph
+from unialg.algebra import check_sort_compatibility
 from hydra.core import Name, TypeVariable, TypeApplication
 
 
@@ -21,43 +21,43 @@ def tropical_sr():
 class TestSortConstruction:
 
     def test_sort_has_name(self, real_sr):
-        s = sort("hidden", real_sr)
-        fields = {f.name.value: f.term for f in s.value.fields}
+        s = Sort("hidden", real_sr)
+        fields = {f.name.value: f.term for f in s.term.value.fields}
         assert fields["name"].value.value == "hidden"
 
     def test_sort_has_semiring(self, real_sr):
-        s = sort("hidden", real_sr)
-        fields = {f.name.value: f.term for f in s.value.fields}
+        s = Sort("hidden", real_sr)
+        fields = {f.name.value: f.term for f in s.term.value.fields}
         sr_fields = {f.name.value: f.term for f in fields["semiring"].value.fields}
         assert sr_fields["name"].value.value == "real"
 
     def test_different_sorts_different_names(self, real_sr):
-        h = sort("hidden", real_sr)
-        o = sort("output", real_sr)
-        h_name = {f.name.value: f.term for f in h.value.fields}["name"].value.value
-        o_name = {f.name.value: f.term for f in o.value.fields}["name"].value.value
+        h = Sort("hidden", real_sr)
+        o = Sort("output", real_sr)
+        h_name = {f.name.value: f.term for f in h.term.value.fields}["name"].value.value
+        o_name = {f.name.value: f.term for f in o.term.value.fields}["name"].value.value
         assert h_name != o_name
 
 
 class TestSortTypeMapping:
 
     def test_sort_type_from_term(self, real_sr):
-        h = sort("hidden", real_sr)
-        t = sort_type_from_term(h)
-        # sort_type_from_term returns a structural TypeApplication, not a TypeVariable
+        h = Sort("hidden", real_sr)
+        t = Sort.from_term(h).type_
+        # Sort.from_term(h).type_ returns a structural TypeApplication, not a TypeVariable
         assert isinstance(t, TypeApplication)
         assert t.value.function == TypeVariable(Name("ua.sort.hidden"))
         assert t.value.argument == TypeVariable(Name("ua.semiring.real"))
 
     def test_different_sorts_different_types(self, real_sr):
-        h = sort("hidden", real_sr)
-        o = sort("output", real_sr)
-        assert sort_type_from_term(h) != sort_type_from_term(o)
+        h = Sort("hidden", real_sr)
+        o = Sort("output", real_sr)
+        assert Sort.from_term(h).type_ != Sort.from_term(o).type_
 
     def test_different_semiring_different_types(self, real_sr, tropical_sr):
-        h_real = sort("hidden", real_sr)
-        h_trop = sort("hidden", tropical_sr)
-        assert sort_type_from_term(h_real) != sort_type_from_term(h_trop)
+        h_real = Sort("hidden", real_sr)
+        h_trop = Sort("hidden", tropical_sr)
+        assert Sort.from_term(h_real).type_ != Sort.from_term(h_trop).type_
 
 
 class TestTensorCoder:
@@ -107,21 +107,21 @@ class TestTensorCoder:
 class TestCompatibility:
 
     def test_same_semiring_compatible(self, real_sr):
-        h = sort("hidden", real_sr)
-        o = sort("output", real_sr)
+        h = Sort("hidden", real_sr)
+        o = Sort("output", real_sr)
         assert check_sort_compatibility(h, o) is True
 
     def test_different_semiring_incompatible(self, real_sr, tropical_sr):
-        h = sort("hidden", real_sr)
-        t = sort("scores", tropical_sr)
+        h = Sort("hidden", real_sr)
+        t = Sort("scores", tropical_sr)
         assert check_sort_compatibility(h, t) is False
 
 
 class TestGraphAssembly:
 
     def test_sorts_in_schema(self, real_sr):
-        h = sort("hidden", real_sr)
-        o = sort("output", real_sr)
+        h = Sort("hidden", real_sr)
+        o = Sort("output", real_sr)
         g = build_graph([h, o])
         # Component names are registered, not fused keys
         assert Name("ua.sort.hidden") in g.schema_types
@@ -129,6 +129,6 @@ class TestGraphAssembly:
         assert Name("ua.sort.output") in g.schema_types
 
     def test_tensor_type_in_schema(self, real_sr):
-        g = build_graph([sort("hidden", real_sr)])
+        g = build_graph([Sort("hidden", real_sr)])
         assert Name("ua.tensor.NDArray") in g.schema_types
 

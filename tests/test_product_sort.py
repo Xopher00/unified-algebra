@@ -11,11 +11,9 @@ import hydra.core as core
 from hydra.dsl.python import Right
 
 from unialg import (
-    numpy_backend, Semiring, sort, sort_coder,
-    product_sort, is_product_sort,
+    numpy_backend, Semiring, Sort, sort_coder,
+    ProductSort,
 )
-from unialg.algebra import sort_type_from_term
-from unialg.algebra.sort import product_sort_elements, PRODUCT_SORT_TYPE_NAME
 
 
 # ---------------------------------------------------------------------------
@@ -34,17 +32,17 @@ def real_sr():
 
 @pytest.fixture
 def hidden(real_sr):
-    return sort("hidden", real_sr)
+    return Sort("hidden", real_sr)
 
 
 @pytest.fixture
 def output_sort(real_sr):
-    return sort("output", real_sr)
+    return Sort("output", real_sr)
 
 
 @pytest.fixture
 def residual_sort(real_sr):
-    return sort("residual", real_sr)
+    return Sort("residual", real_sr)
 
 
 # ===========================================================================
@@ -55,56 +53,56 @@ class TestProductSorts:
     """product_sort, is_product_sort, product_sort_elements, sort_type_from_term."""
 
     def test_product_sort_creates_record_with_correct_type_name(self, hidden, output_sort):
-        """product_sort([a, b]) is a TermRecord with type_name PRODUCT_SORT_TYPE_NAME."""
-        ps = product_sort([hidden, output_sort])
-        assert isinstance(ps, core.TermRecord)
-        assert ps.value.type_name == PRODUCT_SORT_TYPE_NAME
+        """ProductSort([a, b]) wraps a TermRecord with type_name PRODUCT_SORT_TYPE_NAME."""
+        ps = ProductSort([hidden, output_sort])
+        assert isinstance(ps.term, core.TermRecord)
+        assert ps.term.value.type_name == ProductSort._type_name
 
     def test_is_product_sort_true_for_product(self, hidden, output_sort):
         """is_product_sort returns True for a product_sort term."""
-        ps = product_sort([hidden, output_sort])
-        assert is_product_sort(ps) is True
+        ps = ProductSort([hidden, output_sort])
+        assert isinstance(Sort.from_term(ps), ProductSort) is True
 
     def test_is_product_sort_false_for_plain_sort(self, hidden):
         """is_product_sort returns False for an ordinary sort term."""
-        assert is_product_sort(hidden) is False
+        assert isinstance(Sort.from_term(hidden), ProductSort) is False
 
     def test_product_sort_elements_round_trips(self, hidden, output_sort, residual_sort):
         """product_sort_elements recovers the same sorts in declaration order."""
-        ps = product_sort([hidden, output_sort, residual_sort])
-        elements = product_sort_elements(ps)
+        ps = ProductSort([hidden, output_sort, residual_sort])
+        elements = ProductSort.from_term(ps).elements
         assert len(elements) == 3
         expected_types = [
-            sort_type_from_term(hidden),
-            sort_type_from_term(output_sort),
-            sort_type_from_term(residual_sort),
+            Sort.from_term(hidden).type_,
+            Sort.from_term(output_sort).type_,
+            Sort.from_term(residual_sort).type_,
         ]
-        actual_types = [sort_type_from_term(e) for e in elements]
+        actual_types = [Sort.from_term(e).type_ for e in elements]
         assert actual_types == expected_types
 
     def test_product_sort_requires_at_least_two_elements(self, hidden):
-        """product_sort([single]) raises ValueError."""
+        """ProductSort([single]) raises ValueError."""
         with pytest.raises(ValueError, match="at least 2"):
-            product_sort([hidden])
+            ProductSort([hidden])
 
     def test_product_sort_empty_raises(self):
-        """product_sort([]) raises ValueError."""
+        """ProductSort([]) raises ValueError."""
         with pytest.raises(ValueError, match="at least 2"):
-            product_sort([])
+            ProductSort([])
 
     def test_sort_type_from_term_distinct_for_product_vs_components(self, hidden, output_sort):
         """sort_type_from_term produces a nested TypePair for product sorts, distinct from components."""
-        ps = product_sort([hidden, output_sort])
-        ps_type = sort_type_from_term(ps)
-        hidden_type = sort_type_from_term(hidden)
-        output_type = sort_type_from_term(output_sort)
+        ps = ProductSort([hidden, output_sort])
+        ps_type = Sort.from_term(ps).type_
+        hidden_type = Sort.from_term(hidden).type_
+        output_type = Sort.from_term(output_sort).type_
         assert ps_type != hidden_type
         assert ps_type != output_type
         assert isinstance(ps_type, core.TypePair)
 
     def test_sort_coder_on_product_sort_encodes_decodes_tuple(self, hidden, output_sort, backend):
         """sort_coder on a product sort encodes/decodes a tuple of arrays correctly."""
-        ps = product_sort([hidden, output_sort])
+        ps = ProductSort([hidden, output_sort])
         prod_coder = sort_coder(ps, backend)
 
         a = np.array([1.0, 2.0, 3.0])

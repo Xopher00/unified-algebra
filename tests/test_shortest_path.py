@@ -28,7 +28,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation, path,
     assemble_graph, build_graph, PathSpec,
 )
@@ -56,13 +56,13 @@ def real_sr():
 @pytest.fixture
 def node_sort(tropical_sr):
     """A sort for node distance vectors under the tropical semiring."""
-    return sort("node", tropical_sr)
+    return Sort("node", tropical_sr)
 
 
 @pytest.fixture
 def node_sort_real(real_sr):
     """The same 'node' sort name but under the real semiring."""
-    return sort("node_real", real_sr)
+    return Sort("node_real", real_sr)
 
 
 @pytest.fixture

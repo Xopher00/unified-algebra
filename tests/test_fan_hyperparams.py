@@ -12,7 +12,7 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder, sort_coder,
+    numpy_backend, Semiring, Sort, tensor_coder, sort_coder,
     build_graph, assemble_graph, rebind_hyperparams,
     Equation,
     path, fan, validate_spec,
@@ -41,7 +41,7 @@ def real_sr():
 
 @pytest.fixture
 def hidden(real_sr):
-    return sort("hidden", real_sr)
+    return Sort("hidden", real_sr)
 
 
 @pytest.fixture
@@ -156,7 +156,7 @@ class TestListFanWithAdditiveMerge:
     def test_additive_merge(self, cx, hidden, backend, coder):
         """Fan with additive merge: sum of branches."""
         add_sr = Semiring("add", plus="add", times="add", zero=0.0, one=0.0)
-        hidden_add = sort("hidden", add_sr)
+        hidden_add = Sort("hidden", add_sr)
 
         eq_relu = Equation("relu", None, hidden_add, hidden_add, nonlinearity="relu")
         eq_tanh = Equation("tanh", None, hidden_add, hidden_add, nonlinearity="tanh")
@@ -299,7 +299,7 @@ class TestHyperparams:
     def test_scalar_hyperparam_via_einsum(self, cx, real_sr, hidden, backend, coder):
         """Scalar hyperparameter via broadcast einsum: ",i->i" (scalar * vector)."""
         # Define a scalar sort for the temperature-like param
-        scalar_sort = sort("scalar", real_sr)
+        scalar_sort = Sort("scalar", real_sr)
 
         # Equation: multiply scalar by vector. Einsum ",i->i"
         # Input0 = scalar (rank 0), Input1 = vector (rank 1)

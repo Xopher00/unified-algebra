@@ -2,7 +2,6 @@
 from unialg.algebra.semiring import Semiring, ResolvedSemiring
 from unialg.algebra.fixpoint import fixpoint
 from unialg.algebra.sort import (
-    sort, tensor_coder, sort_coder, sort_type_from_term,
-    is_batched, product_sort, is_product_sort, product_sort_elements,
+    Sort, ProductSort, tensor_coder, sort_coder,
     check_sort_compatibility, check_rank_junction,
 )

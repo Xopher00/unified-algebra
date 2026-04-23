@@ -27,9 +27,6 @@ if TYPE_CHECKING:
 # Hydra type for a semiring
 # ---------------------------------------------------------------------------
 
-SEMIRING_TYPE_NAME = core.Name("ua.semiring.Semiring")
-
-
 # ---------------------------------------------------------------------------
 # Semiring class
 # ---------------------------------------------------------------------------
@@ -52,6 +49,7 @@ class Semiring(_RecordView):
         fuzzy    = Semiring("fuzzy",    "maximum", "minimum",  0.0,         1.0)
     """
 
+    _type_name = core.Name("ua.semiring.Semiring")
     name  = _StringField("name")
     plus  = _StringField("plus")
     times = _StringField("times")
@@ -60,7 +58,7 @@ class Semiring(_RecordView):
 
     def __init__(self, name: str, plus: str, times: str, zero: float, one: float,
                  residual: str | None = None):
-        super().__init__(record(SEMIRING_TYPE_NAME, [
+        super().__init__(record(self._type_name, [
             Name("name") >> string(name),
             Name("plus") >> string(plus),
             Name("times") >> string(times),
@@ -68,18 +66,6 @@ class Semiring(_RecordView):
             Name("one") >> float64(one),
             Name("residual") >> string(residual or ""),
         ]).value)
-
-    @classmethod
-    def from_term(cls, term) -> "Semiring":
-        """Wrap an existing Hydra record term as a Semiring.
-
-        Idempotent: if term is already a Semiring, returns it unchanged.
-        """
-        if isinstance(term, cls):
-            return term
-        obj = cls.__new__(cls)
-        obj._term = term
-        return obj
 
     @property
     def residual(self) -> str:

@@ -37,32 +37,32 @@ class _TermField:
 class _RecordView:
     """Base for all Hydra record views."""
     __slots__ = ("_term",)
+
     def __init__(self, term: core.Term):
         self._term = term
+
     @property
     def term(self) -> core.Term:
         return self._term
+
+    @classmethod
+    def from_term(cls, term):
+        """Idempotent wrap: return term unchanged if already an instance of cls."""
+        if isinstance(term, cls):
+            return term
+        obj = cls.__new__(cls)
+        obj._term = term
+        return obj
+
+    @staticmethod
+    def _unwrap(term):
+        """Unwrap a _RecordView to its raw Hydra term; pass anything else through."""
+        return term.term if isinstance(term, _RecordView) else term
 
 
 # ---------------------------------------------------------------------------
 # Concrete views
 # ---------------------------------------------------------------------------
-
-
-class SortView(_RecordView):
-    """View over a ua.sort.Sort record term."""
-    name = _StringField("name")
-
-    @property
-    def semiring_name(self) -> str:
-        return string_value(record_fields(record_fields(self._term)["semiring"])["name"])
-
-    @property
-    def batched(self) -> bool:
-        b = record_fields(self._term).get("batched")
-        if b is None:
-            return False
-        return hasattr(b, "value") and hasattr(b.value, "value") and b.value.value is True
 
 
 class LensView(_RecordView):
@@ -79,8 +79,3 @@ class LensView(_RecordView):
         return rs
 
 
-class ProductSortView(_RecordView):
-    """View over a ua.sort.Product record term."""
-    @property
-    def elements(self) -> list[core.Term]:
-        return list(record_fields(self._term)["sorts"].value)

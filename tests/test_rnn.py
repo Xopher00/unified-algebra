@@ -34,7 +34,7 @@ from hydra.dsl.terms import apply, var, list_
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation,
     fold, unfold, validate_spec,
     build_graph, assemble_graph,
@@ -65,12 +65,12 @@ def tropical_sr():
 
 @pytest.fixture
 def hidden(real_sr):
-    return sort("hidden", real_sr)
+    return Sort("hidden", real_sr)
 
 
 @pytest.fixture
 def hidden_trop(tropical_sr):
-    return sort("hidden_trop", tropical_sr)
+    return Sort("hidden_trop", tropical_sr)
 
 
 @pytest.fixture

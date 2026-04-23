@@ -14,7 +14,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation, topo_edges, validate_pipeline, assemble_graph,
 )
 
@@ -41,7 +41,7 @@ def real():
 
 @pytest.fixture
 def hidden(real):
-    return sort("hidden", real)
+    return Sort("hidden", real)
 
 
 def enc(coder, arr):
@@ -60,8 +60,8 @@ class TestSortNameMismatch:
 
     def test_different_sort_names_rejected(self):
         real = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-        hidden = sort("hidden", real)
-        output = sort("output", real)
+        hidden = Sort("hidden", real)
+        output = Sort("output", real)
         eq1 = Equation("eq1", "ij,j->i", hidden, hidden, real)
         eq2 = Equation("eq2", "ij,j->i", output, output, real, inputs=("eq1",))
         with pytest.raises(TypeError):
@@ -78,8 +78,8 @@ class TestSemiringMismatch:
         real = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         tropical = Semiring("tropical", plus="minimum", times="add",
                             zero=float("inf"), one=0.0)
-        hidden_real = sort("hidden", real)
-        hidden_trop = sort("hidden", tropical)
+        hidden_real = Sort("hidden", real)
+        hidden_trop = Sort("hidden", tropical)
         eq1 = Equation("real_eq", "ij,j->i", hidden_real, hidden_real, real)
         eq2 = Equation("trop_eq", "ij,j->i", hidden_trop, hidden_trop, tropical, inputs=("real_eq",))
         with pytest.raises(TypeError):
@@ -94,13 +94,13 @@ class TestValidComposition:
 
     def test_single_equation_trivially_valid(self):
         real = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-        hidden = sort("hidden", real)
+        hidden = Sort("hidden", real)
         eq = Equation("linear", "ij,j->i", hidden, hidden, real)
         validate_pipeline([eq])  # no error
 
     def test_three_equation_pipeline(self, backend):
         real = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-        hidden = sort("hidden", real)
+        hidden = Sort("hidden", real)
         eqs = [
             Equation("linear1", "ij,j->i", hidden, hidden, real),
             Equation("relu", None, hidden, hidden, nonlinearity="relu", inputs=("linear1",)),
@@ -114,7 +114,7 @@ class TestValidComposition:
 
     def test_sorts_registered_in_schema(self, backend):
         real = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-        hidden = sort("hidden", real)
+        hidden = Sort("hidden", real)
         eqs = [Equation("linear", "ij,j->i", hidden, hidden, real)]
         graph = assemble_graph(eqs, backend)
         assert Name("ua.sort.hidden") in graph.schema_types
@@ -129,7 +129,7 @@ class TestAssembleAndRun:
 
     def test_two_layer_network(self, backend, cx, coder):
         real = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-        hidden = sort("hidden", real)
+        hidden = Sort("hidden", real)
         eqs = [
             Equation("linear", "ij,j->i", hidden, hidden, real),
             Equation("act", None, hidden, hidden, nonlinearity="relu", inputs=("linear",)),
@@ -154,7 +154,7 @@ class TestAssembleAndRun:
     def test_combined_equation(self, backend, cx, coder):
         """Single equation with contraction + nonlinearity: relu(W @ x)."""
         real = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-        hidden = sort("hidden", real)
+        hidden = Sort("hidden", real)
         eqs = [Equation("lr", "ij,j->i", hidden, hidden, real, nonlinearity="relu")]
         graph = assemble_graph(eqs, backend)
 

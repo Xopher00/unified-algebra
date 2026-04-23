@@ -11,79 +11,137 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import unialg.views as vw
 import hydra.core as core
 import hydra.graph
 from hydra.dsl.python import Right, Left
 from hydra.dsl.meta.phantoms import record, string, boolean, list_, unit, TTerm, binary
+
+from unialg.views import _RecordView, _StringField
+from unialg.utils import record_fields, string_value
 
 if TYPE_CHECKING:
     import hydra.errors
 
 
 # ---------------------------------------------------------------------------
-# Sort construction
+# Type name constants
 # ---------------------------------------------------------------------------
 
-SORT_TYPE_NAME = core.Name("ua.sort.Sort")
+# ---------------------------------------------------------------------------
+# Sort class
+# ---------------------------------------------------------------------------
 
+class Sort(_RecordView):
+    """A named tensor sort bound to a semiring.
 
-def sort(name: str, semiring_term: core.Term, batched: bool = False) -> core.Term:
-    """Create a sort as a Hydra record term.
+    Construct:
+        s = Sort("hidden", real_sr)
+        s = Sort("batch_hidden", real_sr, batched=True)
 
-    Args:
-        name:          sort identifier (e.g. "hidden", "output")
-        semiring_term: the semiring this sort belongs to (from semiring())
-        batched:       if True, equations on this sort automatically prepend a
-                       batch dimension to their einsum at resolution time.
+    Wrap an existing term:
+        s = Sort.from_term(term)
 
-    Returns:
-        A Hydra TermRecord representing the sort.
+    Sort.from_term is polymorphic: returns a ProductSort for product sort records.
     """
-    return record(SORT_TYPE_NAME, [
-        core.Name("name") >> string(name),
-        core.Name("semiring") >> TTerm(semiring_term.term if isinstance(semiring_term, vw._RecordView) else semiring_term),
-        core.Name("batched") >> boolean(batched),
-    ]).value
+
+    _type_name = core.Name("ua.sort.Sort")
+    name = _StringField("name")
+
+    def __init__(self, name: str, semiring_term, batched: bool = False):
+        semiring_term = self._unwrap(semiring_term)
+        super().__init__(record(self._type_name, [
+            core.Name("name") >> string(name),
+            core.Name("semiring") >> TTerm(semiring_term),
+            core.Name("batched") >> boolean(batched),
+        ]).value)
+
+    @classmethod
+    def from_term(cls, term) -> "Sort":
+        """Wrap an existing Hydra record term as a Sort or ProductSort.
+
+        Polymorphic: returns a ProductSort if the term has type_name
+        ProductSort._type_name. Idempotent for Sort/ProductSort instances.
+        """
+        if isinstance(term, ProductSort):
+            return term
+        try:
+            if (isinstance(term, core.TermRecord)
+                    and term.value.type_name == ProductSort._type_name):
+                return ProductSort.from_term(term)
+        except (AttributeError, TypeError):
+            pass
+        if isinstance(term, Sort):
+            return term
+        obj = cls.__new__(cls)
+        obj._term = term
+        return obj
+
+    @property
+    def semiring_name(self) -> str:
+        return string_value(record_fields(record_fields(self._term)["semiring"])["name"])
+
+    @property
+    def batched(self) -> bool:
+        b = record_fields(self._term).get("batched")
+        if b is None:
+            return False
+        return hasattr(b, "value") and hasattr(b.value, "value") and b.value.value is True
+
+    @property
+    def type_(self) -> core.Type:
+        base = core.TypeApplication(core.ApplicationType(
+            core.TypeVariable(core.Name(f"ua.sort.{self.name}")),
+            core.TypeVariable(core.Name(f"ua.semiring.{self.semiring_name}"))))
+        if self.batched:
+            return core.TypeApplication(core.ApplicationType(
+                core.TypeVariable(core.Name("ua.batched")), base))
+        return base
 
 
+# ---------------------------------------------------------------------------
+# ProductSort class
+# ---------------------------------------------------------------------------
+
+class ProductSort(_RecordView):
+    """A product sort — a typed pair/tuple of sorts.
+
+    Construct:
+        ps = ProductSort([hidden_sort, output_sort])
+
+    Wrap an existing term:
+        ps = ProductSort.from_term(term)
+    """
+
+    _type_name = core.Name("ua.sort.Product")
+
+    def __init__(self, sorts: list):
+        if len(sorts) < 2:
+            raise ValueError("Product sort requires at least 2 component sorts")
+        raw_sorts = [self._unwrap(s) for s in sorts]
+        super().__init__(record(self._type_name, [
+            core.Name("sorts") >> list_([TTerm(s) for s in raw_sorts]),
+        ]).value)
+
+    @property
+    def elements(self) -> list[core.Term]:
+        return list(record_fields(self._term)["sorts"].value)
+
+    @property
+    def type_(self) -> core.Type:
+        types = [Sort.from_term(e).type_ for e in self.elements]
+        result = types[-1]
+        for t in reversed(types[:-1]):
+            result = core.TypePair(core.PairType(first=t, second=result))
+        return result
 
 
 # ---------------------------------------------------------------------------
 # Semiring compatibility
 # ---------------------------------------------------------------------------
 
-
-def is_batched(sort_term: core.Term) -> bool:
-    """Return True if the sort has the batched flag set."""
-    return vw.SortView(sort_term).batched
-
-
-def sort_type_from_term(sort_term: core.Term) -> core.Type:
-    """Extract the Hydra Type for a sort from its record term."""
-    if is_product_sort(sort_term):
-        elements = product_sort_elements(sort_term)
-        types = [sort_type_from_term(e) for e in elements]
-        result = types[-1]
-        for t in reversed(types[:-1]):
-            result = core.TypePair(core.PairType(first=t, second=result))
-        return result
-    v = vw.SortView(sort_term)
-    base = core.TypeApplication(core.ApplicationType(
-        core.TypeVariable(core.Name(f"ua.sort.{v.name}")),
-        core.TypeVariable(core.Name(f"ua.semiring.{v.semiring_name}"))))
-    if v.batched:
-        return core.TypeApplication(core.ApplicationType(
-            core.TypeVariable(core.Name("ua.batched")), base))
-    return base
-
-
 def check_rank_junction(upstream_eq: core.Term, downstream_eq: core.Term,
                         input_slot: int) -> None:
-    """Raise TypeError if upstream output rank != downstream input rank at slot.
-
-    Only checks when both equations have non-empty einsum strings.
-    """
+    """Raise TypeError if upstream output rank != downstream input rank at slot."""
     from unialg.resolve.morphism import Equation
     up = Equation.from_term(upstream_eq)
     down = Equation.from_term(downstream_eq)
@@ -101,14 +159,14 @@ def check_rank_junction(upstream_eq: core.Term, downstream_eq: core.Term,
         )
 
 
-def check_sort_compatibility(sort_a: core.Term, sort_b: core.Term) -> bool:
+def check_sort_compatibility(sort_a, sort_b) -> bool:
     """Return True iff two sorts share the same semiring."""
     def _semiring(t):
         app = t.value
         if app.function == core.TypeVariable(core.Name("ua.batched")):
             app = app.argument.value
         return app.argument
-    return _semiring(sort_type_from_term(sort_a)) == _semiring(sort_type_from_term(sort_b))
+    return _semiring(Sort.from_term(sort_a).type_) == _semiring(Sort.from_term(sort_b).type_)
 
 
 # ---------------------------------------------------------------------------
@@ -119,13 +177,10 @@ from unialg.algebra.coders import tensor_coder  # noqa: F401
 from hydra.extract.core import binary as _extract_binary
 
 
-def sort_coder(sort_term: core.Term, backend) -> hydra.graph.TermCoder:
-    """Create a TermCoder with the sort's TypeVariable.
-
-    Backend provides from_wire/to_wire for array construction.
-    For product sorts, dispatches to product_sort_coder().
-    """
-    if is_product_sort(sort_term):
+def sort_coder(sort_term, backend) -> hydra.graph.TermCoder:
+    """Create a TermCoder with the sort's TypeVariable."""
+    s = Sort.from_term(sort_term)
+    if isinstance(s, ProductSort):
         return product_sort_coder(sort_term, backend)
 
     fw = backend.from_wire
@@ -142,78 +197,18 @@ def sort_coder(sort_term: core.Term, backend) -> hydra.graph.TermCoder:
         return Right(binary(tw(arr)).value)
 
     return hydra.graph.TermCoder(
-        type=sort_type_from_term(sort_term),
+        type=s.type_,
         encode=encode,
         decode=decode,
     )
 
 
-# ---------------------------------------------------------------------------
-# Product sorts
-# ---------------------------------------------------------------------------
-
-PRODUCT_SORT_TYPE_NAME = core.Name("ua.sort.Product")
-
-
-def product_sort(sorts: list[core.Term]) -> core.Term:
-    """Create a product sort — a typed pair/tuple of sorts.
-
-    Product sorts represent tensor tuples: morphisms that produce or consume
-    multiple tensors simultaneously, typed by a right-nested pair of component
-    sorts.
-
-    Args:
-        sorts: list of at least 2 component sort terms (from sort()).
-
-    Returns:
-        A Hydra TermRecord with type name ua.sort.Product and a 'sorts' field
-        containing the list of component sort terms.
-    """
-    if len(sorts) < 2:
-        raise ValueError("Product sort requires at least 2 component sorts")
-    return record(PRODUCT_SORT_TYPE_NAME, [
-        core.Name("sorts") >> list_([TTerm(s) for s in sorts]),
-    ]).value
-
-
-def is_product_sort(sort_term: core.Term) -> bool:
-    """Check if a sort term is a product sort.
-
-    Uses the record's type_name for a precise check: product sorts are
-    TermRecord(Record(type_name=PRODUCT_SORT_TYPE_NAME, ...)).
-    """
-    try:
-        return (
-            isinstance(sort_term, core.TermRecord)
-            and sort_term.value.type_name == PRODUCT_SORT_TYPE_NAME
-        )
-    except (AttributeError, TypeError):
-        return False
-
-
-def product_sort_elements(sort_term: core.Term) -> list[core.Term]:
-    """Extract component sorts from a product sort.
-
-    Args:
-        sort_term: a product sort term (produced by product_sort()).
-
-    Returns:
-        List of component sort terms in declaration order.
-
-    Raises:
-        KeyError: if sort_term is not a product sort.
-    """
-    return vw.ProductSortView(sort_term).elements
-
-
-def product_sort_coder(sort_term: core.Term, backend):
+def product_sort_coder(sort_term, backend):
     """Create a composite TermCoder for a product sort."""
     from hydra.dsl.prims import pair as pair_coder
-    elements = product_sort_elements(sort_term)
+    elements = ProductSort.from_term(sort_term).elements
     coders = [sort_coder(s, backend) for s in elements]
-    # Right-nest: [a, b, c] -> pair(a, pair(b, c))
     result = coders[-1]
     for c in reversed(coders[:-1]):
         result = pair_coder(c, result)
     return result
-

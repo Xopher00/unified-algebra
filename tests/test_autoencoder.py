@@ -38,7 +38,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation,
     lens, validate_lens,
     assemble_graph, LensPathSpec,
@@ -77,19 +77,19 @@ def tropical_sr():
 @pytest.fixture
 def input_sort(real_sr):
     """High-dimensional input space (dim=6)."""
-    return sort("ae_input", real_sr)
+    return Sort("ae_input", real_sr)
 
 
 @pytest.fixture
 def latent_sort(real_sr):
     """Low-dimensional latent/bottleneck space (dim=3)."""
-    return sort("ae_latent", real_sr)
+    return Sort("ae_latent", real_sr)
 
 
 @pytest.fixture
 def hidden_sort(real_sr):
     """Intermediate hidden space for deep autoencoder (dim=4)."""
-    return sort("ae_hidden", real_sr)
+    return Sort("ae_hidden", real_sr)
 
 
 # ---------------------------------------------------------------------------
@@ -308,8 +308,8 @@ class TestAutoencoder:
         We use "i->i" (identity contraction — no reduction) to allow exact
         numeric verification independent of matrix dimensions.
         """
-        trop_input = sort("ae_trop_input", tropical_sr)
-        trop_latent = sort("ae_trop_latent", tropical_sr)
+        trop_input = Sort("ae_trop_input", tropical_sr)
+        trop_latent = Sort("ae_trop_latent", tropical_sr)
 
         # Identity contraction: no weight, no reduction — output equals input
         eq_enc = Equation("ae6_enc", "i->i", trop_input, trop_latent, tropical_sr)

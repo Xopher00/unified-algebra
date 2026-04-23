@@ -18,8 +18,8 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, sort, tensor_coder, sort_coder,
-    product_sort, Equation, path, fan,
+    numpy_backend, Semiring, Sort, tensor_coder, sort_coder,
+    ProductSort, Equation, path, fan,
     build_graph, assemble_graph, lens, validate_lens, lens_path,
     FoldSpec, LensPathSpec,
 )
@@ -57,22 +57,22 @@ def tropical_sr():
 
 @pytest.fixture
 def hidden(real_sr):
-    return sort("hidden", real_sr)
+    return Sort("hidden", real_sr)
 
 
 @pytest.fixture
 def output_sort(real_sr):
-    return sort("output", real_sr)
+    return Sort("output", real_sr)
 
 
 @pytest.fixture
 def residual_sort(real_sr):
-    return sort("residual", real_sr)
+    return Sort("residual", real_sr)
 
 
 @pytest.fixture
 def tropic_sort(tropical_sr):
-    return sort("tropic", tropical_sr)
+    return Sort("tropic", tropical_sr)
 
 
 @pytest.fixture
@@ -155,8 +155,7 @@ class TestLensDeclaration:
         l = lens("linear", "fwd", "bwd", residual_sort=hidden)
         fields = record_fields(l)
         residual = fields["residualSort"]
-        from unialg.algebra import sort_type_from_term
-        t = sort_type_from_term(residual)
+        t = Sort.from_term(residual).type_
         assert t.value.function == core.TypeVariable(core.Name("ua.sort.hidden"))
 
 
@@ -169,7 +168,7 @@ class TestLensValidation:
 
     def _make_matching_pair(self, hidden, output_sort):
         """Build a valid fwd (hidden→output) + bwd (output→hidden) pair."""
-        real_sr = record_fields(hidden)["semiring"]
+        real_sr = record_fields(hidden.term)["semiring"]
         eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
         eq_bwd = Equation("bwd", "j->i", output_sort, hidden, real_sr)
         return eq_fwd, eq_bwd
@@ -200,7 +199,7 @@ class TestLensValidation:
             validate_lens({"fwd": eq_fwd}, l)
 
     def test_invalid_lens_domain_mismatch(self, hidden, output_sort):
-        real_sr = record_fields(hidden)["semiring"]
+        real_sr = record_fields(hidden.term)["semiring"]
         eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
         eq_bwd = Equation("bwd", "i->j", hidden, output_sort, real_sr)
         l = lens("bad", "fwd", "bwd")
@@ -208,7 +207,7 @@ class TestLensValidation:
             validate_lens({"fwd": eq_fwd, "bwd": eq_bwd}, l)
 
     def test_invalid_lens_codomain_mismatch(self, hidden, output_sort):
-        real_sr = record_fields(hidden)["semiring"]
+        real_sr = record_fields(hidden.term)["semiring"]
         eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
         eq_bwd = Equation("bwd", None, hidden, hidden, nonlinearity="relu")
         l = lens("bad", "fwd", "bwd")
@@ -398,7 +397,7 @@ class TestAssembleGraphWithLenses:
         assert Name("ua.path.id_pipe.bwd") in graph.bound_terms
 
     def test_assemble_graph_with_invalid_lens_raises(self, hidden, output_sort, backend):
-        real_sr = record_fields(hidden)["semiring"]
+        real_sr = record_fields(hidden.term)["semiring"]
         eq_fwd = Equation("enc_fwd", None, hidden, output_sort, real_sr, nonlinearity="relu")
         eq_bwd = Equation("enc_bwd", None, hidden, output_sort, real_sr, nonlinearity="relu")
         l = lens("bad_enc", "enc_fwd", "enc_bwd")
@@ -449,7 +448,7 @@ class TestLensFoldIntegration:
     def test_fold_with_lens_forward_equation(self, cx, backend, coder):
         """fold() using a lens's forward equation works normally."""
         add_sr = Semiring("addsem", plus="add", times="add", zero=0.0, one=0.0)
-        acc_sort = sort("acc", add_sr)
+        acc_sort = Sort("acc", add_sr)
         eq_step_fwd = Equation("acc_fwd", "i,i->i", acc_sort, acc_sort, add_sr)
         eq_step_bwd = Equation("acc_bwd", "i,i->i", acc_sort, acc_sort, add_sr)
         l = lens("acc_lens", "acc_fwd", "acc_bwd")
@@ -476,7 +475,7 @@ class TestLensFoldIntegration:
 
     def test_lens_coexists_with_fold_and_path(self, cx, hidden, backend, coder):
         """A graph can contain lenses, lens_paths, and folds simultaneously."""
-        real_sr = record_fields(hidden)["semiring"]
+        real_sr = record_fields(hidden.term)["semiring"]
         eq_relu_fwd = Equation("rl_fwd", None, hidden, hidden, nonlinearity="relu")
         eq_relu_bwd = Equation("rl_bwd", None, hidden, hidden, nonlinearity="relu")
         eq_step = Equation("fold_step", "i,i->i", hidden, hidden, real_sr)
@@ -546,7 +545,7 @@ class TestLensSemiringPolymorphism:
 
     def test_real_and_tropical_lenses_independent(self, cx, real_sr, tropical_sr, backend, coder):
         """Real and tropical lenses can coexist in separate graphs."""
-        real_sort = sort("real_s", real_sr)
+        real_sort = Sort("real_s", real_sr)
 
         eq_real_fwd = Equation("real_relu", None, real_sort, real_sort, nonlinearity="relu")
         eq_real_bwd = Equation("real_tanh", None, real_sort, real_sort, nonlinearity="tanh")
@@ -580,7 +579,7 @@ class TestOpticLensValidation:
     """validate_lens with residual_sort enforces product sort constraints."""
 
     def _make_eq_with_product_codomain(self, hidden, output_sort, residual_sort):
-        prod_sort = product_sort([output_sort, residual_sort])
+        prod_sort = ProductSort([output_sort, residual_sort])
         eq_fwd = Equation("optic_fwd", None, hidden, prod_sort, nonlinearity="relu")
         eq_bwd = Equation("optic_bwd", None, prod_sort, hidden, nonlinearity="relu")
         return eq_fwd, eq_bwd, prod_sort
@@ -608,7 +607,7 @@ class TestOpticLensValidation:
     def test_validate_lens_raises_when_residual_not_in_forward_codomain(
         self, hidden, output_sort, residual_sort
     ):
-        wrong_prod = product_sort([output_sort, hidden])
+        wrong_prod = ProductSort([output_sort, hidden])
         eq_fwd = Equation("missing_fwd", None, hidden, wrong_prod, nonlinearity="relu")
         eq_bwd = Equation("missing_bwd", None, wrong_prod, hidden, nonlinearity="relu")
         l = lens("missing_optic", "missing_fwd", "missing_bwd", residual_sort=residual_sort)
@@ -626,9 +625,9 @@ class TestOpticLensValidation:
     def test_optic_lens_forward_produces_pair_end_to_end(self, cx, backend, coder):
         """End-to-end: a lens with a product codomain can be assembled and reduced."""
         real_sr = Semiring("real12", plus="add", times="multiply", zero=0.0, one=1.0)
-        h_sort = sort("h12", real_sr)
-        r_sort = sort("r12", real_sr)
-        prod = product_sort([h_sort, r_sort])
+        h_sort = Sort("h12", real_sr)
+        r_sort = Sort("r12", real_sr)
+        prod = ProductSort([h_sort, r_sort])
 
         backend.unary_ops["pair_relu"] = UnaryOp(fn=lambda x: (np.maximum(0, x), x))
 
@@ -726,7 +725,7 @@ class TestLensPathRouting:
     """lens_path routes to _lens_path_threaded only for multi-optic with residual."""
 
     def _make_optic_lens(self, backend, name, hidden, residual_sort):
-        prod = product_sort([hidden, residual_sort])
+        prod = ProductSort([hidden, residual_sort])
         real_sr = list(hidden.value.fields)[1].term
 
         backend.unary_ops[f"pair_{name}"] = UnaryOp(fn=pair_relu)
@@ -741,7 +740,7 @@ class TestLensPathRouting:
 
     def test_single_optic_with_residual_uses_plain_path(self, hidden, residual_sort):
         """Single optic with residual_sort uses plain path (not optic_fwd/bwd)."""
-        prod = product_sort([hidden, residual_sort])
+        prod = ProductSort([hidden, residual_sort])
         eq_fwd = Equation("so_fwd", None, hidden, prod, nonlinearity="relu")
         eq_bwd = Equation("so_bwd", None, prod, hidden, nonlinearity="relu")
         l = lens("so", "so_fwd", "so_bwd", residual_sort=residual_sort)
@@ -755,7 +754,7 @@ class TestLensPathRouting:
 
     def test_multi_optic_with_residual_uses__lens_path_threaded(self, hidden, residual_sort):
         """Multi-optic with residual_sort uses _lens_path_threaded (optic_fwd/bwd)."""
-        prod = product_sort([hidden, residual_sort])
+        prod = ProductSort([hidden, residual_sort])
         eq_fwd_a = Equation("mo_fwd_a", None, hidden, prod, nonlinearity="relu")
         eq_bwd_a = Equation("mo_bwd_a", None, prod, hidden, nonlinearity="relu")
         eq_fwd_b = Equation("mo_fwd_b", None, hidden, prod, nonlinearity="relu")
@@ -796,7 +795,7 @@ class TestMultiOpticEndToEnd:
 
     def _setup_two_optic_graph(self, backend, real_sr, hidden, residual_sort):
         """Build a graph with two composed optics a, b."""
-        prod = product_sort([hidden, residual_sort])
+        prod = ProductSort([hidden, residual_sort])
 
         backend.unary_ops["pair_relu13"] = UnaryOp(fn=pair_relu)
         backend.unary_ops["pair_tanh13"] = UnaryOp(fn=pair_tanh)
@@ -950,9 +949,9 @@ class TestOpticSemiringPolymorphism:
         """Two tropical-semiring optics compose with residual threading."""
         tropical_sr = Semiring("tropical13", plus="minimum", times="add",
                                zero=float("inf"), one=0.0)
-        t_sort = sort("t13", tropical_sr)
-        r_sort = sort("rt13", tropical_sr)
-        prod = product_sort([t_sort, r_sort])
+        t_sort = Sort("t13", tropical_sr)
+        r_sort = Sort("rt13", tropical_sr)
+        prod = ProductSort([t_sort, r_sort])
 
         backend.unary_ops["pair_relu13t"] = UnaryOp(fn=pair_relu)
         backend.unary_ops["pair_tanh13t"] = UnaryOp(fn=pair_tanh)

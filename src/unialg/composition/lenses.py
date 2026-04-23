@@ -69,8 +69,8 @@ def validate_lens(
     bwd_eq = Equation.from_term(eq_terms_by_name[bwd_name])
 
     # Base check: forward domain == backward codomain
-    actual = alg.sort_type_from_term(fwd_eq.domain_sort)
-    expected = alg.sort_type_from_term(bwd_eq.codomain_sort)
+    actual = alg.Sort.from_term(fwd_eq.domain_sort).type_
+    expected = alg.Sort.from_term(bwd_eq.codomain_sort).type_
     if actual != expected:
         raise TypeError(
             f"Lens '{lname}': forward domain != backward codomain: {actual} != {expected}"
@@ -80,24 +80,24 @@ def validate_lens(
     has_residual = residual_sort is not None
     if has_residual:
         fwd_codomain = fwd_eq.codomain_sort
-        if not alg.is_product_sort(fwd_codomain):
+        if not isinstance(alg.Sort.from_term(fwd_codomain), alg.ProductSort):
             raise TypeError(
                 f"Lens '{lname}': forward codomain must be a product sort (has residual)"
             )
         bwd_domain = bwd_eq.domain_sort
-        if not alg.is_product_sort(bwd_domain):
+        if not isinstance(alg.Sort.from_term(bwd_domain), alg.ProductSort):
             raise TypeError(
                 f"Lens '{lname}': backward domain must be a product sort (has residual)"
             )
-        residual_type = alg.sort_type_from_term(residual_sort)
-        if not any(alg.sort_type_from_term(e) == residual_type for e in alg.product_sort_elements(fwd_codomain)):
+        residual_type = alg.Sort.from_term(residual_sort).type_
+        if not any(alg.Sort.from_term(e).type_ == residual_type for e in alg.ProductSort.from_term(fwd_codomain).elements):
             raise TypeError(f"Lens '{lname}': forward codomain missing residual sort")
-        if not any(alg.sort_type_from_term(e) == residual_type for e in alg.product_sort_elements(bwd_domain)):
+        if not any(alg.Sort.from_term(e).type_ == residual_type for e in alg.ProductSort.from_term(bwd_domain).elements):
             raise TypeError(f"Lens '{lname}': backward domain missing residual sort")
     else:
         # Plain lens: forward codomain == backward domain
-        actual_co = alg.sort_type_from_term(fwd_eq.codomain_sort)
-        expected_co = alg.sort_type_from_term(bwd_eq.domain_sort)
+        actual_co = alg.Sort.from_term(fwd_eq.codomain_sort).type_
+        expected_co = alg.Sort.from_term(bwd_eq.domain_sort).type_
         if actual_co != expected_co:
             raise TypeError(
                 f"Lens '{lname}': forward codomain != backward domain: {actual_co} != {expected_co}"

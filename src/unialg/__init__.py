@@ -5,8 +5,7 @@ from unialg.specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, 
 # Algebra (term construction)
 from unialg.algebra import (
     Semiring,
-    sort, tensor_coder, sort_coder, sort_type_from_term,
-    is_batched, product_sort, is_product_sort,
+    Sort, ProductSort, tensor_coder, sort_coder,
     fixpoint,
 )
 

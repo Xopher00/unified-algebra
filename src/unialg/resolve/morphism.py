@@ -27,7 +27,7 @@ from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_
 from unialg.utils import record_fields, string_value
 from unialg.views import _RecordView, _StringField, _TermField
 from unialg.algebra.semiring import Semiring
-from unialg.algebra.sort import sort_coder, is_batched
+from unialg.algebra.sort import sort_coder, Sort
 from unialg.resolve.contraction import compile_einsum, semiring_contract
 
 if TYPE_CHECKING:
@@ -67,9 +67,6 @@ def _make_prim(prim_name, compute, coders, out_coder):
 # Equation
 # ---------------------------------------------------------------------------
 
-EQUATION_TYPE_NAME = core.Name("ua.equation.Equation")
-
-
 class Equation(_RecordView):
     """A tensor equation: declaration, field access, and resolution in one object.
 
@@ -83,6 +80,8 @@ class Equation(_RecordView):
     Wrap an existing term (e.g. from the parser):
         eq = Equation.from_term(term)
     """
+
+    _type_name = core.Name("ua.equation.Equation")
 
     name         = _StringField("name")
     einsum       = _StringField("einsum")
@@ -102,28 +101,16 @@ class Equation(_RecordView):
         inputs: tuple[str, ...] = (),
         param_slots: tuple[str, ...] = (),
     ):
-        super().__init__(record(EQUATION_TYPE_NAME, [
+        super().__init__(record(self._type_name, [
             Name("name") >> string(name),
             Name("einsum") >> string(einsum or ""),
             Name("domainSort") >> TTerm(domain_sort),
             Name("codomainSort") >> TTerm(codomain_sort),
-            Name("semiring") >> (TTerm(semiring_term.term if isinstance(semiring_term, _RecordView) else semiring_term) if semiring_term is not None else unit()),
+            Name("semiring") >> (TTerm(self._unwrap(semiring_term)) if semiring_term is not None else unit()),
             Name("nonlinearity") >> string(nonlinearity or ""),
             Name("inputs") >> list_([string(n) for n in inputs]),
             Name("paramSlots") >> list_([string(p) for p in param_slots]),
         ]).value)
-
-    @classmethod
-    def from_term(cls, term) -> "Equation":
-        """Wrap an existing Hydra record term as an Equation.
-
-        Idempotent: if term is already an Equation, returns it unchanged.
-        """
-        if isinstance(term, cls):
-            return term
-        obj = cls.__new__(cls)
-        obj._term = term
-        return obj
 
     @property
     def inputs(self) -> list[str]:
@@ -146,7 +133,7 @@ class Equation(_RecordView):
         """Compile to a Hydra Primitive. Standard (non-merge) resolution."""
         einsum_str = self.einsum
         has_einsum = bool(einsum_str)
-        if has_einsum and is_batched(self.domain_sort):
+        if has_einsum and Sort.from_term(self.domain_sort).batched:
             einsum_str = _prepend_batch_dim(einsum_str)
 
         has_nl = bool(self.nonlinearity)
@@ -189,7 +176,7 @@ class Equation(_RecordView):
         """Compile as a list-consuming merge Primitive (for fan compositions)."""
         einsum_str = self.einsum
         has_einsum = bool(einsum_str)
-        if has_einsum and is_batched(self.domain_sort):
+        if has_einsum and Sort.from_term(self.domain_sort).batched:
             einsum_str = _prepend_batch_dim(einsum_str)
         has_nl = bool(self.nonlinearity)
         nl_fn = backend.unary(self.nonlinearity) if has_nl else None

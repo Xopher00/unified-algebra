@@ -39,7 +39,7 @@ class Spec:
     def _eq_sort_type(eq_by_name: dict, eq_name: str, field: str):
         """Return the Hydra Type for an equation's domain ('d') or codomain ('c')."""
         v = eq_by_name[eq_name]
-        return alg.sort_type_from_term(v.domain_sort if field == "d" else v.codomain_sort)
+        return alg.Sort.from_term(v.domain_sort if field == "d" else v.codomain_sort).type_
 
 
 @dataclass
@@ -57,7 +57,7 @@ class PathSpec(Spec):
         if self.domain_sort is not None:
             cs.append(TypeConstraint(
                 self._eq_sort_type(eq_by_name, self.eq_names[0], "d"),
-                alg.sort_type_from_term(self.domain_sort),
+                alg.Sort.from_term(self.domain_sort).type_,
                 f"Path domain != '{self.eq_names[0]}' domain"))
         for a, b in zip(self.eq_names, self.eq_names[1:]):
             cs.append(TypeConstraint(
@@ -67,7 +67,7 @@ class PathSpec(Spec):
         if self.codomain_sort is not None:
             cs.append(TypeConstraint(
                 self._eq_sort_type(eq_by_name, self.eq_names[-1], "c"),
-                alg.sort_type_from_term(self.codomain_sort),
+                alg.Sort.from_term(self.codomain_sort).type_,
                 f"Path codomain != '{self.eq_names[-1]}' codomain"))
         return cs
 
@@ -82,12 +82,12 @@ class FanSpec(Spec):
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         cs = []
-        md = alg.sort_type_from_term(eq_by_name[self.merge_name].domain_sort)
+        md = alg.Sort.from_term(eq_by_name[self.merge_name].domain_sort).type_
         if self.domain_sort is not None:
             for b in self.branch_names:
                 cs.append(TypeConstraint(
                     self._eq_sort_type(eq_by_name, b, "d"),
-                    alg.sort_type_from_term(self.domain_sort),
+                    alg.Sort.from_term(self.domain_sort).type_,
                     f"Fan branch '{b}' domain mismatch"))
         for b in self.branch_names:
             cs.append(TypeConstraint(
@@ -97,7 +97,7 @@ class FanSpec(Spec):
         if self.codomain_sort is not None:
             cs.append(TypeConstraint(
                 self._eq_sort_type(eq_by_name, self.merge_name, "c"),
-                alg.sort_type_from_term(self.codomain_sort),
+                alg.Sort.from_term(self.codomain_sort).type_,
                 f"Fan merge codomain mismatch"))
         return cs
 
@@ -114,7 +114,7 @@ class FoldSpec(Spec):
         self._require_eq(eq_by_name, self.step_name, "Fold step")
         return [TypeConstraint(
             self._eq_sort_type(eq_by_name, self.step_name, "c"),
-            alg.sort_type_from_term(self.state_sort),
+            alg.Sort.from_term(self.state_sort).type_,
             f"Fold step codomain != state sort")]
 
 
@@ -128,7 +128,7 @@ class UnfoldSpec(Spec):
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         self._require_eq(eq_by_name, self.step_name, "Unfold step")
-        ds = alg.sort_type_from_term(self.domain_sort)
+        ds = alg.Sort.from_term(self.domain_sort).type_
         return [
             TypeConstraint(self._eq_sort_type(eq_by_name, self.step_name, "d"), ds,
                            f"Unfold step domain != state sort"),
@@ -179,7 +179,7 @@ class FixpointSpec(Spec):
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         self._require_eq(eq_by_name, self.step_name, "Fixpoint step")
         self._require_eq(eq_by_name, self.predicate_name, "Fixpoint predicate")
-        ds = alg.sort_type_from_term(self.domain_sort)
+        ds = alg.Sort.from_term(self.domain_sort).type_
         pred_cod = self._eq_sort_type(eq_by_name, self.predicate_name, "c")
         if pred_cod == ds:
             raise TypeError(

@@ -1,4 +1,4 @@
-"""Phase 14 tests: shortest-path computation via the tropical semiring.
+"""Shortest path tests: shortest-path computation via the tropical semiring.
 
 Key insight:  Under the tropical semiring (⊕ = min, ⊗ = add), the equation
 "ij,j->i" computes:

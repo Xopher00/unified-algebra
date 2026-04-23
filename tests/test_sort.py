@@ -1,4 +1,4 @@
-"""Phase 2 tests: sorts, tensor coder, graph assembly, compatibility."""
+"""Sort tests: sort construction, tensor coder, graph assembly, compatibility."""
 
 import numpy as np
 import pytest

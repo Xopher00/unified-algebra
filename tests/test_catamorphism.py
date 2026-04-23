@@ -1,4 +1,4 @@
-"""Phase 7 tests: fold (catamorphism) and unfold (anamorphism) via Hydra primitives."""
+"""Catamorphism tests: fold (catamorphism) and unfold (anamorphism) via Hydra primitives."""
 
 import numpy as np
 import pytest

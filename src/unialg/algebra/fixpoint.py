@@ -2,7 +2,7 @@
 
     fixpoint() -> Hydra lambda: λstate. fixpoint(step, pred, state)
 
-The corresponding Primitive (ua.prim.fixpoint) is in resolve/primitives.py.
+The corresponding Primitive (ua.prim.fixpoint) is in assembly/primitives.py.
 Output is a pair: (final_state, iteration_count).
 """
 

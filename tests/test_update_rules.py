@@ -1,4 +1,4 @@
-"""Phase 11 tests: update rules — closing iteration loops.
+"""Update rule tests: update rules — closing iteration loops.
 
 An update rule is a morphism P × P' → P: given current state and backward
 feedback, produce new state. This is general — it covers gradient descent

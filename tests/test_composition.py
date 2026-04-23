@@ -1,4 +1,4 @@
-"""Phase 6 tests: path (sequential) and fan (parallel) composition via Hydra lambda terms."""
+"""Composition tests: path (sequential) and fan (parallel) composition via Hydra lambda terms."""
 
 import numpy as np
 import pytest

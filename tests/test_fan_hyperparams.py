@@ -1,4 +1,4 @@
-"""Phase 8 tests: list-based fan (unbounded arity) + dynamic hyperparameters."""
+"""Fan and hyperparameter tests: list-based fan (unbounded arity) + dynamic hyperparameters."""
 
 import numpy as np
 import pytest

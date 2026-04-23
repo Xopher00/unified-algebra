@@ -1,4 +1,4 @@
-"""Phase 9 tests: batched sorts — automatic batch dimension handling.
+"""Batched sort tests: batched sorts — automatic batch dimension handling.
 
 Key invariant: declaration is logical (unbatched einsum stored in the
 equation record); resolution is physical (einsum rewritten at resolve time

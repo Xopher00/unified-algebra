@@ -1,4 +1,4 @@
-"""Phase 14: Residual network (ResNet skip connections) expressed via the DSL.
+"""Residual network tests: ResNet (ResNet skip connections) expressed via the DSL.
 
 A residual block computes y = F(x) + x, where F is a learned transformation.
 This is expressed as a FAN with two branches:

@@ -1,4 +1,4 @@
-"""Phase 3 tests: equations registered as Hydra Primitives, called via reduce_term."""
+"""Equation tests: equations registered as Hydra Primitives, called via reduce_term."""
 
 import numpy as np
 import pytest

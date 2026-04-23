@@ -1,4 +1,4 @@
-"""Phase 14 tests: RNN architecture demonstrated via fold/unfold primitives.
+"""RNN tests: RNN architecture demonstrated via fold/unfold primitives.
 
 This module shows how to express recurrent neural networks using the unified-
 algebra DSL's existing fold and unfold primitives.  No new DSL code is needed.

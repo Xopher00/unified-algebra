@@ -18,7 +18,7 @@ from unialg.resolve import (
 )
 
 # Composition
-from unialg.composition import path, fan, fold, unfold, fixpoint, lens, lens_path, validate_lens
+from unialg.composition import path, fan, fold, unfold, lens, lens_path, validate_lens
 
 # Assembly
 from unialg.assembly import (

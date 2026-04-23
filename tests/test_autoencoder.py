@@ -1,4 +1,4 @@
-"""Phase 14 tests: autoencoder as a lens primitive.
+"""Autoencoder tests: autoencoder as a lens primitive.
 
 An autoencoder is a bidirectional morphism:
   forward (encoder): input → latent   (compression)

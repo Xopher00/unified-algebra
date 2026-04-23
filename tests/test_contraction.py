@@ -1,4 +1,4 @@
-"""Phase 1 tests: semiring + contraction over a user-provided backend."""
+"""Semiring contraction tests: semiring_contract over a user-provided backend."""
 
 import numpy as np
 import pytest

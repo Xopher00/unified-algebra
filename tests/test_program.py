@@ -1,4 +1,4 @@
-"""Tests for compile_program() and Program wrapper (Phase 15 / compilation layer)."""
+"""Program tests: compile_program() and Program wrapper."""
 
 import numpy as np
 import pytest

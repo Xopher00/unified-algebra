@@ -7,6 +7,8 @@ probabilistic, etc.). The DSL compiles to
 [Hydra](https://github.com/CategoricalData/hydra) terms/types directly — there
 is no separate AST or translation layer.
 
+**Docs:** [DSL syntax reference](SYNTAX.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
+
 ## Goals
 
 - Any ML architecture expressible as compositions of typed tensor equations
@@ -17,7 +19,7 @@ is no separate AST or translation layer.
 
 ## Current status
 
-279 tests passing across 14 phases:
+363 tests passing. Implemented capabilities:
 
 - **Backend** — abstraction over numpy/PyTorch providing binary ops (elementwise + reduction),
   unary ops, structural ops. Users can extend with custom ops at runtime.
@@ -43,6 +45,10 @@ is no separate AST or translation layer.
 - **Dynamic hyperparameters** — named bound terms rebindable between reductions via `rebind_hyperparams`.
 - **Graph assembly** — DAG wiring with topological ordering, cycle detection,
   sort/rank junction validation. Fan-out and diamond patterns supported.
+- **Parser** — `.ua` surface syntax compiles directly to Hydra terms via `parse_ua()`.
+  See [`SYNTAX.md`](SYNTAX.md) for the full DSL reference.
+- **Program** — `compile_program()` wraps the full parse-to-execution pipeline as a
+  callable `Program` object.
 
 ## Installation
 
@@ -58,7 +64,7 @@ uv pip install -e ".[dev]"
 
 ```python
 import numpy as np
-from unified_algebra import (
+from unialg import (
     semiring, sort, equation, numpy_backend, assemble_graph,
     PathSpec, path, lens, lens_path,
 )
@@ -85,7 +91,7 @@ graph = assemble_graph(
 )
 
 # 4. Execute via Hydra reduction
-from unified_algebra import tensor_coder
+from unialg import tensor_coder
 coder = tensor_coder()
 x = np.array([-1.0, 0.0, 0.5, 1.0])
 x_enc = coder.decode(None, x).value
@@ -104,23 +110,25 @@ tropical_sr = semiring("tropical", plus="minimum", times="add", zero=float("inf"
 ## Testing
 
 ```bash
-uv run --python 3.12 --extra dev python -m pytest tests/ -v   # 279 tests
-uv run --python 3.12 --extra dev python -m pytest tests/test_phase1.py  # one phase
+uv run --python 3.12 --extra dev python -m pytest tests/ -v        # 363 tests
+uv run --python 3.12 --extra dev python -m pytest tests/test_contraction.py  # one module
 ```
 
 ## Architecture
 
 ```
-src/unified_algebra/
+src/unialg/
     backend.py       — Backend class: numpy/PyTorch ops
-    semiring.py      — Semiring declaration + resolution
-    contraction.py   — Generalised einsum with blocked execution
-    sort.py          — Named tensor types, coders, junction checking
-    morphism.py      — Equation declaration + resolution
-    composition.py   — Path, fan, lens, lens_path composition as Hydra lambda terms
-    recursion.py     — Fold, unfold, fixpoint via Hydra primitives
-    graph.py         — Graph assembly, rebind_hyperparams, NamedTuple specs
-    validation.py    — DAG resolution, pipeline validation
+    specs.py         — NamedTuple spec types (PathSpec, FanSpec, FoldSpec, LensSpec, …)
+    views.py         — Read-only Hydra record view wrappers
+    utils.py         — Hydra term-navigation helpers
+
+    algebra/         — sort, semiring, morphism/equation, contraction, coders, fixpoint
+    resolve/         — contraction engine, morphism resolution, op dispatch
+    composition/     — path, fan, lens, lens_path as Hydra lambda terms; fold/unfold
+    assembly/        — graph assembly, DAG validation, topology, primitives
+    parser/          — .ua DSL grammar (_grammar.py) and name resolution (_resolver.py)
+    runtime/         — compile_program(), Program execution wrapper
 ```
 
 ## Research basis

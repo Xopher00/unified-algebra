@@ -42,7 +42,7 @@ def sort(name: str, semiring_term: core.Term, batched: bool = False) -> core.Ter
     """
     return record(SORT_TYPE_NAME, [
         core.Name("name") >> string(name),
-        core.Name("semiring") >> TTerm(semiring_term),
+        core.Name("semiring") >> TTerm(semiring_term.term if isinstance(semiring_term, vw._RecordView) else semiring_term),
         core.Name("batched") >> boolean(batched),
     ]).value
 

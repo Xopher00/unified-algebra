@@ -17,7 +17,7 @@ from hydra.dsl.prims import prim1, float32 as float32_coder
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, semiring, sort, tensor_coder, sort_coder,
+    numpy_backend, Semiring, sort, tensor_coder, sort_coder,
     Equation, fixpoint,
     validate_spec, build_graph,
     FixpointSpec,
@@ -43,7 +43,7 @@ def cx():
 
 @pytest.fixture
 def real_sr():
-    return semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
 
 
 @pytest.fixture
@@ -185,7 +185,7 @@ class TestFixpointEndToEnd:
         """
         backend.unary_ops["halve"] = UnaryOp(fn=lambda x: 0.5 * x)
 
-        real_sr = semiring("real_fp1", plus="add", times="multiply", zero=0.0, one=1.0)
+        real_sr = Semiring("real_fp1", plus="add", times="multiply", zero=0.0, one=1.0)
         s_sort = sort("state_fp1", real_sr)
 
         step_prim = self._make_step_prim("fp1_step", s_sort, "halve", backend)
@@ -231,7 +231,7 @@ class TestFixpointEndToEnd:
         """step(x) = x + 1 never converges; fixpoint returns after exactly max_iter steps."""
         backend.unary_ops["increment"] = UnaryOp(fn=lambda x: x + 1.0)
 
-        real_sr = semiring("real_fp2", plus="add", times="multiply", zero=0.0, one=1.0)
+        real_sr = Semiring("real_fp2", plus="add", times="multiply", zero=0.0, one=1.0)
         s_sort = sort("state_fp2", real_sr)
 
         step_prim = self._make_step_prim("fp2_step", s_sort, "increment", backend)
@@ -271,7 +271,7 @@ class TestFixpointEndToEnd:
         """Scalar fixpoint: halve a 1-element vector until abs(x) <= 0.001."""
         backend.unary_ops["halve2"] = UnaryOp(fn=lambda x: 0.5 * x)
 
-        real_sr = semiring("real_fp3", plus="add", times="multiply", zero=0.0, one=1.0)
+        real_sr = Semiring("real_fp3", plus="add", times="multiply", zero=0.0, one=1.0)
         s_sort = sort("state_fp3", real_sr)
 
         step_prim = self._make_step_prim("fp3_step", s_sort, "halve2", backend)
@@ -312,23 +312,22 @@ class TestFixpointEndToEnd:
 # ===========================================================================
 
 class TestSemiringResidualField:
-    """semiring() residual kwarg and resolve_semiring residual_elementwise extraction."""
+    """Semiring() residual kwarg and resolve_semiring residual_elementwise extraction."""
 
     def test_semiring_with_residual_creates_record_with_residual_field(self):
-        """semiring(..., residual='divide') creates a TermRecord with a 'residual' field."""
+        """Semiring(..., residual='divide') creates a TermRecord with a 'residual' field."""
         from unialg.utils import string_value
-        sr = semiring("real_res", plus="add", times="multiply",
+        sr = Semiring("real_res", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
-        fields = record_fields(sr)
+        fields = record_fields(sr.term)
         assert "residual" in fields
         assert string_value(fields["residual"]) == "divide"
 
     def test_resolve_semiring_extracts_residual_elementwise(self, backend):
-        """resolve_semiring extracts residual_elementwise as the divide callable."""
-        from unialg import resolve_semiring
-        sr = semiring("real_res2", plus="add", times="multiply",
+        """Semiring.resolve extracts residual_elementwise as the divide callable."""
+        sr = Semiring("real_res2", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
-        rsr = resolve_semiring(sr, backend)
+        rsr = sr.resolve(backend)
         assert rsr.residual_name == "divide"
         assert rsr.residual_elementwise is not None
         result = rsr.residual_elementwise(
@@ -337,19 +336,17 @@ class TestSemiringResidualField:
         np.testing.assert_allclose(result, [2.0])
 
     def test_resolve_semiring_without_residual_gives_none(self, backend):
-        """resolve_semiring with no residual gives residual_elementwise=None."""
-        from unialg import resolve_semiring
-        sr = semiring("real_nores", plus="add", times="multiply", zero=0.0, one=1.0)
-        rsr = resolve_semiring(sr, backend)
+        """Semiring.resolve with no residual gives residual_elementwise=None."""
+        sr = Semiring("real_nores", plus="add", times="multiply", zero=0.0, one=1.0)
+        rsr = sr.resolve(backend)
         assert rsr.residual_name is None
         assert rsr.residual_elementwise is None
 
     def test_residual_operation_real_semiring_divide(self, backend):
         """Real semiring residual 'divide': residual_elementwise(a, c) = a / c."""
-        from unialg import resolve_semiring
-        sr = semiring("real_div", plus="add", times="multiply",
+        sr = Semiring("real_div", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
-        rsr = resolve_semiring(sr, backend)
+        rsr = sr.resolve(backend)
         a = np.array([8.0, 12.0, 25.0])
         c = np.array([2.0, 4.0, 5.0])
         result = rsr.residual_elementwise(a, c)
@@ -357,10 +354,9 @@ class TestSemiringResidualField:
 
     def test_residual_operation_tropical_semiring_subtract(self, backend):
         """Tropical semiring residual 'subtract': residual_elementwise(a, c) = a - c."""
-        from unialg import resolve_semiring
-        sr = semiring("tropical_res", plus="minimum", times="add",
+        sr = Semiring("tropical_res", plus="minimum", times="add",
                       residual="subtract", zero=float("inf"), one=0.0)
-        rsr = resolve_semiring(sr, backend)
+        rsr = sr.resolve(backend)
         a = np.array([10.0, 5.0, 9.0])
         c = np.array([3.0, 1.0, 7.0])
         result = rsr.residual_elementwise(a, c)

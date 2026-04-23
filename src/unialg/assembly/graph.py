@@ -37,7 +37,7 @@ def _register_residual_prims(
     """Register ua.prim.residual_add.<sr_name> for any PathSpec with residual=True."""
     import hydra.core as core
     from hydra.dsl.prims import prim2
-    from unialg.resolve.ops import resolve_semiring
+    from unialg.algebra.semiring import Semiring
 
     for spec in specs:
         if not isinstance(spec, sp.PathSpec) or not spec.residual:
@@ -53,7 +53,7 @@ def _register_residual_prims(
             v = Equation.from_term(eq_term)
             sr_field = v.semiring
             if isinstance(sr_field, core.TermRecord):
-                sv = vw.SemiringView(sr_field)
+                sv = Semiring.from_term(sr_field)
                 if sv.name == sr_name:
                     sr_term = sr_field
                     break
@@ -67,7 +67,7 @@ def _register_residual_prims(
                 f"uses it and it was not passed via semirings="
             )
 
-        sr = resolve_semiring(sr_term, backend)
+        sr = Semiring.from_term(sr_term).resolve(backend)
         coder = alg.tensor_coder()
 
         def _make_compute(resolved_sr):

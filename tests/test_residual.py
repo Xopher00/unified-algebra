@@ -22,7 +22,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, semiring, sort, tensor_coder,
+    numpy_backend, Semiring, sort, tensor_coder,
     Equation,
     path, fan,
     build_graph, assemble_graph, PathSpec, FanSpec,
@@ -51,7 +51,7 @@ def coder():
 @pytest.fixture
 def real_sr():
     """Standard real semiring: (add, multiply)."""
-    return semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ def add_sr():
     "i,i->i" contraction to perform element-wise addition instead of
     element-wise multiplication.
     """
-    return semiring("real_add", plus="add", times="add", zero=0.0, one=0.0)
+    return Semiring("real_add", plus="add", times="add", zero=0.0, one=0.0)
 
 
 @pytest.fixture

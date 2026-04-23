@@ -34,7 +34,7 @@ from hydra.dsl.terms import apply, var, list_
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, semiring, sort, tensor_coder,
+    numpy_backend, Semiring, sort, tensor_coder,
     Equation,
     fold, unfold, validate_spec,
     build_graph, assemble_graph,
@@ -54,13 +54,13 @@ def backend():
 
 @pytest.fixture
 def real_sr():
-    return semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
 
 
 @pytest.fixture
 def tropical_sr():
     # (min, add) tropical semiring — shortest-path algebra
-    return semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
 
 
 @pytest.fixture
@@ -401,7 +401,7 @@ class TestRNN:
     def test_tropical_rnn_fold(self, cx, tropical_sr, hidden_trop, backend, coder):
         """Tropical fold: h_t = min(h_{t-1} + x_t) — shortest path through time.
 
-        Under the (min, add) tropical semiring, the fold step "i,i->i"
+        Under the (min, add) tropical Semiring, the fold step "i,i->i"
         computes h_t[i] = h_{t-1}[i] + x_t[i] (add = ⊗, min = ⊕ for reduction).
 
         For a 1D einsum "i,i->i" with tropical semiring:

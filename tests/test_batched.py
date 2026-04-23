@@ -16,7 +16,7 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, semiring, sort, tensor_coder, sort_coder,
+    numpy_backend, Semiring, sort, tensor_coder, sort_coder,
     is_batched, validate_pipeline, Equation,
     path, fan, validate_spec,
     build_graph, assemble_graph, PathSpec, FanSpec,
@@ -41,7 +41,7 @@ def cx():
 
 @pytest.fixture
 def real_sr():
-    return semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
 
 
 @pytest.fixture
@@ -97,7 +97,7 @@ class TestBatchedSortConstruction:
 
     def test_batched_type_from_term(self, real_sr):
         """sort_type_from_term with batched=True wraps in ua.batched TypeApplication."""
-        tropical_sr = semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+        tropical_sr = Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
         s = sort("output", tropical_sr, batched=True)
         t = sort_type_from_term(s)
         assert t.value.function == core.TypeVariable(core.Name("ua.batched"))
@@ -107,7 +107,7 @@ class TestBatchedSortConstruction:
 
     def test_unbatched_type_from_term(self, real_sr):
         """sort_type_from_term with batched=False has no batched wrapper."""
-        tropical_sr = semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+        tropical_sr = Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
         s = sort("output", tropical_sr, batched=False)
         t = sort_type_from_term(s)
         assert t.value.function == core.TypeVariable(core.Name("ua.sort.output"))
@@ -468,7 +468,7 @@ class TestBatchedFan:
 
     def test_batched_fan_four_branches(self, cx, real_sr, backend, coder):
         """Four-branch batched fan with additive merge."""
-        add_sr = semiring("add", plus="add", times="add", zero=0.0, one=0.0)
+        add_sr = Semiring("add", plus="add", times="add", zero=0.0, one=0.0)
         hidden_b = sort("hidden", add_sr, batched=True)
         eqs = [
             Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu"),

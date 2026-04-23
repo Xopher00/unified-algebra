@@ -26,7 +26,7 @@ from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_
 
 from unialg.utils import record_fields, string_value
 from unialg.views import _RecordView, _StringField, _TermField
-from unialg.resolve.ops import resolve_semiring
+from unialg.algebra.semiring import Semiring
 from unialg.algebra.sort import sort_coder, is_batched
 from unialg.resolve.contraction import compile_einsum, semiring_contract
 
@@ -47,7 +47,7 @@ def _prepend_batch_dim(einsum_str: str) -> str:
     lhs, rhs = einsum_str.split("->")
     inputs = lhs.split(",")
     batched_inputs = ",".join(batch_char + inp for inp in inputs)
-    return f"{','.join(batch_char + inp for inp in inputs)}->{batch_char + rhs}"
+    return f"{batched_inputs}->{batch_char + rhs}"
 
 
 def _make_prim(prim_name, compute, coders, out_coder):
@@ -107,7 +107,7 @@ class Equation(_RecordView):
             Name("einsum") >> string(einsum or ""),
             Name("domainSort") >> TTerm(domain_sort),
             Name("codomainSort") >> TTerm(codomain_sort),
-            Name("semiring") >> (TTerm(semiring_term) if semiring_term is not None else unit()),
+            Name("semiring") >> (TTerm(semiring_term.term if isinstance(semiring_term, _RecordView) else semiring_term) if semiring_term is not None else unit()),
             Name("nonlinearity") >> string(nonlinearity or ""),
             Name("inputs") >> list_([string(n) for n in inputs]),
             Name("paramSlots") >> list_([string(p) for p in param_slots]),
@@ -158,7 +158,7 @@ class Equation(_RecordView):
         n_params = len(param_slots)
 
         if has_einsum:
-            sr = resolve_semiring(self.semiring, backend)
+            sr = Semiring.from_term(self.semiring).resolve(backend)
             eq = compile_einsum(einsum_str)
             n_inputs = len(eq.input_vars)
         elif has_nl:
@@ -199,7 +199,7 @@ class Equation(_RecordView):
         name = self.name
 
         if has_einsum:
-            sr = resolve_semiring(self.semiring, backend)
+            sr = Semiring.from_term(self.semiring).resolve(backend)
             eq = compile_einsum(einsum_str)
             n_inputs = len(eq.input_vars)
 

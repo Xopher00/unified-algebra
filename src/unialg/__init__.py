@@ -4,7 +4,7 @@ from unialg.specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, 
 
 # Algebra (term construction)
 from unialg.algebra import (
-    semiring,
+    Semiring,
     sort, tensor_coder, sort_coder, sort_type_from_term,
     is_batched, product_sort, is_product_sort,
     fixpoint,
@@ -12,7 +12,7 @@ from unialg.algebra import (
 
 # Resolve (runtime compilation)
 from unialg.resolve import (
-    resolve_semiring,
+    ResolvedSemiring,
     Equation, resolve_all_primitives,
     compile_einsum, semiring_contract,
 )

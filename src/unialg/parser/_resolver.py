@@ -58,7 +58,8 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                 )
             einsum, dom_sort, cod_sort, sr_term, nl = templates_by_name[tpl_name]
             eq_term = res.Equation(concrete_name, einsum, dom_sort, cod_sort,
-                                  sr_term, nonlinearity=nl)
+                                  sr_term,
+                                  nonlinearity=nl)
             equations_by_name[concrete_name] = eq_term
             equations_list.append(eq_term)
         return concrete_name
@@ -68,8 +69,8 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
 
         if kind == 'semiring':
             _, name, kw_args = decl
-            sr_term = alg.semiring(name, plus=kw_args['plus'], times=kw_args['times'],
-                                  zero=kw_args['zero'], one=kw_args['one'])
+            sr_term = alg.Semiring(name, plus=kw_args['plus'], times=kw_args['times'],
+                                   zero=kw_args['zero'], one=kw_args['one'])
             semirings[name] = sr_term
 
         elif kind == 'sort':
@@ -92,7 +93,8 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                 templates_by_name[name] = (einsum, dom_sort, cod_sort, sr_term, nl)
             else:
                 eq_term = res.Equation(name, einsum, dom_sort, cod_sort,
-                                      sr_term, nonlinearity=nl)
+                                      sr_term,
+                                      nonlinearity=nl)
                 equations_by_name[name] = eq_term
                 equations_list.append(eq_term)
 

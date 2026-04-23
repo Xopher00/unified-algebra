@@ -10,9 +10,17 @@ Hydra's type system.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
 import hydra.core as core
 from hydra.core import Name
 from hydra.dsl.meta.phantoms import record, string, float64
+
+from unialg.views import _RecordView, _StringField, _FloatField
+
+if TYPE_CHECKING:
+    from unialg.backend import Backend
 
 
 # ---------------------------------------------------------------------------
@@ -23,36 +31,103 @@ SEMIRING_TYPE_NAME = core.Name("ua.semiring.Semiring")
 
 
 # ---------------------------------------------------------------------------
-# Semiring construction
+# Semiring class
 # ---------------------------------------------------------------------------
 
-def semiring(name: str, plus: str, times: str, zero: float, one: float,
-             residual: str | None = None) -> core.Term:
-    """Create a semiring as a Hydra record term.
+class Semiring(_RecordView):
+    """A semiring: declaration, field access, and resolution in one object.
 
-    Args:
-        name:     identifier for this semiring (e.g. "real", "tropical")
-        plus:     name of the ⊕ binary op in the backend (e.g. "add", "minimum")
-        times:    name of the ⊗ binary op in the backend (e.g. "multiply", "add")
-        zero:     additive identity
-        one:      multiplicative identity
-        residual: optional name of the ⊘ binary op (right adjoint of ⊗).
-                  Satisfies: a ⊗ b ≤ c ⟺ b ≤ a ⊘ c.
-                  Examples: "divide" for real, "subtract" for tropical.
+    The underlying Hydra record term is the source of truth. Use .term to
+    retrieve it for Hydra interop.
 
-    Returns:
-        A Hydra TermRecord representing the semiring.
+    Construct:
+        sr = Semiring("real", "add", "multiply", 0.0, 1.0)
 
-    Example:
-        real = semiring("real", plus="add", times="multiply", residual="divide", zero=0.0, one=1.0)
-        tropical = semiring("tropical", plus="minimum", times="add", residual="subtract", zero=float('inf'), one=0.0)
-        fuzzy = semiring("fuzzy", plus="maximum", times="minimum", residual="implies", zero=0.0, one=1.0)
+    Wrap an existing term (e.g. from the parser):
+        sr = Semiring.from_term(term)
+
+    Example semirings:
+        real     = Semiring("real",     "add",     "multiply", 0.0,         1.0)
+        tropical = Semiring("tropical", "minimum", "add",      float('inf'), 0.0)
+        fuzzy    = Semiring("fuzzy",    "maximum", "minimum",  0.0,         1.0)
     """
-    return record(SEMIRING_TYPE_NAME, [
-        Name("name") >> string(name),
-        Name("plus") >> string(plus),
-        Name("times") >> string(times),
-        Name("zero") >> float64(zero),
-        Name("one") >> float64(one),
-        Name("residual") >> string(residual or ""),
-    ]).value
+
+    name  = _StringField("name")
+    plus  = _StringField("plus")
+    times = _StringField("times")
+    zero  = _FloatField("zero")
+    one   = _FloatField("one")
+
+    def __init__(self, name: str, plus: str, times: str, zero: float, one: float,
+                 residual: str | None = None):
+        super().__init__(record(SEMIRING_TYPE_NAME, [
+            Name("name") >> string(name),
+            Name("plus") >> string(plus),
+            Name("times") >> string(times),
+            Name("zero") >> float64(zero),
+            Name("one") >> float64(one),
+            Name("residual") >> string(residual or ""),
+        ]).value)
+
+    @classmethod
+    def from_term(cls, term) -> "Semiring":
+        """Wrap an existing Hydra record term as a Semiring.
+
+        Idempotent: if term is already a Semiring, returns it unchanged.
+        """
+        if isinstance(term, cls):
+            return term
+        obj = cls.__new__(cls)
+        obj._term = term
+        return obj
+
+    @property
+    def residual(self) -> str:
+        from hydra.dsl.meta.phantoms import string as phantom_string
+        from unialg.utils import record_fields, string_value
+        return string_value(record_fields(self._term).get("residual", phantom_string("").value))
+
+    def resolve(self, backend: "Backend") -> "ResolvedSemiring":
+        """Resolve this semiring against a backend to get callable operations."""
+        name = self.name
+        plus_name = self.plus
+        times_name = self.times
+        residual_name = self.residual
+
+        residual_elementwise = None
+        if residual_name:
+            residual_elementwise = backend.elementwise(residual_name)
+
+        return ResolvedSemiring(
+            name=name,
+            plus_name=plus_name,
+            times_name=times_name,
+            plus_elementwise=backend.elementwise(plus_name),
+            plus_reduce=backend.reduce(plus_name),
+            times_elementwise=backend.elementwise(times_name),
+            times_reduce=backend.reduce(times_name),
+            zero=self.zero,
+            one=self.one,
+            residual_name=residual_name or None,
+            residual_elementwise=residual_elementwise,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Resolved semiring (runtime result of Semiring.resolve)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSemiring:
+    """A semiring with its operations resolved against a specific backend."""
+    name: str
+    plus_name: str
+    times_name: str
+    plus_elementwise: object
+    plus_reduce: object
+    times_elementwise: object
+    times_reduce: object
+    zero: float
+    one: float
+    residual_name: str | None = None
+    residual_elementwise: object | None = None

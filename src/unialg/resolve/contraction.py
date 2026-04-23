@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
-    from unialg.resolve.ops import ResolvedSemiring
+    from unialg.algebra.semiring import ResolvedSemiring
 
 
 # ---------------------------------------------------------------------------

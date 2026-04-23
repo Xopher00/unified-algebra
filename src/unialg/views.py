@@ -65,20 +65,6 @@ class SortView(_RecordView):
         return hasattr(b, "value") and hasattr(b.value, "value") and b.value.value is True
 
 
-class SemiringView(_RecordView):
-    """View over a ua.semiring.Semiring record term."""
-    name = _StringField("name")
-    plus = _StringField("plus")
-    times = _StringField("times")
-    zero = _FloatField("zero")
-    one = _FloatField("one")
-
-    @property
-    def residual(self) -> str:
-        from hydra.dsl.meta.phantoms import string as phantom_string
-        return string_value(record_fields(self._term).get("residual", phantom_string("").value))
-
-
 class LensView(_RecordView):
     """View over a ua.lens.Lens record term."""
     name = _StringField("name")

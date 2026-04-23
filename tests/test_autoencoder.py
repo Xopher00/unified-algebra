@@ -38,7 +38,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, semiring, sort, tensor_coder,
+    numpy_backend, Semiring, sort, tensor_coder,
     Equation,
     lens, validate_lens,
     assemble_graph, LensPathSpec,
@@ -66,12 +66,12 @@ def coder():
 
 @pytest.fixture
 def real_sr():
-    return semiring("ae_real", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("ae_real", plus="add", times="multiply", zero=0.0, one=1.0)
 
 
 @pytest.fixture
 def tropical_sr():
-    return semiring("ae_tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+    return Semiring("ae_tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
 
 
 @pytest.fixture

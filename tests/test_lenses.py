@@ -18,7 +18,7 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, semiring, sort, tensor_coder, sort_coder,
+    numpy_backend, Semiring, sort, tensor_coder, sort_coder,
     product_sort, Equation, path, fan,
     build_graph, assemble_graph, lens, validate_lens, lens_path,
     FoldSpec, LensPathSpec,
@@ -47,12 +47,12 @@ def cx():
 
 @pytest.fixture
 def real_sr():
-    return semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
 
 
 @pytest.fixture
 def tropical_sr():
-    return semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
 
 
 @pytest.fixture
@@ -448,7 +448,7 @@ class TestLensFoldIntegration:
 
     def test_fold_with_lens_forward_equation(self, cx, backend, coder):
         """fold() using a lens's forward equation works normally."""
-        add_sr = semiring("addsem", plus="add", times="add", zero=0.0, one=0.0)
+        add_sr = Semiring("addsem", plus="add", times="add", zero=0.0, one=0.0)
         acc_sort = sort("acc", add_sr)
         eq_step_fwd = Equation("acc_fwd", "i,i->i", acc_sort, acc_sort, add_sr)
         eq_step_bwd = Equation("acc_bwd", "i,i->i", acc_sort, acc_sort, add_sr)
@@ -625,7 +625,7 @@ class TestOpticLensValidation:
 
     def test_optic_lens_forward_produces_pair_end_to_end(self, cx, backend, coder):
         """End-to-end: a lens with a product codomain can be assembled and reduced."""
-        real_sr = semiring("real12", plus="add", times="multiply", zero=0.0, one=1.0)
+        real_sr = Semiring("real12", plus="add", times="multiply", zero=0.0, one=1.0)
         h_sort = sort("h12", real_sr)
         r_sort = sort("r12", real_sr)
         prod = product_sort([h_sort, r_sort])
@@ -948,7 +948,7 @@ class TestOpticSemiringPolymorphism:
 
     def test_tropical_two_optic_forward(self, cx, backend, coder):
         """Two tropical-semiring optics compose with residual threading."""
-        tropical_sr = semiring("tropical13", plus="minimum", times="add",
+        tropical_sr = Semiring("tropical13", plus="minimum", times="add",
                                zero=float("inf"), one=0.0)
         t_sort = sort("t13", tropical_sr)
         r_sort = sort("rt13", tropical_sr)

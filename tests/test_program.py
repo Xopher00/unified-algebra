@@ -5,7 +5,7 @@ import pytest
 
 from unialg import (
     compile_program, Program,
-    semiring, sort, Equation, numpy_backend, tensor_coder,
+    Semiring, sort, Equation, numpy_backend, tensor_coder,
     path, fan,
     PathSpec, FanSpec, FoldSpec,
 )
@@ -21,11 +21,11 @@ def backend():
 
 @pytest.fixture
 def real_sr():
-    return semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
 
 @pytest.fixture
 def tropical_sr():
-    return semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
 
 @pytest.fixture
 def hidden(real_sr):

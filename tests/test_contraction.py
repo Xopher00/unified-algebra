@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from unialg import (
-    numpy_backend, semiring, resolve_semiring,
+    numpy_backend, Semiring,
     compile_einsum, semiring_contract,
 )
 
@@ -16,26 +16,17 @@ def backend():
 
 @pytest.fixture
 def real(backend):
-    return resolve_semiring(
-        semiring("real", plus="add", times="multiply", zero=0.0, one=1.0),
-        backend,
-    )
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0).resolve(backend)
 
 
 @pytest.fixture
 def tropical(backend):
-    return resolve_semiring(
-        semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0),
-        backend,
-    )
+    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0).resolve(backend)
 
 
 @pytest.fixture
 def fuzzy(backend):
-    return resolve_semiring(
-        semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0),
-        backend,
-    )
+    return Semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0).resolve(backend)
 
 
 class TestRealSemiring:
@@ -93,7 +84,7 @@ class TestBlockedContraction:
     the unblocked path for all three semirings."""
 
     # ------------------------------------------------------------------
-    # Real semiring
+    # Real Semiring
     # ------------------------------------------------------------------
 
     def test_real_matvec_block2(self, real, backend):
@@ -134,7 +125,7 @@ class TestBlockedContraction:
         np.testing.assert_allclose(result, expected, rtol=1e-12)
 
     # ------------------------------------------------------------------
-    # Tropical semiring
+    # Tropical Semiring
     # ------------------------------------------------------------------
 
     def test_tropical_matvec_block2(self, tropical, backend):
@@ -156,7 +147,7 @@ class TestBlockedContraction:
         np.testing.assert_allclose(result, expected, rtol=1e-12)
 
     # ------------------------------------------------------------------
-    # Fuzzy semiring
+    # Fuzzy Semiring
     # ------------------------------------------------------------------
 
     def test_fuzzy_matvec_block2(self, fuzzy, backend):

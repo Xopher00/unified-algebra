@@ -29,7 +29,7 @@ import pytest
 from hydra.core import Name
 
 from unialg import (
-    numpy_backend, semiring, sort, tensor_coder,
+    numpy_backend, Semiring, sort, tensor_coder,
     Equation, compile_program, PathSpec,
 )
 
@@ -45,12 +45,12 @@ def backend():
 
 @pytest.fixture
 def real_sr():
-    return semiring("real_gnn", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("real_gnn", plus="add", times="multiply", zero=0.0, one=1.0)
 
 
 @pytest.fixture
 def tropical_sr():
-    return semiring("tropical_gnn", plus="minimum", times="add", zero=float("inf"), one=0.0)
+    return Semiring("tropical_gnn", plus="minimum", times="add", zero=float("inf"), one=0.0)
 
 
 @pytest.fixture

@@ -11,7 +11,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, semiring, sort, tensor_coder,
+    numpy_backend, Semiring, sort, tensor_coder,
     build_graph, Equation,
 )
 
@@ -27,17 +27,17 @@ def backend():
 
 @pytest.fixture
 def real_sr():
-    return semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
 
 
 @pytest.fixture
 def tropical_sr():
-    return semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
 
 
 @pytest.fixture
 def fuzzy_sr():
-    return semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0)
+    return Semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0)
 
 
 @pytest.fixture
@@ -220,7 +220,7 @@ class TestCombinedEquation:
 class TestSemiringVariants:
 
     def test_tropical(self, cx, backend, coder):
-        trop_sr = semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+        trop_sr = Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
         hidden = sort("hidden", trop_sr)
         eq = Equation("trop_linear", "ij,j->i", hidden, hidden, trop_sr)
         prim = eq.resolve(backend)
@@ -236,7 +236,7 @@ class TestSemiringVariants:
         np.testing.assert_allclose(out, np.array([2.0, 2.0]))
 
     def test_fuzzy(self, cx, backend, coder):
-        fuz_sr = semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0)
+        fuz_sr = Semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0)
         hidden = sort("hidden", fuz_sr)
         eq = Equation("fuz_linear", "ij,j->i", hidden, hidden, fuz_sr)
         prim = eq.resolve(backend)

@@ -1,5 +1,5 @@
 # Algebraic core: sorts, semirings, fixpoint
-from unialg.algebra.semiring import semiring
+from unialg.algebra.semiring import Semiring, ResolvedSemiring
 from unialg.algebra.fixpoint import fixpoint
 from unialg.algebra.sort import (
     sort, tensor_coder, sort_coder, sort_type_from_term,

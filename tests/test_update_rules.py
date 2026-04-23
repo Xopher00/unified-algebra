@@ -29,7 +29,7 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, semiring, sort, tensor_coder, sort_coder,
+    numpy_backend, Semiring, sort, tensor_coder, sort_coder,
     Equation,
     build_graph, assemble_graph, rebind_hyperparams,
     lens, lens_path, fold, unfold,
@@ -54,7 +54,7 @@ def cx():
 
 @pytest.fixture
 def real_sr():
-    return semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
 
 
 @pytest.fixture
@@ -103,7 +103,7 @@ class TestUpdateEquations:
             elementwise=lambda w, g: w - 0.1 * g,
             reduce=lambda arr, axis: np.sum(arr, axis=axis),
         )
-        sgd_sr = semiring("sgd", plus="add", times="sgd_step", zero=0.0, one=1.0)
+        sgd_sr = Semiring("sgd", plus="add", times="sgd_step", zero=0.0, one=1.0)
         param_sort = sort("param", sgd_sr)
 
         # "i,i->i" with sgd semiring: no reduction indices → elementwise ⊗ = sgd_step
@@ -125,7 +125,7 @@ class TestUpdateEquations:
     def test_bellman_relaxation_update(self, cx, backend, coder):
         """Bellman relaxation: update(dist, new_dist) = min(dist, new_dist)."""
         # Semiring where times=minimum: "i,i->i" → elementwise min
-        bellman_sr = semiring("bellman", plus="minimum", times="minimum",
+        bellman_sr = Semiring("bellman", plus="minimum", times="minimum",
                              zero=float("inf"), one=float("inf"))
         dist_sort = sort("dist", bellman_sr)
 
@@ -144,7 +144,7 @@ class TestUpdateEquations:
 
     def test_maxmin_closure_update(self, cx, backend, coder):
         """Max-min closure: update(current, candidate) = max(current, candidate)."""
-        maxmin_sr = semiring("maxmin", plus="maximum", times="maximum",
+        maxmin_sr = Semiring("maxmin", plus="maximum", times="maximum",
                             zero=0.0, one=1.0)
         cap_sort = sort("capacity", maxmin_sr)
 
@@ -189,13 +189,13 @@ class TestLensUpdateComposition:
             elementwise=lambda w, g: w - 0.1 * g,
             reduce=lambda arr, axis: np.sum(arr, axis=axis),
         )
-        sgd_sr = semiring("sgd", plus="add", times="sgd_step", zero=0.0, one=1.0)
-        upd_sort = sort("hidden", sgd_sr)  # same name "hidden", different semiring
+        sgd_sr = Semiring("sgd", plus="add", times="sgd_step", zero=0.0, one=1.0)
+        upd_sort = sort("hidden", sgd_sr)  # same name "hidden", different Semiring
         eq_update = Equation("sgd", "i,i->i", upd_sort, upd_sort, sgd_sr)
 
         # Build two separate graphs: one for the lens, one for the update.
         # In practice a user would wire these in a single graph if the sorts
-        # are compatible; here the update uses a different semiring, so we
+        # are compatible; here the update uses a different Semiring, so we
         # assemble them separately to avoid sort junction validation.
         lens_graph = assemble_graph(
             [eq_fwd, eq_bwd], backend,
@@ -237,7 +237,7 @@ class TestLensUpdateComposition:
         semiring (times=minimum). Assembled in separate graphs to avoid
         sort junction validation across different semirings.
         """
-        tropical_sr = semiring("tropical", plus="minimum", times="add",
+        tropical_sr = Semiring("tropical", plus="minimum", times="add",
                                zero=float("inf"), one=0.0)
         trop_sort = sort("trop", tropical_sr)
 
@@ -253,7 +253,7 @@ class TestLensUpdateComposition:
         )
 
         # Bellman relaxation update (separate graph, different semiring)
-        bellman_sr = semiring("bellman", plus="minimum", times="minimum",
+        bellman_sr = Semiring("bellman", plus="minimum", times="minimum",
                              zero=float("inf"), one=float("inf"))
         bell_sort = sort("bell", bellman_sr)
         eq_relax = Equation("relax", "i,i->i", bell_sort, bell_sort, bellman_sr)
@@ -295,7 +295,7 @@ class TestIteratedUpdate:
 
         step(state, element) = state + element via additive semiring.
         """
-        add_sr = semiring("add", plus="add", times="add", zero=0.0, one=0.0)
+        add_sr = Semiring("add", plus="add", times="add", zero=0.0, one=0.0)
         acc_sort = sort("acc", add_sr)
 
         # 2-input equation: "i,i->i" with times=add → elementwise addition
@@ -325,7 +325,7 @@ class TestIteratedUpdate:
         After 10 steps from x0, result ≈ 0.9^10 * x0.
         """
         backend.unary_ops["decay"] = UnaryOp(fn=lambda x: 0.9 * x)
-        real_sr = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+        real_sr = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         state_sort = sort("state", real_sr)
 
         eq_decay = Equation("decay", None, state_sort, state_sort, nonlinearity="decay")
@@ -357,7 +357,7 @@ class TestIteratedUpdate:
             elementwise=lambda w, g: w - 0.01 * g,
             reduce=lambda arr, axis: np.sum(arr, axis=axis),
         )
-        sgd_sr = semiring("sgd_fold", plus="add", times="sgd_fold", zero=0.0, one=1.0)
+        sgd_sr = Semiring("sgd_fold", plus="add", times="sgd_fold", zero=0.0, one=1.0)
         w_sort = sort("weight", sgd_sr)
 
         eq_step = Equation("sgd_step", "i,i->i", w_sort, w_sort, sgd_sr)
@@ -429,7 +429,7 @@ class TestHyperparamsInUpdate:
         backend.unary_ops["scaled_decay"] = UnaryOp(
             fn=lambda x, rate: rate * x
         )
-        real_sr = semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+        real_sr = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         state_sort = sort("state", real_sr)
 
         eq = Equation("scaled_decay", None, state_sort, state_sort,
@@ -481,7 +481,7 @@ class TestSemiringPolymorphicUpdate:
             ("max_sr", "maximum", "maximum", 0.0, 0.0,
              np.maximum(state, feedback)),
         ]:
-            sr = semiring(sr_name, plus=plus_op, times=times_op, zero=zero, one=one)
+            sr = Semiring(sr_name, plus=plus_op, times=times_op, zero=zero, one=one)
             s = sort(f"s_{sr_name}", sr)
             eq = Equation(f"update_{sr_name}", "i,i->i", s, s, sr)
 

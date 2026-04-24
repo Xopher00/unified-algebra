@@ -64,8 +64,8 @@ def node_sort_trop(tropical_sr):
 
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 # ---------------------------------------------------------------------------

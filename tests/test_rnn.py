@@ -36,11 +36,12 @@ from hydra.reduction import reduce_term
 from unialg import (
     numpy_backend, Semiring, Sort, tensor_coder,
     Equation,
-    fold, unfold, validate_spec,
+    fold, unfold,
     build_graph, assemble_graph,
     FoldSpec, UnfoldSpec,
+    resolve_equation,
 )
-from unialg.assembly.primitives import unfold_n_primitive
+from unialg.assembly import unfold_n_primitive
 
 
 # ---------------------------------------------------------------------------
@@ -74,8 +75,8 @@ def hidden_trop(tropical_sr):
 
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 @pytest.fixture
@@ -130,7 +131,7 @@ class TestRNN:
             "rnn_fold_step", "i,i->i", hidden, hidden, real_sr,
             nonlinearity="tanh",
         )
-        prim_fold = eq_fold_step.resolve(backend)
+        prim_fold = resolve_equation(eq_fold_step, backend)
         assert prim_fold.name == core.Name("ua.equation.rnn_fold_step")
 
         # Unfold step: h -> tanh(h)
@@ -138,7 +139,7 @@ class TestRNN:
             "rnn_unfold_step", None, hidden, hidden,
             nonlinearity="tanh",
         )
-        prim_unfold = eq_unfold_step.resolve(backend)
+        prim_unfold = resolve_equation(eq_unfold_step, backend)
         assert prim_unfold.name == core.Name("ua.equation.rnn_unfold_step")
 
         # Fold and unfold lambdas build without error
@@ -158,7 +159,7 @@ class TestRNN:
             nonlinearity="tanh",
         )
         # Should not raise
-        validate_spec({"fold_step_v": eq_step}, FoldSpec("rnn_v", "fold_step_v", None, hidden, hidden))
+        FoldSpec("rnn_v", "fold_step_v", None, hidden, hidden).validate({"fold_step_v": eq_step})
 
     def test_rnn_step_validate_unfold_spec(self, real_sr, hidden):
         """UnfoldSpec validation passes for a pure-nonlinearity RNN step."""
@@ -166,7 +167,7 @@ class TestRNN:
             "unfold_step_v", None, hidden, hidden,
             nonlinearity="tanh",
         )
-        validate_spec({"unfold_step_v": eq_step}, UnfoldSpec("rnn_echo_v", "unfold_step_v", 3, hidden, hidden))
+        UnfoldSpec("rnn_echo_v", "unfold_step_v", 3, hidden, hidden).validate({"unfold_step_v": eq_step})
 
     # ------------------------------------------------------------------
     # 2. Unfold produces a sequence of states
@@ -182,7 +183,7 @@ class TestRNN:
             "echo_step", None, hidden, hidden,
             nonlinearity="tanh",
         )
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         u_name, u_term = unfold("echo3", "echo_step", 3)
 
@@ -221,7 +222,7 @@ class TestRNN:
             "elman_step", "i,i->i", hidden, hidden, real_sr,
             nonlinearity="tanh",
         )
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         h0 = np.ones(3)
         init_term = encode_array(coder, h0)
@@ -274,7 +275,7 @@ class TestRNN:
             "tied_step", None, hidden, hidden,
             nonlinearity="relu",
         )
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         n_steps = 4
         u_name, u_term = unfold("tied_rnn", "tied_step", n_steps)
@@ -318,7 +319,7 @@ class TestRNN:
         eq_step = Equation(
             "tied_fold_step", "i,i->i", hidden, hidden, real_sr,
         )
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
@@ -373,7 +374,7 @@ class TestRNN:
             "trop_echo_step", None, hidden_trop, hidden_trop,
             nonlinearity="tanh",
         )
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         n_steps = 3
         u_name, u_term = unfold("trop_echo", "trop_echo_step", n_steps)
@@ -412,7 +413,7 @@ class TestRNN:
         eq_step = Equation(
             "trop_step", "i,i->i", hidden_trop, hidden_trop, tropical_sr,
         )
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         h0 = np.array([0.0, 0.0, 0.0])
         init_term = encode_array(coder, h0)
@@ -460,7 +461,7 @@ class TestRNN:
         """
         # Real fold: h_t = h_{t-1} * x_t
         eq_real = Equation("poly_real_step", "i,i->i", hidden, hidden, real_sr)
-        prim_real = eq_real.resolve(backend)
+        prim_real = resolve_equation(eq_real, backend)
 
         h0_real = np.array([1.0, 1.0, 1.0])
         init_real = encode_array(coder, h0_real)
@@ -468,7 +469,7 @@ class TestRNN:
 
         # Tropical fold: h_t = h_{t-1} + x_t
         eq_trop = Equation("poly_trop_step", "i,i->i", hidden_trop, hidden_trop, tropical_sr)
-        prim_trop = eq_trop.resolve(backend)
+        prim_trop = resolve_equation(eq_trop, backend)
 
         h0_trop = np.array([0.0, 0.0, 0.0])
         init_trop = encode_array(coder, h0_trop)

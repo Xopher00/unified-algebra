@@ -212,3 +212,28 @@ def _align_tensor(tensor, tensor_vars, target_vars, backend):
             extra += 1
 
     return backend.transpose(result, perm)
+
+
+# ---------------------------------------------------------------------------
+# High-level contraction + nonlinearity
+# ---------------------------------------------------------------------------
+
+def contract_and_apply(compiled, tensor_args, sr, backend, nl_fn=None, params=()):
+    """Contract tensors via compiled einsum, then apply optional nonlinearity."""
+    r = semiring_contract(compiled, tensor_args, sr, backend) if compiled else tensor_args[0]
+    if nl_fn:
+        return nl_fn(r, *params) if params else nl_fn(r)
+    return r
+
+
+def contract_merge(compiled, tensors, sr, backend, nl_fn=None, n_inputs=2, name=""):
+    """Fold-reduce a list of tensors via repeated contraction."""
+    if n_inputs == 1:
+        if len(tensors) != 1:
+            raise ValueError(f"Unary merge '{name}' expects 1-element list, got {len(tensors)}")
+        result = semiring_contract(compiled, [tensors[0]], sr, backend)
+    else:
+        result = tensors[0]
+        for t in tensors[1:]:
+            result = semiring_contract(compiled, [result, t], sr, backend)
+    return nl_fn(result) if nl_fn else result

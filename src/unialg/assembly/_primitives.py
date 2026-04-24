@@ -9,7 +9,7 @@ from __future__ import annotations
 import hydra.core as core
 import hydra.graph
 from hydra.dsl import prims
-from hydra.sources.libraries import fun as _fun
+from hydra.sources.libraries import fun
 
 
 # ---------------------------------------------------------------------------
@@ -24,15 +24,14 @@ def _unfold_n_compute(step, n, init):
         outputs.append(state)
     return tuple(outputs)
 
-_a_var = prims.variable("a")
-unfold_n_primitive = prims.prim3(
-    core.Name("ua.prim.unfold_n"), _unfold_n_compute, [prims.v("a")],
-    _fun(_a_var, _a_var),
-    prims.int32(),
-    _a_var,
-    prims.list_(_a_var),
-)
-del _a_var
+def _build_unfold_primitive():
+    a = prims.variable("a")
+    return prims.prim3(
+        core.Name("ua.prim.unfold_n"), _unfold_n_compute, [prims.v("a")],
+        fun(a, a), prims.int32(), a, prims.list_(a),
+    )
+
+unfold_n_primitive = _build_unfold_primitive()
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +47,6 @@ def fixpoint_primitive(epsilon: float, max_iter: int) -> hydra.graph.Primitive:
     or max_iter is reached. Returns (final_state, iteration_count).
     Epsilon and max_iter are baked into the closure at resolution time.
     """
-    from hydra.sources.libraries import fun
-
     prim_name = core.Name(f"ua.prim.fixpoint.{epsilon}.{max_iter}")
     a = prims.variable("a")
     _a = prims.v("a")
@@ -108,21 +105,26 @@ def _lens_bwd_compute(bwd_fns_list, feedback_and_residuals):
     return current_feedback
 
 
-_a_var2 = prims.variable("a")
-_r_var = prims.variable("r")
+def _build_lens_primitives():
+    a = prims.variable("a")
+    r = prims.variable("r")
+    tvars = [prims.v("a"), prims.v("r")]
+    fwd = prims.prim2(
+        core.Name("ua.prim.lens_fwd"), _lens_fwd_compute, tvars,
+        prims.list_(fun(a, prims.pair(a, r))), a, prims.pair(a, prims.list_(r)),
+    )
+    bwd = prims.prim2(
+        core.Name("ua.prim.lens_bwd"), _lens_bwd_compute, tvars,
+        prims.list_(fun(prims.pair(a, r), a)), prims.pair(a, prims.list_(r)), a,
+    )
+    return fwd, bwd
 
-lens_fwd_primitive = prims.prim2(
-    core.Name("ua.prim.lens_fwd"), _lens_fwd_compute, [prims.v("a"), prims.v("r")],
-    prims.list_(_fun(_a_var2, prims.pair(_a_var2, _r_var))),
-    _a_var2,
-    prims.pair(_a_var2, prims.list_(_r_var)),
-)
+lens_fwd_primitive, lens_bwd_primitive = _build_lens_primitives()
 
-lens_bwd_primitive = prims.prim2(
-    core.Name("ua.prim.lens_bwd"), _lens_bwd_compute, [prims.v("a"), prims.v("r")],
-    prims.list_(_fun(prims.pair(_a_var2, _r_var), _a_var2)),
-    prims.pair(_a_var2, prims.list_(_r_var)),
-    _a_var2,
-)
 
-del _a_var2, _r_var
+def residual_add_primitive(sr_name, resolved_sr, coder):
+    """Build ua.prim.residual_add.<sr_name> from an already-resolved semiring."""
+    prim_name = core.Name(f"ua.prim.residual_add.{sr_name}")
+    def compute(a, b):
+        return resolved_sr.plus_elementwise(a, b)
+    return prims.prim2(prim_name, compute, [], coder, coder, coder)

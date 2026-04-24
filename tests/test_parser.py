@@ -841,8 +841,8 @@ lens_fan attention : hidden <-> hidden
         lfs = spec.specs[0]
         assert isinstance(lfs, LensFanSpec)
         assert lfs.name == 'attention'
-        assert lfs.lens_names == ['backprop1', 'backprop2']
-        assert lfs.merge_lens_name == 'merge_lens'
+        assert lfs.branch_names == ['fwd1', 'fwd2']
+        assert lfs.merge_name == 'merge_fwd'
         assert lfs.domain_sort is not None
         assert lfs.codomain_sort is not None
 

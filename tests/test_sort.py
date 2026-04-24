@@ -3,9 +3,14 @@
 import numpy as np
 import pytest
 
-from unialg import Semiring, Sort, tensor_coder, build_graph
+from unialg import Semiring, Sort, tensor_coder, build_graph, numpy_backend
 from unialg.algebra import check_sort_compatibility
 from hydra.core import Name, TypeVariable, TypeApplication
+
+
+@pytest.fixture
+def backend():
+    return numpy_backend()
 
 
 @pytest.fixture
@@ -62,44 +67,44 @@ class TestSortTypeMapping:
 
 class TestTensorCoder:
 
-    def test_roundtrip_float64(self):
-        coder = tensor_coder()
+    def test_roundtrip_float64(self, backend):
+        coder = tensor_coder(backend)
         arr = np.array([[1.0, 2.0], [3.0, 4.0]])
         term = coder.decode(None, arr).value
         result = coder.encode(None, None, term).value
         np.testing.assert_array_equal(result, arr)
 
-    def test_roundtrip_float32(self):
-        coder = tensor_coder()
+    def test_roundtrip_float32(self, backend):
+        coder = tensor_coder(backend)
         arr = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         term = coder.decode(None, arr).value
         result = coder.encode(None, None, term).value
         np.testing.assert_array_equal(result, arr)
         assert result.dtype == np.float32
 
-    def test_roundtrip_int32(self):
-        coder = tensor_coder()
+    def test_roundtrip_int32(self, backend):
+        coder = tensor_coder(backend)
         arr = np.array([1, 2, 3], dtype=np.int32)
         term = coder.decode(None, arr).value
         result = coder.encode(None, None, term).value
         np.testing.assert_array_equal(result, arr)
 
-    def test_roundtrip_scalar(self):
-        coder = tensor_coder()
+    def test_roundtrip_scalar(self, backend):
+        coder = tensor_coder(backend)
         arr = np.float64(3.14)
         term = coder.decode(None, arr).value
         result = coder.encode(None, None, term).value
         np.testing.assert_allclose(result, 3.14)
 
-    def test_roundtrip_3d(self):
-        coder = tensor_coder()
+    def test_roundtrip_3d(self, backend):
+        coder = tensor_coder(backend)
         arr = np.arange(24.0).reshape(2, 3, 4)
         term = coder.decode(None, arr).value
         result = coder.encode(None, None, term).value
         np.testing.assert_array_equal(result, arr)
 
-    def test_coder_type(self):
-        coder = tensor_coder()
+    def test_coder_type(self, backend):
+        coder = tensor_coder(backend)
         assert isinstance(coder.type, TypeVariable)
         assert coder.type.value == Name("ua.tensor.NDArray")
 

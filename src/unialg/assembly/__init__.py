@@ -1,3 +1,11 @@
-# Assembly layer: graph construction and validation
+# Assembly layer: graph construction, validation, resolution, and composition
 from unialg.assembly.graph import assemble_graph, rebind_hyperparams, build_graph
-from unialg.assembly.topology import validate_spec, validate_pipeline, topo_edges
+from unialg.assembly.pipeline import (
+    validate_pipeline, topo_edges,
+    EquationPipeline, resolve_equation, resolve_equation_as_merge,
+)
+from unialg.assembly._composition import path, fan, fold, unfold, fixpoint, lens_path, lens_fan
+from unialg.assembly._primitives import (
+    unfold_n_primitive, fixpoint_primitive,
+    lens_fwd_primitive, lens_bwd_primitive, residual_add_primitive,
+)

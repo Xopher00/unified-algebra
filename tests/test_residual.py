@@ -44,8 +44,8 @@ def cx():
 
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 @pytest.fixture

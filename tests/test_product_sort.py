@@ -11,7 +11,7 @@ import hydra.core as core
 from hydra.dsl.python import Right
 
 from unialg import (
-    numpy_backend, Semiring, Sort, sort_coder,
+    numpy_backend, Semiring, Sort,
     ProductSort,
 )
 
@@ -61,7 +61,7 @@ class TestProductSorts:
     def test_is_product_sort_true_for_product(self, hidden, output_sort):
         """is_product_sort returns True for a product_sort term."""
         ps = ProductSort([hidden, output_sort])
-        assert isinstance(Sort.from_term(ps), ProductSort) is True
+        assert isinstance(ps, ProductSort) is True
 
     def test_is_product_sort_false_for_plain_sort(self, hidden):
         """is_product_sort returns False for an ordinary sort term."""
@@ -93,7 +93,7 @@ class TestProductSorts:
     def test_sort_type_from_term_distinct_for_product_vs_components(self, hidden, output_sort):
         """sort_type_from_term produces a nested TypePair for product sorts, distinct from components."""
         ps = ProductSort([hidden, output_sort])
-        ps_type = Sort.from_term(ps).type_
+        ps_type = ps.type_
         hidden_type = Sort.from_term(hidden).type_
         output_type = Sort.from_term(output_sort).type_
         assert ps_type != hidden_type
@@ -103,7 +103,7 @@ class TestProductSorts:
     def test_sort_coder_on_product_sort_encodes_decodes_tuple(self, hidden, output_sort, backend):
         """sort_coder on a product sort encodes/decodes a tuple of arrays correctly."""
         ps = ProductSort([hidden, output_sort])
-        prod_coder = sort_coder(ps, backend)
+        prod_coder = ps.coder(backend)
 
         a = np.array([1.0, 2.0, 3.0])
         b = np.array([4.0, 5.0])

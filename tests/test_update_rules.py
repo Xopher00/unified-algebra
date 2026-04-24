@@ -29,10 +29,10 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder, sort_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation,
     build_graph, assemble_graph, rebind_hyperparams,
-    lens, lens_path, fold, unfold,
+    Lens, lens_path, fold, unfold,
     PathSpec, FoldSpec, UnfoldSpec, LensPathSpec,
 )
 from unialg.backend import BinaryOp, UnaryOp
@@ -58,8 +58,8 @@ def real_sr():
 
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 @pytest.fixture
@@ -182,7 +182,7 @@ class TestLensUpdateComposition:
         # Forward and backward equations form a lens
         eq_fwd = Equation("act_fwd", None, hidden, hidden, nonlinearity="relu")
         eq_bwd = Equation("act_bwd", None, hidden, hidden, nonlinearity="tanh")
-        l = lens("activation", "act_fwd", "act_bwd")
+        l = Lens("activation", "act_fwd", "act_bwd")
 
         # SGD update uses the same sort but a custom binary op
         backend.binary_ops["sgd_step"] = BinaryOp(
@@ -200,7 +200,7 @@ class TestLensUpdateComposition:
         lens_graph = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            specs=[LensPathSpec("act_pipe", ["activation"], hidden, hidden)],
+            specs=[LensPathSpec(name="act_pipe", eq_names=["act_fwd"], domain_sort=hidden, codomain_sort=hidden, bwd_eq_names=["act_bwd"])],
         )
         update_graph = assemble_graph([eq_update], backend)
 
@@ -244,12 +244,12 @@ class TestLensUpdateComposition:
         # Forward: identity-like "i->i" (tropical times=add, no reduction → identity)
         eq_fwd = Equation("trop_fwd", "i->i", trop_sort, trop_sort, tropical_sr)
         eq_bwd = Equation("trop_bwd", "i->i", trop_sort, trop_sort, tropical_sr)
-        l = lens("trop_lens", "trop_fwd", "trop_bwd")
+        l = Lens("trop_lens", "trop_fwd", "trop_bwd")
 
         lens_graph = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            specs=[LensPathSpec("trop_pipe", ["trop_lens"], trop_sort, trop_sort)],
+            specs=[LensPathSpec(name="trop_pipe", eq_names=["trop_fwd"], domain_sort=trop_sort, codomain_sort=trop_sort, bwd_eq_names=["trop_bwd"])],
         )
 
         # Bellman relaxation update (separate graph, different semiring)

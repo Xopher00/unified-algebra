@@ -32,8 +32,8 @@ def hidden(real_sr):
     return Sort("hidden", real_sr)
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 # ---------------------------------------------------------------------------

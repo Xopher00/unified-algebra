@@ -239,4 +239,4 @@ def compile_program(
         semirings=semirings,
     )
     cx = Context(trace=(), messages=(), other=FrozenDict({}))
-    return Program(graph, backend, alg.tensor_coder(), cx)
+    return Program(graph, backend, alg.tensor_coder(backend), cx)

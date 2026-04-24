@@ -13,10 +13,11 @@ from hydra.reduction import reduce_term
 from unialg import (
     numpy_backend, Semiring, Sort, tensor_coder,
     Equation, fold, unfold,
-    validate_spec, build_graph, assemble_graph,
+    build_graph, assemble_graph,
     PathSpec, FoldSpec, UnfoldSpec,
+    resolve_equation,
 )
-from unialg.assembly.primitives import unfold_n_primitive
+from unialg.assembly import unfold_n_primitive
 
 
 # ---------------------------------------------------------------------------
@@ -44,8 +45,8 @@ def output_sort(real_sr):
 
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 @pytest.fixture
@@ -110,16 +111,16 @@ class TestFoldValidation:
 
     def test_valid_fold(self, real_sr, hidden):
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        validate_spec({"step": eq_step}, FoldSpec("_", "step", None, hidden, hidden))
+        FoldSpec("_", "step", None, hidden, hidden).validate({"step": eq_step})
 
     def test_fold_step_not_found(self, hidden):
         with pytest.raises(ValueError, match="not found"):
-            validate_spec({}, FoldSpec("_", "missing", None, hidden, hidden))
+            FoldSpec("_", "missing", None, hidden, hidden).validate({})
 
     def test_fold_state_recurrence_mismatch(self, real_sr, hidden, output_sort):
         eq_step = Equation("step", "i,i->i", hidden, output_sort, real_sr)
         with pytest.raises(TypeError, match="codomain.*state sort"):
-            validate_spec({"step": eq_step}, FoldSpec("_", "step", None, hidden, hidden))
+            FoldSpec("_", "step", None, hidden, hidden).validate({"step": eq_step})
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +137,7 @@ class TestFoldReduce:
         fold([x1, x2, x3]) = x1 * x2 * x3 (elementwise)
         """
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         init = np.ones(3)
         init_term = encode_array(coder, init)
@@ -176,7 +177,7 @@ class TestFoldReduce:
     def test_fold_single_element(self, cx, real_sr, hidden, backend, coder):
         """Fold over length-1 list = single step application."""
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         init = np.ones(2)
         init_term = encode_array(coder, init)
@@ -204,7 +205,7 @@ class TestFoldReduce:
         from a manual loop using the same step.
         """
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
@@ -249,21 +250,21 @@ class TestUnfoldValidation:
 
     def test_valid_unfold(self, real_sr, hidden):
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
-        validate_spec({"step": eq_step}, UnfoldSpec("_", "step", 0, hidden, hidden))
+        UnfoldSpec("_", "step", 0, hidden, hidden).validate({"step": eq_step})
 
     def test_unfold_step_not_found(self, hidden):
         with pytest.raises(ValueError, match="not found"):
-            validate_spec({}, UnfoldSpec("_", "missing", 0, hidden, hidden))
+            UnfoldSpec("_", "missing", 0, hidden, hidden).validate({})
 
     def test_unfold_domain_mismatch(self, real_sr, hidden, output_sort):
         eq_step = Equation("step", None, output_sort, hidden, nonlinearity="tanh")
         with pytest.raises(TypeError, match="domain.*state sort"):
-            validate_spec({"step": eq_step}, UnfoldSpec("_", "step", 0, hidden, hidden))
+            UnfoldSpec("_", "step", 0, hidden, hidden).validate({"step": eq_step})
 
     def test_unfold_codomain_mismatch(self, real_sr, hidden, output_sort):
         eq_step = Equation("step", None, hidden, output_sort, nonlinearity="tanh")
         with pytest.raises(TypeError, match="codomain.*state sort"):
-            validate_spec({"step": eq_step}, UnfoldSpec("_", "step", 0, hidden, hidden))
+            UnfoldSpec("_", "step", 0, hidden, hidden).validate({"step": eq_step})
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +276,7 @@ class TestUnfoldReduce:
     def test_unfold_tanh(self, cx, real_sr, hidden, backend, coder):
         """Unfold tanh for 3 steps: s0 → tanh(s0) → tanh(tanh(s0)) → ..."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         unfold_prim = unfold_n_primitive
         u_name, u_term = unfold("stream", "step", 3)
@@ -317,7 +318,7 @@ class TestUnfoldReduce:
     def test_unfold_single_step(self, cx, real_sr, hidden, backend, coder):
         """Unfold with n_steps=1."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="relu")
-        prim_step = eq_step.resolve(backend)
+        prim_step = resolve_equation(eq_step, backend)
 
         unfold_prim = unfold_n_primitive
         u_name, u_term = unfold("one", "step", 1)

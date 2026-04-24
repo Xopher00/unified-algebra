@@ -8,9 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 import unialg.algebra as alg
-import unialg.resolve as res
-import unialg.composition as comp
-import unialg.specs as sp
+import unialg.assembly.specs as sp
 from unialg.parser import UASpec
 
 
@@ -57,7 +55,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                     f"declared templates: {list(templates_by_name)}"
                 )
             einsum, dom_sort, cod_sort, sr_term, nl = templates_by_name[tpl_name]
-            eq_term = res.Equation(concrete_name, einsum, dom_sort, cod_sort,
+            eq_term = alg.Equation(concrete_name, einsum, dom_sort, cod_sort,
                                   sr_term,
                                   nonlinearity=nl)
             equations_by_name[concrete_name] = eq_term
@@ -92,7 +90,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             if is_template:
                 templates_by_name[name] = (einsum, dom_sort, cod_sort, sr_term, nl)
             else:
-                eq_term = res.Equation(name, einsum, dom_sort, cod_sort,
+                eq_term = alg.Equation(name, einsum, dom_sort, cod_sort,
                                       sr_term,
                                       nonlinearity=nl)
                 equations_by_name[name] = eq_term
@@ -182,7 +180,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             _, name, (_, _), fwd, bwd = decl
             _get_eq(fwd)
             _get_eq(bwd)
-            lens_term = comp.lens(name, fwd, bwd)
+            lens_term = alg.Lens(name, fwd, bwd)
             lenses.append(lens_term)
             lenses_by_name[name] = lens_term
 
@@ -190,37 +188,52 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             _, name, (dom_name, cod_name), lens_names = decl
             dom_sort = _get_sort(dom_name)
             cod_sort = _get_sort(cod_name)
+            fwd_names, bwd_names, has_residual = [], [], False
             for ln in lens_names:
                 if ln not in lenses_by_name:
                     raise ValueError(
                         f"Unknown lens {ln!r} — declared lenses: {list(lenses_by_name)}"
                     )
+                lv = lenses_by_name[ln]
+                fwd_names.append(lv.forward)
+                bwd_names.append(lv.backward)
+                if lv.residual_sort is not None:
+                    has_residual = True
             specs.append(sp.LensPathSpec(
                 name=name,
-                lens_names=lens_names,
+                eq_names=fwd_names,
                 domain_sort=dom_sort,
                 codomain_sort=cod_sort,
+                bwd_eq_names=bwd_names,
+                has_residual=has_residual,
             ))
 
         elif kind == 'lens_fan':
             _, name, (dom_name, cod_name), lens_names, merge_lens = decl
             dom_sort = _get_sort(dom_name)
             cod_sort = _get_sort(cod_name)
+            fwd_branches, bwd_branches = [], []
             for ln in lens_names:
                 if ln not in lenses_by_name:
                     raise ValueError(
                         f"Unknown lens {ln!r} — declared lenses: {list(lenses_by_name)}"
                     )
+                lv = lenses_by_name[ln]
+                fwd_branches.append(lv.forward)
+                bwd_branches.append(lv.backward)
             if merge_lens not in lenses_by_name:
                 raise ValueError(
                     f"Unknown merge lens {merge_lens!r} — declared lenses: {list(lenses_by_name)}"
                 )
+            mlv = lenses_by_name[merge_lens]
             specs.append(sp.LensFanSpec(
                 name=name,
-                lens_names=lens_names,
-                merge_lens_name=merge_lens,
+                branch_names=fwd_branches,
+                merge_name=mlv.forward,
                 domain_sort=dom_sort,
                 codomain_sort=cod_sort,
+                bwd_branch_names=bwd_branches,
+                merge_bwd_name=mlv.backward,
             ))
 
     return UASpec(

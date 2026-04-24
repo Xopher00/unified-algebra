@@ -17,14 +17,16 @@ from hydra.dsl.prims import prim1, float32 as float32_coder
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder, sort_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     Equation, fixpoint,
-    validate_spec, build_graph,
+    build_graph,
     FixpointSpec,
+    resolve_equation,
 )
 from unialg.backend import UnaryOp
-from unialg.assembly.primitives import fixpoint_primitive
-from unialg.utils import record_fields
+from unialg.assembly import fixpoint_primitive
+from unialg.terms import record_fields
+from unialg.algebra.sort import sort_wrap
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +49,8 @@ def real_sr():
 
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 @pytest.fixture
@@ -111,7 +113,7 @@ class TestFixpointValidation:
         step_eq = Equation("fp_step", None, hidden, hidden, nonlinearity="relu")
         pred_eq = Equation("fp_pred", None, hidden, output_sort, nonlinearity="abs")
         eq_by_name = {"fp_step": step_eq, "fp_pred": pred_eq}
-        validate_spec(eq_by_name, FixpointSpec("_", "fp_step", "fp_pred", 0.0, 0, hidden))
+        FixpointSpec("_", "fp_step", "fp_pred", 0.0, 0, hidden).validate(eq_by_name)
 
     def test_validate_fixpoint_raises_for_endomorphism_predicate(
         self, hidden, real_sr
@@ -121,7 +123,7 @@ class TestFixpointValidation:
         pred_eq = Equation("endo_pred", None, hidden, hidden, nonlinearity="abs")
         eq_by_name = {"endo_step": step_eq, "endo_pred": pred_eq}
         with pytest.raises(TypeError, match="scalar residual"):
-            validate_spec(eq_by_name, FixpointSpec("_", "endo_step", "endo_pred", 0.0, 0, hidden))
+            FixpointSpec("_", "endo_step", "endo_pred", 0.0, 0, hidden).validate(eq_by_name)
 
     def test_validate_fixpoint_raises_for_non_endomorphism_step(
         self, hidden, output_sort, real_sr
@@ -131,21 +133,21 @@ class TestFixpointValidation:
         pred_eq = Equation("bad_pred", None, hidden, output_sort, nonlinearity="abs")
         eq_by_name = {"bad_step": step_eq, "bad_pred": pred_eq}
         with pytest.raises(TypeError):
-            validate_spec(eq_by_name, FixpointSpec("_", "bad_step", "bad_pred", 0.0, 0, hidden))
+            FixpointSpec("_", "bad_step", "bad_pred", 0.0, 0, hidden).validate(eq_by_name)
 
     def test_validate_fixpoint_raises_for_missing_predicate(self, hidden):
         """validate_fixpoint raises ValueError when predicate equation is not found."""
         step_eq = Equation("ms_step", None, hidden, hidden, nonlinearity="relu")
         eq_by_name = {"ms_step": step_eq}
         with pytest.raises(ValueError, match="predicate equation 'missing_pred' not found"):
-            validate_spec(eq_by_name, FixpointSpec("_", "ms_step", "missing_pred", 0.0, 0, hidden))
+            FixpointSpec("_", "ms_step", "missing_pred", 0.0, 0, hidden).validate(eq_by_name)
 
     def test_validate_fixpoint_raises_for_missing_step(self, hidden):
         """validate_fixpoint raises ValueError when step equation is not found."""
         pred_eq = Equation("ms_pred", None, hidden, hidden, nonlinearity="abs")
         eq_by_name = {"ms_pred": pred_eq}
         with pytest.raises(ValueError, match="step equation 'missing_step' not found"):
-            validate_spec(eq_by_name, FixpointSpec("_", "missing_step", "ms_pred", 0.0, 0, hidden))
+            FixpointSpec("_", "missing_step", "ms_pred", 0.0, 0, hidden).validate(eq_by_name)
 
 
 # ===========================================================================
@@ -164,7 +166,7 @@ class TestFixpointEndToEnd:
     def _make_step_prim(self, name, sort_term, nl_name, backend):
         """Resolve a unary endomorphism equation into a Primitive."""
         eq = Equation(name, None, sort_term, sort_term, nonlinearity=nl_name)
-        return eq.resolve(backend)
+        return resolve_equation(eq, backend)
 
     def _make_pred_prim(self, name, sort_term, fn, backend):
         """Build a predicate prim1 whose output is float32 (not tensor).
@@ -174,7 +176,7 @@ class TestFixpointEndToEnd:
         This is required because fixpoint_primitive bridges the predicate
         through fun(a, prims.float32()), which decodes the result as float32.
         """
-        in_coder = sort_coder(sort_term, backend)
+        in_coder = sort_wrap(sort_term).coder(backend)
         return prim1(Name(f"ua.equation.{name}"), fn, [], in_coder, float32_coder())
 
     def test_fixpoint_converges_to_zero(self, cx, backend, coder):
@@ -316,12 +318,12 @@ class TestSemiringResidualField:
 
     def test_semiring_with_residual_creates_record_with_residual_field(self):
         """Semiring(..., residual='divide') creates a TermRecord with a 'residual' field."""
-        from unialg.utils import string_value
+        from unialg.terms import literal_value
         sr = Semiring("real_res", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
         fields = record_fields(sr.term)
         assert "residual" in fields
-        assert string_value(fields["residual"]) == "divide"
+        assert literal_value(fields["residual"]) == "divide"
 
     def test_resolve_semiring_extracts_residual_elementwise(self, backend):
         """Semiring.resolve extracts residual_elementwise as the divide callable."""

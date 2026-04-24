@@ -11,7 +11,7 @@ lens/lens_path DSL — no new DSL code is needed.
 Single autoencoder:
   encoder: "ij,j->i" — linear projection from input_dim to latent_dim
   decoder: "ij,j->i" — linear projection from latent_dim to input_dim
-  lens("autoencoder", forward="encoder", backward="decoder")
+  Lens("autoencoder", forward="encoder", backward="decoder")
 
 Deep autoencoder (two encoding layers, two decoding layers):
   encoder1: input  → hidden   ("ij,j->i")
@@ -40,8 +40,9 @@ from hydra.reduction import reduce_term
 from unialg import (
     numpy_backend, Semiring, Sort, tensor_coder,
     Equation,
-    lens, validate_lens,
+    Lens,
     assemble_graph, LensPathSpec,
+    resolve_equation,
 )
 
 
@@ -60,8 +61,8 @@ def cx():
 
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 @pytest.fixture
@@ -139,12 +140,12 @@ class TestAutoencoder:
         # decoder: latent_sort → input_sort  (reconstruction)
         eq_enc = Equation("ae1_enc", "ij,j->i", input_sort, latent_sort, real_sr)
         eq_dec = Equation("ae1_dec", "ij,j->i", latent_sort, input_sort, real_sr)
-        ae_lens = lens("ae1", "ae1_enc", "ae1_dec")
+        ae_lens = Lens("ae1", "ae1_enc", "ae1_dec")
 
         # Weight matrices for path params
         W_enc = np.random.randn(3, 6)   # latent_dim=3, input_dim=6
         W_dec = np.random.randn(6, 3)   # input_dim=6, latent_dim=3
-        coder = tensor_coder()
+        coder = tensor_coder(backend)
         W_enc_term = encode_array(coder, W_enc)
         W_dec_term = encode_array(coder, W_dec)
 
@@ -152,14 +153,12 @@ class TestAutoencoder:
             [eq_enc, eq_dec], backend,
             lenses=[ae_lens],
             specs=[LensPathSpec(
-                "ae1_pipe",
-                ["ae1"],
-                input_sort,
-                input_sort,
-                params={
-                    "ae1_enc": [W_enc_term],
-                    "ae1_dec": [W_dec_term],
-                },
+                name="ae1_pipe",
+                eq_names=["ae1_enc"],
+                domain_sort=input_sort,
+                codomain_sort=latent_sort,
+                params={"ae1_enc": [W_enc_term], "ae1_dec": [W_dec_term]},
+                bwd_eq_names=["ae1_dec"],
             )],
         )
 
@@ -179,7 +178,7 @@ class TestAutoencoder:
         against input x (input,) to produce z (latent,).
         """
         eq_enc = Equation("ae2_enc", "ij,j->i", input_sort, latent_sort, real_sr)
-        prim = eq_enc.resolve(backend)
+        prim = resolve_equation(eq_enc, backend)
 
         # W: 3 x 6,  x: 6  →  z: 3
         W = np.array([
@@ -213,7 +212,7 @@ class TestAutoencoder:
         (input x latent) against latent z (latent,) to reconstruct x_hat (input,).
         """
         eq_dec = Equation("ae3_dec", "ij,j->i", latent_sort, input_sort, real_sr)
-        prim = eq_dec.resolve(backend)
+        prim = resolve_equation(eq_dec, backend)
 
         # W_dec: 6 x 3,  z: 3  →  x_hat: 6
         W_dec = np.eye(6, 3)   # first 3 columns of identity
@@ -257,8 +256,8 @@ class TestAutoencoder:
         # decoder2: hidden → input   (6 x 4)
         eq_dec2 = Equation("ae4_dec2", "ij,j->i", hidden_sort, input_sort, real_sr)
 
-        lens1 = lens("ae_deep1", "ae4_enc1", "ae4_dec2")
-        lens2 = lens("ae_deep2", "ae4_enc2", "ae4_dec1")
+        lens1 = Lens("ae_deep1", "ae4_enc1", "ae4_dec2")
+        lens2 = Lens("ae_deep2", "ae4_enc2", "ae4_dec1")
 
         W1 = np.random.randn(4, 6)   # enc1: hidden x input
         W2 = np.random.randn(3, 4)   # enc2: latent x hidden
@@ -274,16 +273,12 @@ class TestAutoencoder:
             [eq_enc1, eq_enc2, eq_dec1, eq_dec2], backend,
             lenses=[lens1, lens2],
             specs=[LensPathSpec(
-                "ae_deep_pipe",
-                ["ae_deep1", "ae_deep2"],
-                input_sort,
-                input_sort,
-                params={
-                    "ae4_enc1": [W1_t],
-                    "ae4_enc2": [W2_t],
-                    "ae4_dec1": [W3_t],
-                    "ae4_dec2": [W4_t],
-                },
+                name="ae_deep_pipe",
+                eq_names=["ae4_enc1", "ae4_enc2"],
+                domain_sort=input_sort,
+                codomain_sort=latent_sort,
+                params={"ae4_enc1": [W1_t], "ae4_enc2": [W2_t], "ae4_dec1": [W3_t], "ae4_dec2": [W4_t]},
+                bwd_eq_names=["ae4_dec2", "ae4_dec1"],
             )],
         )
 
@@ -314,16 +309,17 @@ class TestAutoencoder:
         # Identity contraction: no weight, no reduction — output equals input
         eq_enc = Equation("ae6_enc", "i->i", trop_input, trop_latent, tropical_sr)
         eq_dec = Equation("ae6_dec", "i->i", trop_latent, trop_input, tropical_sr)
-        ae_lens = lens("ae6", "ae6_enc", "ae6_dec")
+        ae_lens = Lens("ae6", "ae6_enc", "ae6_dec")
 
         graph = assemble_graph(
             [eq_enc, eq_dec], backend,
             lenses=[ae_lens],
             specs=[LensPathSpec(
-                "ae6_pipe",
-                ["ae6"],
-                trop_input,
-                trop_input,
+                name="ae6_pipe",
+                eq_names=["ae6_enc"],
+                domain_sort=trop_input,
+                codomain_sort=trop_latent,
+                bwd_eq_names=["ae6_dec"],
             )],
         )
 

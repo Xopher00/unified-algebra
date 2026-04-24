@@ -8,86 +8,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hydra.dsl.python import FrozenDict
-import unialg.algebra as alg
-import unialg.resolve as res
-import unialg.composition as comp
-import unialg.specs as sp
-import unialg.views as vw
-from unialg.resolve.morphism import Equation
-from unialg.assembly.topology import validate_pipeline, _register_sort_components, _build_schema
-from unialg.assembly.topology import validate_spec
-from unialg.composition.catamorphism import fold, unfold
-from unialg.algebra.fixpoint import fixpoint
-from unialg.assembly.primitives import unfold_n_primitive, fixpoint_primitive, lens_fwd_primitive, lens_bwd_primitive
+import hydra.core as core
+import hydra.graph
+from hydra.dsl.python import FrozenDict, Nothing
+import hydra.substitution as subst
+import hydra.typing
+
+import unialg.assembly.specs as sp
+from unialg.algebra.equation import Equation
+from unialg.algebra.sort import sort_wrap
+from unialg.assembly.pipeline import EquationPipeline
 
 if TYPE_CHECKING:
-    import hydra.core as core
-    import hydra.graph
     from unialg.backend import Backend
-
-
-def _register_residual_prims(
-    specs: list,
-    eq_by_name: dict,
-    primitives: dict,
-    backend: "Backend",
-    semirings: dict | None = None,
-) -> None:
-    """Register ua.prim.residual_add.<sr_name> for any PathSpec with residual=True."""
-    import hydra.core as core
-    from hydra.dsl.prims import prim2
-    from unialg.algebra.semiring import Semiring
-
-    for spec in specs:
-        if not isinstance(spec, sp.PathSpec) or not spec.residual:
-            continue
-
-        sr_name = spec.residual_semiring or "default"
-        prim_name = core.Name(f"ua.prim.residual_add.{sr_name}")
-        if prim_name in primitives:
-            continue
-
-        sr_term = None
-        for eq_term in eq_by_name.values():
-            v = Equation.from_term(eq_term)
-            sr_field = v.semiring
-            if isinstance(sr_field, core.TermRecord):
-                sv = Semiring.from_term(sr_field)
-                if sv.name == sr_name:
-                    sr_term = sr_field
-                    break
-
-        if sr_term is None and semirings:
-            sr_term = semirings.get(sr_name)
-
-        if sr_term is None:
-            raise ValueError(
-                f"Residual path references semiring '{sr_name}' but no equation "
-                f"uses it and it was not passed via semirings="
-            )
-
-        sr = Semiring.from_term(sr_term).resolve(backend)
-        coder = alg.tensor_coder()
-
-        def _make_compute(resolved_sr):
-            return lambda a, b: resolved_sr.plus_elementwise(a, b)
-
-        prim = prim2(prim_name, _make_compute(sr), [], coder, coder, coder)
-        primitives[prim_name] = prim
-
-
-def _build_lens_by_name(
-    lenses: list[core.Term] | None,
-    eq_by_name: dict[str, core.Term],
-) -> dict[str, core.Term]:
-    """Validate lenses and build lens_by_name lookup."""
-    lens_by_name: dict[str, core.Term] = {}
-    if lenses:
-        for lens_term in lenses:
-            lens_by_name[vw.LensView(lens_term).name] = lens_term
-            comp.validate_lens(eq_by_name, lens_term)
-    return lens_by_name
 
 
 def _build_compositions(
@@ -95,49 +28,13 @@ def _build_compositions(
     eq_by_name: dict[str, core.Term],
     primitives: dict,
     bound_terms: dict,
-    lens_by_name: dict[str, core.Term],
     schema_types,
+    **kwargs,
 ) -> None:
     """Validate and build all composition specs. Mutates primitives and bound_terms."""
     for spec in specs:
-        validate_spec(eq_by_name, spec, schema_types)
-
-        if isinstance(spec, sp.PathSpec):
-            results = [comp.path(spec.name, spec.eq_names, spec.params,
-                            residual=spec.residual,
-                            residual_semiring=spec.residual_semiring)]
-
-        elif isinstance(spec, sp.FanSpec):
-            results = [comp.fan(spec.name, spec.branch_names, spec.merge_name)]
-
-        elif isinstance(spec, sp.FoldSpec):
-            results = [fold(spec.name, spec.step_name, spec.init_term)]
-
-        elif isinstance(spec, sp.UnfoldSpec):
-            unfold_prim = unfold_n_primitive
-            primitives.setdefault(unfold_prim.name, unfold_prim)
-            results = [unfold(spec.name, spec.step_name, spec.n_steps)]
-
-        elif isinstance(spec, sp.LensPathSpec):
-            if any(vw.LensView(lens_by_name[ln]).residual_sort is not None for ln in spec.lens_names):
-                for prim in (lens_fwd_primitive, lens_bwd_primitive):
-                    primitives.setdefault(prim.name, prim)
-            (fwd, bwd) = comp.lens_path(spec.name, spec.lens_names, lens_by_name, spec.params)
-            results = [fwd, bwd]
-
-        elif isinstance(spec, sp.LensFanSpec):
-            (fwd, bwd) = comp.lens_fan(spec.name, spec.lens_names, spec.merge_lens_name, lens_by_name)
-            results = [fwd, bwd]
-
-        elif isinstance(spec, sp.FixpointSpec):
-            fp_prim = fixpoint_primitive(spec.epsilon, spec.max_iter)
-            primitives.setdefault(fp_prim.name, fp_prim)
-            results = [fixpoint(spec.name, spec.step_name, spec.predicate_name, spec.epsilon, spec.max_iter)]
-
-        else:
-            raise TypeError(f"Unknown composition spec type: {type(spec).__name__}")
-
-        for name, term in results:
+        spec.validate(eq_by_name, schema_types)
+        for name, term in spec.build(primitives, **kwargs):
             bound_terms[name] = term
 
 
@@ -157,10 +54,6 @@ def build_graph(
         primitives:  optional dict of Name -> Primitive (for Phase 3+)
         bound_terms: optional dict of Name -> Term
     """
-    import hydra.core as core
-    import hydra.graph
-    from hydra.dsl.python import FrozenDict, Nothing
-
     schema = {}
     terms = dict(bound_terms or {})
 
@@ -173,7 +66,7 @@ def build_graph(
     # Register each sort's structural component names so sort_type_from_term
     # results are ground (matches what _build_schema does in assemble_graph).
     for st in sort_terms:
-        _register_sort_components(st, schema)
+        sort_wrap(st).register_schema(schema)
 
     return hydra.graph.Graph(
         bound_terms=FrozenDict(terms),
@@ -214,32 +107,26 @@ def assemble_graph(
                       as fallback when a residual path's semiring is not
                       referenced by any equation
     """
-    validate_pipeline(eq_terms)
-
     all_specs = list(specs or [])
-
     merge_names: set[str] = {spec.merge_name for spec in all_specs if isinstance(spec, sp.FanSpec)}
-    primitives, eq_by_name = res.resolve_all_primitives(eq_terms, backend, merge_names)
 
-    schema_types = _build_schema(eq_terms)
+    pipeline = EquationPipeline(eq_terms, backend, merge_names, semirings=semirings)
 
-    import hydra.core as core
     bound_terms: dict[core.Name, core.Term] = {}
     if hyperparams:
         for param_name, param_term in hyperparams.items():
             bound_terms[core.Name(f"ua.param.{param_name}")] = param_term
 
-    lens_by_name = _build_lens_by_name(lenses, eq_by_name)
-    _register_residual_prims(all_specs, eq_by_name, primitives, backend, semirings=semirings)
-    _build_compositions(all_specs, eq_by_name, primitives, bound_terms, lens_by_name, schema_types)
+    _build_compositions(all_specs, pipeline.eq_by_name, pipeline.primitives,
+                        bound_terms, pipeline.schema_types,
+                        resolved_semirings=pipeline.resolved_semirings, coder=pipeline.coder)
 
     seen_sorts: dict[str, core.Term] = {}
-    for eq_term in eq_terms:
-        v = Equation.from_term(eq_term)
-        for st in (v.domain_sort, v.codomain_sort):
-            seen_sorts.setdefault(str(alg.Sort.from_term(st).type_), st)
+    for eq in pipeline.eq_by_name.values():
+        for st in (eq.domain_sort, eq.codomain_sort):
+            seen_sorts.setdefault(str(sort_wrap(st).type_), st)
     all_sorts = list(seen_sorts.values()) + list(extra_sorts or [])
-    return build_graph(all_sorts, primitives=primitives, bound_terms=bound_terms)
+    return build_graph(all_sorts, primitives=pipeline.primitives, bound_terms=bound_terms)
 
 
 # ---------------------------------------------------------------------------
@@ -260,11 +147,6 @@ def rebind_hyperparams(
         updates: dict of param_name → new scalar Term
                  (keys without "ua.param." prefix — it's added automatically)
     """
-    import hydra.core as core
-    import hydra.graph as hgraph
-    import hydra.substitution as subst
-    import hydra.typing
-
     param_updates = {
         core.Name(f"ua.param.{k}"): v for k, v in updates.items()
     }
@@ -277,7 +159,7 @@ def rebind_hyperparams(
     # Also update bound_terms entries for the params themselves
     new_terms.update(param_updates)
 
-    return hgraph.Graph(
+    return hydra.graph.Graph(
         bound_terms=FrozenDict(new_terms),
         bound_types=graph.bound_types,
         class_constraints=graph.class_constraints,

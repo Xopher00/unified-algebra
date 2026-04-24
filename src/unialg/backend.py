@@ -197,6 +197,29 @@ def numpy_backend() -> Backend:
 # pytorch backend
 # ---------------------------------------------------------------------------
 
+_TORCH_DTYPE_MAP = {
+    "float32": "torch.float32", "<f4": "torch.float32",
+    "float64": "torch.float64", "<f8": "torch.float64",
+    "int32":   "torch.int32",   "<i4": "torch.int32",
+    "int64":   "torch.int64",   "<i8": "torch.int64",
+}
+
+def _torch_from_wire(raw: bytes):
+    import torch
+    i = raw.index(0)
+    j = raw.index(0, i + 1)
+    dtype_str = raw[:i].decode()
+    shape = tuple(int(x) for x in raw[i + 1:j].decode().split(",") if x)
+    dtype = getattr(torch, _TORCH_DTYPE_MAP[dtype_str].replace("torch.", ""))
+    return torch.frombuffer(bytearray(raw[j + 1:]), dtype=dtype).reshape(shape).clone()
+
+def _torch_to_wire(arr) -> bytes:
+    import torch
+    a = arr.contiguous().detach().cpu()
+    dtype_str = str(a.dtype).replace("torch.", "")
+    shape_str = ",".join(str(s) for s in a.shape)
+    return dtype_str.encode() + b"\x00" + shape_str.encode() + b"\x00" + a.untyped_storage().tobytes()
+
 def pytorch_backend() -> Backend:
     """Build a backend from pytorch."""
     import torch
@@ -209,8 +232,8 @@ def pytorch_backend() -> Backend:
         transpose=lambda a, perm: a.permute(perm),
         broadcast_copy=lambda a, shape: a.expand(shape).clone(),
         where=torch.where,
-        from_wire=lambda raw: torch.from_numpy(_np_from_wire(raw).copy()),
-        to_wire=lambda a: _np_to_wire(a.detach().cpu().numpy()),
+        from_wire=_torch_from_wire,
+        to_wire=_torch_to_wire,
         binary_ops={
             # Arithmetic
             "add":      BinaryOp(elementwise=torch.add,  reduce=lambda a, axis: torch.sum(a, dim=axis)),

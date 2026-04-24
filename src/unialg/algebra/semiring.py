@@ -17,7 +17,7 @@ import hydra.core as core
 from hydra.core import Name
 from hydra.dsl.meta.phantoms import record, string, float64
 
-from unialg.views import _RecordView, _StringField, _FloatField
+from unialg.terms import _RecordView, _ScalarField, record_fields, literal_value
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
@@ -50,11 +50,11 @@ class Semiring(_RecordView):
     """
 
     _type_name = core.Name("ua.semiring.Semiring")
-    name  = _StringField("name")
-    plus  = _StringField("plus")
-    times = _StringField("times")
-    zero  = _FloatField("zero")
-    one   = _FloatField("one")
+    name  = _ScalarField("name", str)
+    plus  = _ScalarField("plus", str)
+    times = _ScalarField("times", str)
+    zero  = _ScalarField("zero", float)
+    one   = _ScalarField("one", float)
 
     def __init__(self, name: str, plus: str, times: str, zero: float, one: float,
                  residual: str | None = None):
@@ -70,8 +70,7 @@ class Semiring(_RecordView):
     @property
     def residual(self) -> str:
         from hydra.dsl.meta.phantoms import string as phantom_string
-        from unialg.utils import record_fields, string_value
-        return string_value(record_fields(self._term).get("residual", phantom_string("").value))
+        return literal_value(record_fields(self._term).get("residual", phantom_string("").value))
 
     def resolve(self, backend: "Backend") -> "ResolvedSemiring":
         """Resolve this semiring against a backend to get callable operations."""

@@ -31,6 +31,7 @@ from unialg import (
     numpy_backend, Semiring, Sort, tensor_coder,
     Equation, path,
     assemble_graph, build_graph, PathSpec,
+    resolve_equation,
 )
 
 
@@ -66,8 +67,8 @@ def node_sort_real(real_sr):
 
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 @pytest.fixture
@@ -208,8 +209,8 @@ class TestShortestPath:
         graph2 = build_graph(
             [],
             primitives={
-                Name("ua.equation.sp1"): eq1.resolve(backend),
-                Name("ua.equation.sp2"): eq2.resolve(backend),
+                Name("ua.equation.sp1"): resolve_equation(eq1, backend),
+                Name("ua.equation.sp2"): resolve_equation(eq2, backend),
             },
             bound_terms={p_name: p_term},
         )
@@ -259,8 +260,8 @@ class TestShortestPath:
         graph = build_graph(
             [],
             primitives={
-                Name("ua.equation.real1"): eq1.resolve(backend),
-                Name("ua.equation.real2"): eq2.resolve(backend),
+                Name("ua.equation.real1"): resolve_equation(eq1, backend),
+                Name("ua.equation.real2"): resolve_equation(eq2, backend),
             },
             bound_terms={p_name: p_term},
         )
@@ -293,7 +294,7 @@ class TestShortestPath:
         We verify both after one hop and after two hops.
         """
         eq = Equation("bfstep", "ij,j->i", node_sort, node_sort, tropical_sr)
-        prim = eq.resolve(backend)
+        prim = resolve_equation(eq, backend)
 
         W_enc = enc(coder, W)
         x_enc = enc(coder, x0)

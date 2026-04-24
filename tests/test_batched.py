@@ -16,12 +16,13 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder, sort_coder,
+    numpy_backend, Semiring, Sort, tensor_coder,
     validate_pipeline, Equation,
-    path, fan, validate_spec,
+    path, fan,
     build_graph, assemble_graph, PathSpec, FanSpec,
+    resolve_equation,
 )
-from unialg.resolve.morphism import _prepend_batch_dim
+from unialg.algebra.equation import _prepend_batch_dim
 
 
 # ---------------------------------------------------------------------------
@@ -44,8 +45,8 @@ def real_sr():
 
 
 @pytest.fixture
-def coder():
-    return tensor_coder()
+def coder(backend):
+    return tensor_coder(backend)
 
 
 # ---------------------------------------------------------------------------
@@ -204,28 +205,28 @@ class TestBatchedEquationResolution:
         """
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        prim = eq.resolve(backend)
+        prim = resolve_equation(eq, backend)
         assert prim.name == core.Name("ua.equation.relu_b")
 
     def test_batched_unary_einsum_resolves(self, real_sr, backend):
         """Unary einsum on batched sort resolves (the einsum gets prepended)."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("bn_scale", "i->i", hidden_b, hidden_b, real_sr)
-        prim = eq.resolve(backend)
+        prim = resolve_equation(eq, backend)
         assert prim.name == core.Name("ua.equation.bn_scale")
 
     def test_batched_binary_einsum_resolves(self, real_sr, backend):
         """Binary einsum on batched sort resolves — becomes a 2-input prim2."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
-        prim = eq.resolve(backend)
+        prim = resolve_equation(eq, backend)
         assert prim.name == core.Name("ua.equation.linear_b")
 
     def test_unbatched_still_works(self, real_sr, backend):
         """Sort() with default batched=False is unchanged from pre-Phase9 behaviour."""
         hidden = Sort("hidden", real_sr)  # batched=False by default
         eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        prim = eq.resolve(backend)
+        prim = resolve_equation(eq, backend)
         assert prim.name == core.Name("ua.equation.linear")
 
 
@@ -281,7 +282,7 @@ class TestBatchedEndToEnd:
         """Relu on a batch of vectors produces elementwise relu."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        prim = eq.resolve(backend)
+        prim = resolve_equation(eq, backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -304,7 +305,7 @@ class TestBatchedEndToEnd:
         hidden_b = Sort("hidden", real_sr, batched=True)
         # "i->i" is a trace/copy — with real semiring it's just identity copy
         eq = Equation("identity_b", "i->i", hidden_b, hidden_b, real_sr)
-        prim = eq.resolve(backend)
+        prim = resolve_equation(eq, backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -327,7 +328,7 @@ class TestBatchedEndToEnd:
         """
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
-        prim = eq.resolve(backend)
+        prim = resolve_equation(eq, backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -356,7 +357,7 @@ class TestBatchedEndToEnd:
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_relu_b", "ij,j->i", hidden_b, hidden_b,
                       real_sr, nonlinearity="relu")
-        prim = eq.resolve(backend)
+        prim = resolve_equation(eq, backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())

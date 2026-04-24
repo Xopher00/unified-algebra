@@ -1,28 +1,21 @@
 # Core API
 from unialg.backend import Backend, numpy_backend, pytorch_backend
-from unialg.specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, LensFanSpec, FixpointSpec
+from unialg.assembly.specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, LensFanSpec, FixpointSpec
 
-# Algebra (term construction)
+# Algebra (declarations)
 from unialg.algebra import (
-    Semiring,
-    Sort, ProductSort, tensor_coder, sort_coder,
-    fixpoint,
-)
-
-# Resolve (runtime compilation)
-from unialg.resolve import (
-    ResolvedSemiring,
-    Equation, resolve_all_primitives,
+    Semiring, ResolvedSemiring,
+    Equation, Lens,
     compile_einsum, semiring_contract,
+    Sort, ProductSort, tensor_coder,
 )
 
-# Composition
-from unialg.composition import path, fan, fold, unfold, lens, lens_path, validate_lens
-
-# Assembly
+# Assembly (compilation, composition, validation, graph)
 from unialg.assembly import (
     assemble_graph, rebind_hyperparams, build_graph,
-    validate_spec, validate_pipeline, topo_edges,
+    validate_pipeline, topo_edges,
+    resolve_equation, resolve_equation_as_merge,
+    path, fan, fold, unfold, fixpoint, lens_path, lens_fan,
 )
 
 # Runtime

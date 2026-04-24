@@ -1,7 +1,7 @@
-# Algebraic core: sorts, semirings, fixpoint
+# Algebraic core: sorts, semirings, equations, lenses, contraction
 from unialg.algebra.semiring import Semiring, ResolvedSemiring
-from unialg.algebra.fixpoint import fixpoint
-from unialg.algebra.sort import (
-    Sort, ProductSort, tensor_coder, sort_coder,
-    check_sort_compatibility, check_rank_junction,
-)
+from unialg.algebra.equation import Equation
+from unialg.algebra.lens import Lens
+from unialg.algebra.contraction import compile_einsum, semiring_contract
+from unialg.algebra.sort import Sort, ProductSort, sort_wrap, check_sort_compatibility
+from unialg.terms import tensor_coder

@@ -181,6 +181,12 @@ class EquationPipeline:
         semirings: dict[str, core.Term] | None = None,
     ):
         equations = [Equation.from_term(t) for t in eq_terms]
+        seen: dict[str, int] = {}
+        for i, eq in enumerate(equations):
+            if eq.name in seen:
+                raise ValueError(
+                    f"Duplicate equation name '{eq.name}' (positions {seen[eq.name]} and {i})")
+            seen[eq.name] = i
         self.eq_by_name: dict[str, Equation] = {eq.name: eq for eq in equations}
 
         schema: dict = {}

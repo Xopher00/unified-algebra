@@ -7,14 +7,15 @@ plus entry point enumeration and hyperparam rebinding.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import hydra.core as core
+from hydra.checking import type_of_term
+from hydra.context import Context
+from hydra.dsl.python import FrozenDict, Node, Right, Left
+from hydra.dsl.terms import apply, var
+from hydra.reduction import reduce_term
 
 import unialg.algebra as alg
 from unialg.assembly.graph import assemble_graph, rebind_hyperparams
-
-if TYPE_CHECKING:
-    import hydra.core as core
-    import hydra.graph
 
 
 # ---------------------------------------------------------------------------
@@ -31,10 +32,6 @@ def type_check_term(
     Uses Hydra's own type checker (hydra.checking.type_of_term).
     Raises TypeError with a descriptive message on failure.
     """
-    from hydra.context import Context
-    from hydra.dsl.python import FrozenDict, Right, Left
-    from hydra.checking import type_of_term
-
     cx = Context(trace=(), messages=(), other=FrozenDict({}))
     result = type_of_term(cx, graph, term)
     match result:
@@ -127,10 +124,6 @@ class Program:
         Does not commit to interpreted execution — a future compile_program(...,
         mode="native") may use a different backend without changing this surface.
         """
-        from hydra.dsl.python import Right, Left
-        from hydra.dsl.terms import apply, var
-        from hydra.reduction import reduce_term
-
         full_name = _resolve_full_name(entry_point, self._graph.bound_terms, self._graph.primitives)
 
         encoded_args = []
@@ -179,10 +172,8 @@ class Program:
 
     def type_check(self, entry_point: str):
         """Return the Hydra Type of the named entry point."""
-        from hydra.core import Name
-
         full_name = _resolve_full_name(entry_point, self._graph.bound_terms, self._graph.primitives)
-        term = self._graph.bound_terms[Name(full_name)]
+        term = self._graph.bound_terms[core.Name(full_name)]
         return type_check_term(self._graph, term)
 
 
@@ -192,9 +183,6 @@ class Program:
 
 def _wrap_scalar(v):
     """Wrap a Python scalar into a Hydra literal term, or pass through if already a Term."""
-    import hydra.core as core
-
-    from hydra.dsl.python import Node
     if isinstance(v, Node):
         return v
     if isinstance(v, float):
@@ -226,9 +214,6 @@ def compile_program(
     This is the single entry point for converting DSL terms into a callable.
     Parser output (future) and hand-written Python both flow through here.
     """
-    from hydra.context import Context
-    from hydra.dsl.python import FrozenDict
-
     graph = assemble_graph(
         equations,
         backend,

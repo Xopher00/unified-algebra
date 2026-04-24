@@ -256,6 +256,26 @@ class TestPathReduce:
         ))
         np.testing.assert_allclose(out, expected)
 
+    def test_path_weight_tying(self, cx, real_sr, hidden, backend, coder):
+        """Repeated equation name in path = same primitive applied multiple times.
+
+        path("triple", ["tanh", "tanh", "tanh"]) == tanh(tanh(tanh(x)))
+        All three references resolve to the same Hydra primitive via name lookup.
+        """
+        eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
+        prim = resolve_equation(eq_tanh, backend)
+
+        p_name, p_term = path("triple", ["tanh", "tanh", "tanh"])
+        graph = build_graph(
+            [], primitives={prim.name: prim}, bound_terms={p_name: p_term}
+        )
+
+        x = np.array([1.0, -0.5, 2.0])
+        out = decode_term(coder, assert_reduce_ok(
+            cx, graph, apply(var("ua.path.triple"), encode_array(coder, x))
+        ))
+        np.testing.assert_allclose(out, np.tanh(np.tanh(np.tanh(x))))
+
     def test_path_with_params(self, cx, real_sr, hidden, backend, coder):
         """Path with pre-bound weights: linear(W, x) then relu."""
         eq_lin = Equation("linear", "ij,j->i", hidden, hidden, real_sr)

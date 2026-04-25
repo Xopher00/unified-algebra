@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0.3", "numpy", "scipy", "hatchling"]
+dev = ["pytest>=9.0.3", "pytest-testmon", "numpy", "scipy", "hatchling"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/unialg", "src/hydra"]

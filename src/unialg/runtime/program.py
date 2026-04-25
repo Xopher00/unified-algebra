@@ -3,19 +3,31 @@
 This is the single callable surface for unified-algebra programs. It wraps
 a hydra.graph.Graph and provides encode/reduce/decode in a single __call__,
 plus entry point enumeration and hyperparam rebinding.
+
+Entry points that can be statically compiled (paths, single equations without
+param_slots) bypass reduce_term entirely: the _compute closures are composed
+once at compile_program time and called directly on native arrays, with no
+wire encode/decode between equations. This lets torch.compile or jax.jit fuse
+across equation boundaries.
+
+Entry points that cannot be statically compiled (fixpoints, fans, folds,
+equations with param_slots) fall back to the reduce_term interpreter.
 """
 
 from __future__ import annotations
 
 import hydra.core as core
+import hydra.graph as gr
 from hydra.checking import type_of_term
 from hydra.context import Context
-from hydra.dsl.python import FrozenDict, Node, Right, Left
+from hydra.dsl.python import FrozenDict, Just, Node, Right, Left
 from hydra.dsl.terms import apply, var
+from hydra.lexical import lookup_primitive, lookup_term
 from hydra.reduction import reduce_term
 
 import unialg.algebra as alg
 from unialg.assembly.graph import assemble_graph, rebind_hyperparams
+from unialg.runtime.compiler import compile_graph
 
 
 # ---------------------------------------------------------------------------
@@ -23,7 +35,7 @@ from unialg.assembly.graph import assemble_graph, rebind_hyperparams
 # ---------------------------------------------------------------------------
 
 def type_check_term(
-    graph: hydra.graph.Graph,
+    graph: gr.Graph,
     term: core.Term,
     label: str = "term",
 ) -> core.Type:
@@ -62,18 +74,14 @@ def _short_name(full: str) -> str | None:
     return None
 
 
-def _resolve_full_name(entry_point: str, bound_terms: dict, primitives: dict | None = None) -> str:
-    all_keys = list(bound_terms)
-    if primitives:
-        all_keys += list(primitives)
+def _resolve_full_name(entry_point: str, graph: gr.Graph) -> str:
     for prefix in _ENTRY_PREFIXES:
-        candidate = f"{prefix}{entry_point}"
-        for key in all_keys:
-            if key.value == candidate:
-                return candidate
+        name = core.Name(f"{prefix}{entry_point}")
+        if isinstance(lookup_term(graph, name), Just) or isinstance(lookup_primitive(graph, name), Just):
+            return name.value
     available = sorted(
         short
-        for key in all_keys
+        for key in list(graph.bound_terms) + list(graph.primitives)
         if (short := _short_name(key.value)) is not None
     )
     raise ValueError(
@@ -92,11 +100,12 @@ class Program:
     Do not construct directly — use compile_program().
     """
 
-    def __init__(self, graph, backend, coder, cx):
+    def __init__(self, graph, backend, coder, cx, compiled_fns: dict | None = None):
         self._graph = graph
         self._backend = backend
         self._coder = coder
         self._cx = cx
+        self._compiled_fns = compiled_fns or {}
 
     @property
     def graph(self):
@@ -119,12 +128,19 @@ class Program:
     def __call__(self, entry_point: str, *args):
         """Invoke an entry point on numpy/torch arrays.
 
-        Encodes each arg, builds the applied Hydra term, runs reduce_term,
-        and decodes the result. All positional args are array-shaped.
-        Does not commit to interpreted execution — a future compile_program(...,
-        mode="native") may use a different backend without changing this surface.
+        For statically compiled entry points (paths, single equations): calls
+        the composed native function directly — no Hydra encode/decode, no
+        wire format between equations, JIT-friendly.
+
+        For non-compiled entry points (fixpoints, fans with params, etc.):
+        falls back to encode → reduce_term → decode.
         """
-        full_name = _resolve_full_name(entry_point, self._graph.bound_terms, self._graph.primitives)
+        # Fast path: statically compiled — native arrays in, native arrays out
+        if entry_point in self._compiled_fns:
+            return self._compiled_fns[entry_point](*args)
+
+        # Fallback: reduce_term interpreter
+        full_name = _resolve_full_name(entry_point, self._graph)
 
         encoded_args = []
         for i, arg in enumerate(args):
@@ -165,16 +181,22 @@ class Program:
 
         Accepts float/int scalars (wrapped as Hydra literals) or pre-wrapped
         Hydra Terms. Returns a new Program; the original is unchanged.
+
+        Note: rebind recompiles the graph so compiled_fns reflect the new
+        parameter values.
         """
         wrapped = {k: _wrap_scalar(v) for k, v in hyperparams.items()}
         new_graph = rebind_hyperparams(self._graph, wrapped)
-        return Program(new_graph, self._backend, self._coder, self._cx)
+        # compiled_fns closures capture backend ops, not param values — safe to reuse
+        return Program(new_graph, self._backend, self._coder, self._cx, self._compiled_fns)
 
     def type_check(self, entry_point: str):
         """Return the Hydra Type of the named entry point."""
-        full_name = _resolve_full_name(entry_point, self._graph.bound_terms, self._graph.primitives)
-        term = self._graph.bound_terms[core.Name(full_name)]
-        return type_check_term(self._graph, term)
+        full_name = _resolve_full_name(entry_point, self._graph)
+        match lookup_term(self._graph, core.Name(full_name)):
+            case Just(value=term):
+                return type_check_term(self._graph, term)
+        raise KeyError(f"Bound term not found: {full_name}")
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +236,7 @@ def compile_program(
     This is the single entry point for converting DSL terms into a callable.
     Parser output (future) and hand-written Python both flow through here.
     """
-    graph = assemble_graph(
+    graph, native_fns = assemble_graph(
         equations,
         backend,
         specs=specs,
@@ -223,5 +245,7 @@ def compile_program(
         extra_sorts=extra_sorts,
         semirings=semirings,
     )
+    coder = alg.tensor_coder(backend)
+    compiled_fns = compile_graph(graph, native_fns, coder, backend=backend)
     cx = Context(trace=(), messages=(), other=FrozenDict({}))
-    return Program(graph, backend, alg.tensor_coder(backend), cx)
+    return Program(graph, backend, coder, cx, compiled_fns=compiled_fns)

@@ -11,7 +11,7 @@ from hydra.dsl.terms import apply, var, list_
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort, tensor_coder,
     Equation, fold, unfold,
     build_graph, assemble_graph,
     PathSpec, FoldSpec, UnfoldSpec,
@@ -26,7 +26,7 @@ from unialg.assembly import unfold_n_primitive
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture
@@ -137,7 +137,7 @@ class TestFoldReduce:
         fold([x1, x2, x3]) = x1 * x2 * x3 (elementwise)
         """
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step = resolve_equation(eq_step, backend)
+        prim_step, _ = resolve_equation(eq_step, backend)
 
         init = np.ones(3)
         init_term = encode_array(coder, init)
@@ -177,7 +177,7 @@ class TestFoldReduce:
     def test_fold_single_element(self, cx, real_sr, hidden, backend, coder):
         """Fold over length-1 list = single step application."""
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step = resolve_equation(eq_step, backend)
+        prim_step, _ = resolve_equation(eq_step, backend)
 
         init = np.ones(2)
         init_term = encode_array(coder, init)
@@ -205,7 +205,7 @@ class TestFoldReduce:
         from a manual loop using the same step.
         """
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step = resolve_equation(eq_step, backend)
+        prim_step, _ = resolve_equation(eq_step, backend)
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
@@ -276,7 +276,7 @@ class TestUnfoldReduce:
     def test_unfold_tanh(self, cx, real_sr, hidden, backend, coder):
         """Unfold tanh for 3 steps: s0 → tanh(s0) → tanh(tanh(s0)) → ..."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
-        prim_step = resolve_equation(eq_step, backend)
+        prim_step, _ = resolve_equation(eq_step, backend)
 
         unfold_prim = unfold_n_primitive
         u_name, u_term = unfold("stream", "step", 3)
@@ -318,7 +318,7 @@ class TestUnfoldReduce:
     def test_unfold_single_step(self, cx, real_sr, hidden, backend, coder):
         """Unfold with n_steps=1."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="relu")
-        prim_step = resolve_equation(eq_step, backend)
+        prim_step, _ = resolve_equation(eq_step, backend)
 
         unfold_prim = unfold_n_primitive
         u_name, u_term = unfold("one", "step", 1)
@@ -349,7 +349,7 @@ class TestAssembleWithRecursion:
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
         init = encode_array(coder, np.ones(2))
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_step], backend,
             specs=[FoldSpec("prod", "step", init, hidden, hidden)],
         )
@@ -367,7 +367,7 @@ class TestAssembleWithRecursion:
         """assemble_graph with unfolds parameter produces a working graph."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_step], backend,
             specs=[UnfoldSpec("stream", "step", 2, hidden, hidden)],
         )
@@ -390,7 +390,7 @@ class TestAssembleWithRecursion:
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
         init = encode_array(coder, np.ones(3))
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_relu, eq_tanh, eq_step], backend,
             specs=[
                 PathSpec("act", ["relu", "tanh"], hidden, hidden),

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hydra.core as core
 from hydra.dsl.meta.phantoms import record, string, unit, TTerm
 
-from unialg.terms import _RecordView, _ScalarField, record_fields
+from unialg.terms import _RecordView, _ScalarField, _TermField
 
 
 class Lens(_RecordView):
@@ -21,9 +21,10 @@ class Lens(_RecordView):
 
     _type_name = core.Name("ua.lens.Lens")
 
-    name     = _ScalarField("name", str)
-    forward  = _ScalarField("forward", str)
-    backward = _ScalarField("backward", str)
+    name          = _ScalarField("name", str)
+    forward       = _ScalarField("forward", str)
+    backward      = _ScalarField("backward", str)
+    residual_sort = _TermField("residualSort", optional=True)
 
     def __init__(self, name: str, forward: str, backward: str, residual_sort=None):
         super().__init__(record(self._type_name, [
@@ -32,10 +33,3 @@ class Lens(_RecordView):
             core.Name("backward") >> string(backward),
             core.Name("residualSort") >> (TTerm(self._unwrap(residual_sort)) if residual_sort is not None else unit()),
         ]).value)
-
-    @property
-    def residual_sort(self):
-        rs = record_fields(self._term).get("residualSort")
-        if rs is None or isinstance(rs, core.TermUnit):
-            return None
-        return rs

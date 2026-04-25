@@ -17,13 +17,12 @@ from hydra.dsl.prims import prim1, float32 as float32_coder
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort, tensor_coder,
     Equation, fixpoint,
     build_graph,
     FixpointSpec,
     resolve_equation,
 )
-from unialg.backend import UnaryOp
 from unialg.assembly import fixpoint_primitive
 from unialg.terms import record_fields
 from unialg.algebra.sort import sort_wrap
@@ -35,7 +34,7 @@ from unialg.algebra.sort import sort_wrap
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture
@@ -166,7 +165,8 @@ class TestFixpointEndToEnd:
     def _make_step_prim(self, name, sort_term, nl_name, backend):
         """Resolve a unary endomorphism equation into a Primitive."""
         eq = Equation(name, None, sort_term, sort_term, nonlinearity=nl_name)
-        return resolve_equation(eq, backend)
+        prim, _ = resolve_equation(eq, backend)
+        return prim
 
     def _make_pred_prim(self, name, sort_term, fn, backend):
         """Build a predicate prim1 whose output is float32 (not tensor).
@@ -185,7 +185,7 @@ class TestFixpointEndToEnd:
         Starting from x0=[1.0, 2.0], after a few halvings abs values drop
         below epsilon. The fixpoint result is a pair: (final_state, iteration_count).
         """
-        backend.unary_ops["halve"] = UnaryOp(fn=lambda x: 0.5 * x)
+        backend.unary_ops["halve"] = lambda x: 0.5 * x
 
         real_sr = Semiring("real_fp1", plus="add", times="multiply", zero=0.0, one=1.0)
         s_sort = Sort("state_fp1", real_sr)
@@ -231,7 +231,7 @@ class TestFixpointEndToEnd:
 
     def test_fixpoint_hits_max_iter_when_no_convergence(self, cx, backend, coder):
         """step(x) = x + 1 never converges; fixpoint returns after exactly max_iter steps."""
-        backend.unary_ops["increment"] = UnaryOp(fn=lambda x: x + 1.0)
+        backend.unary_ops["increment"] = lambda x: x + 1.0
 
         real_sr = Semiring("real_fp2", plus="add", times="multiply", zero=0.0, one=1.0)
         s_sort = Sort("state_fp2", real_sr)
@@ -271,7 +271,7 @@ class TestFixpointEndToEnd:
 
     def test_fixpoint_single_element_convergence(self, cx, backend, coder):
         """Scalar fixpoint: halve a 1-element vector until abs(x) <= 0.001."""
-        backend.unary_ops["halve2"] = UnaryOp(fn=lambda x: 0.5 * x)
+        backend.unary_ops["halve2"] = lambda x: 0.5 * x
 
         real_sr = Semiring("real_fp3", plus="add", times="multiply", zero=0.0, one=1.0)
         s_sort = Sort("state_fp3", real_sr)
@@ -370,10 +370,10 @@ class TestSemiringResidualField:
 # ===========================================================================
 
 class TestBackendAxisAwareOps:
-    """numpy_backend softmax over last axis, custom axis-0 softmax, and where."""
+    """NumpyBackend softmax over last axis, custom axis-0 softmax, and where."""
 
     def test_softmax_normalizes_over_last_axis(self, backend):
-        """numpy_backend 'softmax' normalizes each row of a 2D input (rows sum to 1)."""
+        """NumpyBackend 'softmax' normalizes each row of a 2D input (rows sum to 1)."""
         x = np.array([[1.0, 2.0, 3.0],
                        [0.0, 0.0, 0.0],
                        [-1.0, 0.0, 1.0]])
@@ -389,9 +389,7 @@ class TestBackendAxisAwareOps:
         """A custom axis-0 softmax via functools.partial works when registered."""
         import functools
         from scipy.special import softmax as scipy_softmax
-        backend.unary_ops["softmax_axis0"] = UnaryOp(
-            fn=functools.partial(scipy_softmax, axis=0)
-        )
+        backend.unary_ops["softmax_axis0"] = functools.partial(scipy_softmax, axis=0)
         x = np.array([[1.0, 2.0],
                        [3.0, 4.0],
                        [5.0, 6.0]])
@@ -403,7 +401,7 @@ class TestBackendAxisAwareOps:
 
     def test_backend_where_exists_and_fills_masked_values(self, backend):
         """backend.where(mask, x, fill) returns filled values where mask is False."""
-        assert backend.where is not None, "numpy_backend must expose 'where'"
+        assert backend.where is not None, "NumpyBackend must expose 'where'"
         x = np.array([1.0, 2.0, 3.0, 4.0])
         fill = np.array([-999.0, -999.0, -999.0, -999.0])
         mask = np.array([True, False, True, False])

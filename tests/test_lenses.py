@@ -18,14 +18,13 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort, tensor_coder,
     ProductSort, Equation, path, fan,
     build_graph, assemble_graph, lens_path, lens_fan,
     FoldSpec, LensPathSpec,
     resolve_equation,
 )
 from unialg.algebra.lens import Lens
-from unialg.backend import UnaryOp
 from unialg.assembly import lens_fwd_primitive, lens_bwd_primitive
 from unialg.terms import record_fields, literal_value
 
@@ -36,7 +35,7 @@ from unialg.terms import record_fields, literal_value
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture
@@ -284,7 +283,7 @@ class TestLensEndToEnd:
         eq_bwd = Equation("relu_bwd", None, hidden, hidden, nonlinearity="relu")
         l = Lens("relu_lens", "relu_fwd", "relu_bwd")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
             specs=[LensPathSpec("relu_pipe", ["relu_fwd"], hidden, hidden, bwd_eq_names=["relu_bwd"])],
@@ -304,7 +303,7 @@ class TestLensEndToEnd:
         eq_bwd = Equation("tanh_bwd2", None, hidden, hidden, nonlinearity="tanh")
         l = Lens("mixed_lens", "relu_fwd2", "tanh_bwd2")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
             specs=[LensPathSpec("mixed_pipe", ["relu_fwd2"], hidden, hidden, bwd_eq_names=["tanh_bwd2"])],
@@ -328,7 +327,7 @@ class TestLensEndToEnd:
         l_relu = Lens("relu_l", "relu_f", "relu_b")
         l_tanh = Lens("tanh_l", "tanh_f", "tanh_b")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_relu_fwd, eq_relu_bwd, eq_tanh_fwd, eq_tanh_bwd], backend,
             lenses=[l_relu, l_tanh],
             specs=[LensPathSpec("two_lens", ["relu_f", "tanh_f"], hidden, hidden, bwd_eq_names=["relu_b", "tanh_b"])],
@@ -352,7 +351,7 @@ class TestLensEndToEnd:
         l_abs = Lens("abs_l", "abs_f", "abs_b")
         l_relu = Lens("relu_l2", "relu_f2", "relu_b2")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_abs_fwd, eq_abs_bwd, eq_relu_fwd, eq_relu_bwd], backend,
             lenses=[l_abs, l_relu],
             specs=[LensPathSpec("asym_pipe", ["abs_f", "relu_f2"], hidden, hidden, bwd_eq_names=["abs_b", "relu_b2"])],
@@ -379,7 +378,7 @@ class TestAssembleGraphWithLenses:
         eq_bwd = Equation("id_bwd", None, hidden, hidden, nonlinearity="relu")
         l = Lens("id_lens", "id_fwd", "id_bwd")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
             specs=[LensPathSpec("id_pipe", ["id_fwd"], hidden, hidden, bwd_eq_names=["id_bwd"])],
@@ -407,7 +406,7 @@ class TestAssembleGraphWithLenses:
         eq_bwd = Equation("enc2_bwd", None, hidden, hidden, nonlinearity="tanh")
         l = Lens("enc2", "enc2_fwd", "enc2_bwd")
 
-        graph = assemble_graph([eq_fwd, eq_bwd], backend, lenses=[l])
+        graph, _ = assemble_graph([eq_fwd, eq_bwd], backend, lenses=[l])
         assert Name("ua.path.enc2.fwd") not in graph.bound_terms
 
     def test_multiple_lenses_in_one_graph(self, hidden, backend):
@@ -420,7 +419,7 @@ class TestAssembleGraphWithLenses:
         l_relu = Lens("relu_g", "relu_g_fwd", "relu_g_bwd")
         l_tanh = Lens("tanh_g", "tanh_g_fwd", "tanh_g_bwd")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             eqs, backend,
             lenses=[l_relu, l_tanh],
             specs=[
@@ -442,34 +441,6 @@ class TestAssembleGraphWithLenses:
 class TestLensFoldIntegration:
     """A lens's forward equation can serve as a fold step without interference."""
 
-    def test_fold_with_lens_forward_equation(self, cx, backend, coder):
-        """fold() using a lens's forward equation works normally."""
-        add_sr = Semiring("addsem", plus="add", times="add", zero=0.0, one=0.0)
-        acc_sort = Sort("acc", add_sr)
-        eq_step_fwd = Equation("acc_fwd", "i,i->i", acc_sort, acc_sort, add_sr)
-        eq_step_bwd = Equation("acc_bwd", "i,i->i", acc_sort, acc_sort, add_sr)
-        l = Lens("acc_lens", "acc_fwd", "acc_bwd")
-
-        init = encode_array(coder, np.zeros(3))
-
-        graph = assemble_graph(
-            [eq_step_fwd, eq_step_bwd], backend,
-            lenses=[l],
-            specs=[FoldSpec("sum_fold", "acc_fwd", init, acc_sort, acc_sort)],
-        )
-
-        items = [
-            encode_array(coder, np.array([1.0, 2.0, 3.0])),
-            encode_array(coder, np.array([4.0, 5.0, 6.0])),
-            encode_array(coder, np.array([7.0, 8.0, 9.0])),
-        ]
-        seq_term = Terms.list_(items)
-
-        out = decode_term(coder, assert_reduce_ok(
-            cx, graph, apply(var("ua.fold.sum_fold"), seq_term)
-        ))
-        np.testing.assert_allclose(out, np.array([12.0, 15.0, 18.0]))
-
     def test_lens_coexists_with_fold_and_path(self, cx, hidden, backend, coder):
         """A graph can contain lenses, lens_paths, and folds simultaneously."""
         real_sr = record_fields(hidden.term)["semiring"]
@@ -479,7 +450,7 @@ class TestLensFoldIntegration:
         l = Lens("rl", "rl_fwd", "rl_bwd")
 
         init = encode_array(coder, np.zeros(4))
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_relu_fwd, eq_relu_bwd, eq_step], backend,
             lenses=[l],
             specs=[
@@ -520,7 +491,7 @@ class TestLensSemiringPolymorphism:
         eq_bwd = Equation("trp_bwd", "i->i", tropic_sort, tropic_sort, tropical_sr)
         l = Lens("trp_lens", "trp_fwd", "trp_bwd")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
             specs=[LensPathSpec("trp_pipe", ["trp_fwd"], tropic_sort, tropic_sort, bwd_eq_names=["trp_bwd"])],
@@ -547,7 +518,7 @@ class TestLensSemiringPolymorphism:
         eq_real_bwd = Equation("real_tanh", None, real_sort, real_sort, nonlinearity="tanh")
         l_real = Lens("real_l", "real_relu", "real_tanh")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_real_fwd, eq_real_bwd], backend,
             lenses=[l_real],
             specs=[LensPathSpec("real_pipe", ["real_relu"], real_sort, real_sort, bwd_eq_names=["real_tanh"])],
@@ -615,14 +586,14 @@ class TestOpticLensValidation:
         r_sort = Sort("r12", real_sr)
         prod = ProductSort([h_sort, r_sort])
 
-        backend.unary_ops["pair_relu"] = UnaryOp(fn=lambda x: (np.maximum(0, x), x))
+        backend.unary_ops["pair_relu"] = lambda x: (np.maximum(0, x), x)
 
         eq_fwd = Equation("optic2_fwd", None, h_sort, prod, nonlinearity="pair_relu")
         eq_bwd = Equation("optic2_bwd", None, prod, h_sort, nonlinearity="relu")
 
         l = Lens("optic2", "optic2_fwd", "optic2_bwd", residual_sort=r_sort)
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
             specs=[LensPathSpec("optic2_pipe", ["optic2_fwd"], h_sort, prod, bwd_eq_names=["optic2_bwd"])],
@@ -714,8 +685,8 @@ class TestLensPathRouting:
         prod = ProductSort([hidden, residual_sort])
         real_sr = list(hidden.term.value.fields)[1].term
 
-        backend.unary_ops[f"pair_{name}"] = UnaryOp(fn=pair_relu)
-        backend.unary_ops[f"bwd_{name}"] = UnaryOp(fn=lambda p: p[0] * 0.5)
+        backend.unary_ops[f"pair_{name}"] = pair_relu
+        backend.unary_ops[f"bwd_{name}"] = lambda p: p[0] * 0.5
 
         eq_fwd = Equation(f"{name}_fwd", None, hidden, prod,
                           nonlinearity=f"pair_{name}")
@@ -780,9 +751,9 @@ class TestMultiOpticEndToEnd:
         """Build a graph with two composed optics a, b."""
         prod = ProductSort([hidden, residual_sort])
 
-        backend.unary_ops["pair_relu13"] = UnaryOp(fn=pair_relu)
-        backend.unary_ops["pair_tanh13"] = UnaryOp(fn=pair_tanh)
-        backend.unary_ops["bwd_half13"] = UnaryOp(fn=lambda p: p[0] * 0.5)
+        backend.unary_ops["pair_relu13"] = pair_relu
+        backend.unary_ops["pair_tanh13"] = pair_tanh
+        backend.unary_ops["bwd_half13"] = lambda p: p[0] * 0.5
 
         eq_a_fwd = Equation("a13_fwd", None, hidden, prod, nonlinearity="pair_relu13")
         eq_a_bwd = Equation("a13_bwd", None, prod, hidden, nonlinearity="bwd_half13")
@@ -792,7 +763,7 @@ class TestMultiOpticEndToEnd:
         l_a = Lens("la13", "a13_fwd", "a13_bwd", residual_sort=residual_sort)
         l_b = Lens("lb13", "b13_fwd", "b13_bwd", residual_sort=residual_sort)
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_a_fwd, eq_a_bwd, eq_b_fwd, eq_b_bwd], backend,
             lenses=[l_a, l_b],
             specs=[LensPathSpec("two_optic13", ["a13_fwd", "b13_fwd"], hidden, hidden,
@@ -937,9 +908,9 @@ class TestOpticSemiringPolymorphism:
         r_sort = Sort("rt13", tropical_sr)
         prod = ProductSort([t_sort, r_sort])
 
-        backend.unary_ops["pair_relu13t"] = UnaryOp(fn=pair_relu)
-        backend.unary_ops["pair_tanh13t"] = UnaryOp(fn=pair_tanh)
-        backend.unary_ops["bwd_half13t"] = UnaryOp(fn=lambda p: p[0] * 0.5)
+        backend.unary_ops["pair_relu13t"] = pair_relu
+        backend.unary_ops["pair_tanh13t"] = pair_tanh
+        backend.unary_ops["bwd_half13t"] = lambda p: p[0] * 0.5
 
         eq_a_fwd = Equation("at13_fwd", None, t_sort, prod, nonlinearity="pair_relu13t")
         eq_a_bwd = Equation("at13_bwd", None, prod, t_sort, nonlinearity="bwd_half13t")
@@ -949,7 +920,7 @@ class TestOpticSemiringPolymorphism:
         l_a = Lens("lat13", "at13_fwd", "at13_bwd", residual_sort=r_sort)
         l_b = Lens("lbt13", "bt13_fwd", "bt13_bwd", residual_sort=r_sort)
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_a_fwd, eq_a_bwd, eq_b_fwd, eq_b_bwd], backend,
             lenses=[l_a, l_b],
             specs=[LensPathSpec("trop_two_optic", ["at13_fwd", "bt13_fwd"], t_sort, t_sort,

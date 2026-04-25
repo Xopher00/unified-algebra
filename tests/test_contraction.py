@@ -4,14 +4,14 @@ import numpy as np
 import pytest
 
 from unialg import (
-    numpy_backend, Semiring,
+    NumpyBackend, Semiring,
     compile_einsum, semiring_contract,
 )
 
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture
@@ -26,7 +26,8 @@ def tropical(backend):
 
 @pytest.fixture
 def fuzzy(backend):
-    return Semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0).resolve(backend)
+    return Semiring("fuzzy", plus="maximum", times="minimum", zero=0.0, one=1.0,
+                    bottom=0.0, top=1.0).resolve(backend)
 
 
 class TestRealSemiring:

@@ -3,14 +3,14 @@
 import numpy as np
 import pytest
 
-from unialg import Semiring, Sort, tensor_coder, build_graph, numpy_backend
+from unialg import Semiring, Sort, tensor_coder, build_graph, NumpyBackend
 from unialg.algebra import check_sort_compatibility
 from hydra.core import Name, TypeVariable, TypeApplication
 
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture

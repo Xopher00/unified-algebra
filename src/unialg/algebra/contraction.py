@@ -18,23 +18,60 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
-    from unialg.algebra.semiring import ResolvedSemiring
+    from unialg.algebra.semiring import Semiring
 
 
 # ---------------------------------------------------------------------------
 # Compiled equation
 # ---------------------------------------------------------------------------
 
+_BATCH_CHAR_POOL = "bcdefghmnopqrstuvwxyz"
+
+
 class CompiledEinsum:
     """A pre-compiled einsum equation."""
 
-    def __init__(self, input_vars, output_vars, num_vars, var_locations):
+    def __init__(self, input_vars, output_vars, num_vars, var_locations, char_to_int=None):
         self.input_vars = input_vars      # list of lists of int
         self.output_vars = output_vars    # list of int
         self.num_vars = num_vars
         self.var_locations = var_locations # var_id -> [(arg_idx, dim_idx)]
+        self._char_to_int = char_to_int   # original char→var_id mapping, for to_string()
         self._reduced_vars = None
         self._reduced_dims = None
+
+    def to_string(self) -> str:
+        """Render back to einsum form. Requires char_to_int (preserved by compile_einsum)."""
+        if self._char_to_int is None:
+            raise ValueError("CompiledEinsum has no source char map; cannot render to string")
+        int_to_char = {v: c for c, v in self._char_to_int.items()}
+        lhs = ",".join("".join(int_to_char[v] for v in vars) for vars in self.input_vars)
+        rhs = "".join(int_to_char[v] for v in self.output_vars)
+        return f"{lhs}->{rhs}"
+
+    def prepend_batch_var(self) -> "CompiledEinsum":
+        """Return a new CompiledEinsum with a fresh batch var prepended to every operand.
+
+        Picks the first unused char from _BATCH_CHAR_POOL ("bcdefgh...") so the
+        common case of einsum strings using "ijk..." gets 'b' as the batch dim.
+        """
+        used = set(self._char_to_int or {})
+        batch_char = next(c for c in _BATCH_CHAR_POOL if c not in used)
+        new_var_id = self.num_vars
+        new_char_to_int = {**(self._char_to_int or {}), batch_char: new_var_id}
+        # Existing vars: dim_i += 1 since batch occupies dim 0
+        new_var_locations = [
+            [(arg_i, dim_i + 1) for arg_i, dim_i in locs] for locs in self.var_locations
+        ]
+        # Batch var: dim 0 of every input
+        new_var_locations.append([(arg_i, 0) for arg_i in range(len(self.input_vars))])
+        return CompiledEinsum(
+            input_vars=[[new_var_id] + vars for vars in self.input_vars],
+            output_vars=[new_var_id] + self.output_vars,
+            num_vars=self.num_vars + 1,
+            var_locations=new_var_locations,
+            char_to_int=new_char_to_int,
+        )
 
     @property
     def reduced_vars(self):
@@ -92,7 +129,7 @@ def compile_einsum(einsum: str) -> CompiledEinsum:
             arg_vars.append(var_id)
         input_vars.append(arg_vars)
     output_vars = [char_to_int[ch] for ch in rhs]
-    return CompiledEinsum(input_vars, output_vars, len(char_to_int), var_locations)
+    return CompiledEinsum(input_vars, output_vars, len(char_to_int), var_locations, char_to_int)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +139,7 @@ def compile_einsum(einsum: str) -> CompiledEinsum:
 def semiring_contract(
     einsum: CompiledEinsum,
     args,
-    sr: ResolvedSemiring,
+    sr: Semiring.Resolved,
     backend: Backend,
     block_size: int | None = None,
 ):
@@ -153,7 +190,7 @@ def semiring_contract(
     return accumulator
 
 
-def _contract_full(einsum: CompiledEinsum, args, sr: ResolvedSemiring, backend: Backend):
+def _contract_full(einsum: CompiledEinsum, args, sr: Semiring.Resolved, backend: Backend):
     """Single-pass contraction — the original algorithm."""
     # Target dim order: output_vars ++ reduced_vars
     all_target_vars = einsum.output_vars + einsum.reduced_vars

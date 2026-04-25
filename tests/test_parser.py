@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from unialg import (
-    numpy_backend, parse_ua, parse_ua_spec, UASpec,
+    NumpyBackend, parse_ua, parse_ua_spec, UASpec,
     PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, LensPathSpec, LensFanSpec,
 )
 from unialg import Equation
@@ -89,7 +89,7 @@ sort hidden(real)
 equation relu : hidden -> hidden
   nonlinearity = relu
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         x = np.array([-1.0, 0.0, 1.0, 2.0])
         out = prog('relu', x)
         np.testing.assert_allclose(out, np.maximum(0, x))
@@ -103,7 +103,7 @@ equation linear : hidden -> hidden
   einsum = "ij,j->i"
   semiring = real
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         W = np.array([[1.0, 2.0], [3.0, 4.0]])
         x = np.array([1.0, 0.0])
         out = prog('linear', W, x)
@@ -121,7 +121,7 @@ equation linear : hidden -> hidden
 equation relu : hidden -> hidden
   nonlinearity = relu
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         eps = prog.entry_points()
         assert 'linear' in eps
         assert 'relu' in eps
@@ -167,7 +167,7 @@ equation relu : hidden -> hidden
 
 path layer : hidden -> hidden = linear >> relu
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         assert 'layer' in prog.entry_points()
 
     def test_three_step_path(self):
@@ -203,7 +203,7 @@ equation tanh_eq : hidden -> hidden
 
 path rt : hidden -> hidden = relu >> tanh_eq
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
         out = prog('rt', x)
         expected = np.tanh(np.maximum(0.0, x))
@@ -234,7 +234,7 @@ equation sp : node -> node
   einsum = "ij,j->i"
   semiring = tropical
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         inf = float('inf')
         W = np.array([[inf, inf, inf],
                       [2.0, inf, inf],
@@ -328,7 +328,7 @@ fan split : hidden -> hidden
   branches = [branch1, branch2]
   merge = add_merge
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         assert 'split' in prog.entry_points()
 
 
@@ -685,7 +685,7 @@ sort hidden(real)
 equation sigmoid_eq : hidden -> hidden
   nonlinearity = sigmoid
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         x = np.array([-1.0, 0.0, 1.0])
         out = prog('sigmoid_eq', x)
         expected = 1.0 / (1.0 + np.exp(-x))
@@ -715,7 +715,7 @@ fan dual : hidden -> hidden
   branches = [branch_relu, branch_tanh]
   merge = hadamard_merge
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         x = np.array([1.0, -1.0, 0.5])
         out = prog('dual', x)
         # "i,i->i" with times=multiply: elementwise product of branch outputs
@@ -764,7 +764,7 @@ path skip : hidden -> hidden = relu
   residual = true
   semiring = real
 """
-        prog = parse_ua(text, numpy_backend())
+        prog = parse_ua(text, NumpyBackend())
         x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
         out = prog('skip', x)
         expected = np.maximum(0.0, x) + x  # relu(x) + x

@@ -58,12 +58,14 @@ class Spec:
             if isinstance(result, Left):
                 raise TypeError(result.value.message)
 
-    def build(self, primitives: dict, **kwargs) -> list:
-        for prim in self._primitives(**kwargs):
+    def build(self, primitives: dict, native_fns: dict, **kwargs) -> list:
+        for prim, fn in self._primitives(**kwargs):
             primitives.setdefault(prim.name, prim)
+            if fn is not None:
+                native_fns.setdefault(prim.name, fn)
         return self._compose()
 
-    def _primitives(self, **kwargs) -> list:
+    def _primitives(self, **kwargs) -> list[tuple]:
         return []
 
     def _compose(self) -> list:
@@ -134,7 +136,7 @@ class PathSpec(Spec):
                 f"Path codomain != '{self.eq_names[-1]}' codomain"))
         return cs
 
-    def _primitives(self, **kwargs) -> list:
+    def _primitives(self, **kwargs) -> list[tuple]:
         if not self.residual:
             return []
         sr_name = self.residual_semiring or "default"
@@ -142,7 +144,8 @@ class PathSpec(Spec):
         if sr_name not in resolved_semirings:
             raise ValueError(
                 f"Residual path references semiring '{sr_name}' but it was not resolved")
-        return [residual_add_primitive(sr_name, resolved_semirings[sr_name], kwargs["coder"])]
+        prim, fn = residual_add_primitive(sr_name, resolved_semirings[sr_name], kwargs["coder"])
+        return [(prim, fn)]
 
     def _compose(self) -> list:
         return [path(self.name, self.eq_names, self.params,
@@ -213,8 +216,8 @@ class UnfoldSpec(Spec):
         self._require_eq(eq_by_name, self.step_name, "Unfold step")
         return self._endomorphism(eq_by_name, self.step_name, self._sort_type(self.domain_sort), "Unfold step")
 
-    def _primitives(self, **kwargs) -> list:
-        return [unfold_n_primitive]
+    def _primitives(self, **kwargs) -> list[tuple]:
+        return [(unfold_n_primitive, None)]
 
     def _compose(self) -> list:
         return [unfold(self.name, self.step_name, self.n_steps)]
@@ -245,10 +248,10 @@ class LensPathSpec(PathSpec):
             cs.extend(self._bidi(eq_by_name, fwd_name, bwd_name, f"'{fwd_name}'"))
         return cs
 
-    def _primitives(self, **kwargs) -> list:
+    def _primitives(self, **kwargs) -> list[tuple]:
         if not self.has_residual:
             return []
-        return [lens_fwd_primitive, lens_bwd_primitive]
+        return [(lens_fwd_primitive, None), (lens_bwd_primitive, None)]
 
     def _compose(self) -> list:
         fwd, bwd = lens_path(self.name, self.eq_names, self.bwd_eq_names, self.params, self.has_residual)
@@ -300,8 +303,8 @@ class FixpointSpec(Spec):
                            f"Fixpoint predicate domain != state sort"),
         ]
 
-    def _primitives(self, **kwargs) -> list:
-        return [fixpoint_primitive(self.epsilon, self.max_iter)]
+    def _primitives(self, **kwargs) -> list[tuple]:
+        return [(fixpoint_primitive(self.epsilon, self.max_iter), None)]
 
     def _compose(self) -> list:
         return [fixpoint(self.name, self.step_name, self.predicate_name, self.epsilon, self.max_iter)]

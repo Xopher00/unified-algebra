@@ -5,7 +5,7 @@ import pytest
 
 from unialg import (
     compile_program, Program,
-    Semiring, Sort, Equation, numpy_backend, tensor_coder,
+    Semiring, Sort, Equation, NumpyBackend, tensor_coder,
     path, fan,
     PathSpec, FanSpec, FoldSpec,
 )
@@ -17,7 +17,7 @@ from unialg import (
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 @pytest.fixture
 def real_sr():
@@ -61,7 +61,7 @@ class TestSingleEquation:
         from unialg import assemble_graph
 
         eq = Equation("t1_relu", None, hidden, hidden, nonlinearity="relu")
-        graph = assemble_graph([eq], backend)
+        graph, _ = assemble_graph([eq], backend)
         cx = Context(trace=(), messages=(), other=FrozenDict({}))
 
         x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
@@ -200,14 +200,115 @@ class TestEntryPoints:
 
 
 # ---------------------------------------------------------------------------
-# Test 6: error path
+# Test 6: compiled fast path
+# ---------------------------------------------------------------------------
+
+class TestCompiledFastPath:
+
+    def test_parametrised_path_in_compiled_fns(self, hidden, real_sr, backend, coder):
+        """Parameterised paths (inline weight literals) must appear in compiled_fns,
+        not fall back to reduce_term. This is the whole point of the compiler."""
+        eq_lin = Equation("t6c_linear", "ij,j->i", hidden, hidden, real_sr)
+        eq_relu = Equation("t6c_relu", None, hidden, hidden, nonlinearity="relu")
+
+        W = np.array([[1.0, -1.0], [-1.0, 1.0]])
+        w_enc = coder.decode(None, W).value
+
+        prog = compile_program(
+            [eq_lin, eq_relu], backend=backend,
+            specs=[PathSpec("t6c_net", ["t6c_linear", "t6c_relu"], hidden, hidden,
+                            params={"t6c_linear": [w_enc]})],
+        )
+        assert "t6c_net" in prog._compiled_fns, (
+            "parameterised path missing from compiled_fns — fell back to reduce_term"
+        )
+
+    def test_parametrised_path_correct_output(self, hidden, real_sr, backend, coder):
+        """Compiled parameterised path produces the same result as the numpy oracle."""
+        eq_lin = Equation("t6d_linear", "ij,j->i", hidden, hidden, real_sr)
+        eq_relu = Equation("t6d_relu", None, hidden, hidden, nonlinearity="relu")
+
+        W = np.array([[1.0, -1.0], [-1.0, 1.0]])
+        x = np.array([3.0, 1.0])
+        w_enc = coder.decode(None, W).value
+
+        prog = compile_program(
+            [eq_lin, eq_relu], backend=backend,
+            specs=[PathSpec("t6d_net", ["t6d_linear", "t6d_relu"], hidden, hidden,
+                            params={"t6d_linear": [w_enc]})],
+        )
+        out = prog("t6d_net", x)
+        np.testing.assert_allclose(out, np.maximum(0, W @ x), rtol=1e-6)
+
+    def test_residual_path_in_compiled_fns(self, hidden, real_sr, backend):
+        """Residual paths must be statically compiled — plus closure registered via _primitives."""
+        eq_lin = Equation("t6e_linear", "ij,j->i", hidden, hidden, real_sr)
+        eq_relu = Equation("t6e_relu", None, hidden, hidden, nonlinearity="relu")
+
+        prog = compile_program(
+            [eq_lin, eq_relu], backend=backend,
+            specs=[PathSpec("t6e_skip", ["t6e_relu"], hidden, hidden,
+                            residual=True, residual_semiring="real")],
+        )
+        assert "t6e_skip" in prog._compiled_fns, (
+            "residual path missing from compiled_fns"
+        )
+
+    def test_residual_path_correct_output(self, hidden, real_sr, backend):
+        """Compiled residual path computes relu(x) + x."""
+        eq_lin = Equation("t6h_linear", "ij,j->i", hidden, hidden, real_sr)
+        eq_relu = Equation("t6h_relu", None, hidden, hidden, nonlinearity="relu")
+
+        prog = compile_program(
+            [eq_lin, eq_relu], backend=backend,
+            specs=[PathSpec("t6h_skip", ["t6h_relu"], hidden, hidden,
+                            residual=True, residual_semiring="real")],
+        )
+        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
+        out = prog("t6h_skip", x)
+        np.testing.assert_allclose(out, np.maximum(0, x) + x, rtol=1e-6)
+
+    def test_jit_called_for_each_compiled_path(self, hidden, real_sr, coder):
+        """backend.jit is applied to every compiled closure."""
+        jit_calls = []
+        def tracking_jit(fn):
+            jit_calls.append(fn)
+            return fn
+
+        backend = NumpyBackend(jit=tracking_jit)
+
+        eq_relu = Equation("t6f_relu", None, hidden, hidden, nonlinearity="relu")
+        eq_tanh = Equation("t6f_tanh", None, hidden, hidden, nonlinearity="tanh")
+
+        compile_program(
+            [eq_relu, eq_tanh], backend=backend,
+            specs=[PathSpec("t6f_path", ["t6f_relu", "t6f_tanh"], hidden, hidden)],
+        )
+        assert len(jit_calls) >= 1
+
+    def test_jit_wrapped_path_correct_output(self, hidden, real_sr, coder):
+        """A jit-wrapped path produces correct output when jit is an identity."""
+        backend = NumpyBackend(jit=lambda fn: fn)
+
+        eq_relu = Equation("t6g_relu", None, hidden, hidden, nonlinearity="relu")
+        prog = compile_program(
+            [eq_relu], backend=backend,
+            specs=[PathSpec("t6g_path", ["t6g_relu"], hidden, hidden)],
+        )
+        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
+        out = prog("t6g_path", x)
+        np.testing.assert_allclose(out, np.maximum(0, x), rtol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Test 7: error path
 # ---------------------------------------------------------------------------
 
 class TestErrorPath:
 
     def test_unknown_entry_point_raises_valueerror(self, hidden, real_sr, backend):
         """Invoking an unknown entry point raises ValueError naming the entry."""
-        eq = Equation("t6_eq", None, hidden, hidden, nonlinearity="relu")
+        eq = Equation("t7_eq", None, hidden, hidden, nonlinearity="relu")
         prog = compile_program([eq], backend=backend)
 
         with pytest.raises(ValueError, match="nonexistent"):
@@ -215,8 +316,8 @@ class TestErrorPath:
 
     def test_error_message_lists_available(self, hidden, real_sr, backend):
         """The ValueError message lists available entry points."""
-        eq = Equation("t6b_eq", None, hidden, hidden, nonlinearity="relu")
+        eq = Equation("t7b_eq", None, hidden, hidden, nonlinearity="relu")
         prog = compile_program([eq], backend=backend)
 
-        with pytest.raises(ValueError, match="t6b_eq"):
+        with pytest.raises(ValueError, match="t7b_eq"):
             prog("wrong_name", np.array([1.0]))

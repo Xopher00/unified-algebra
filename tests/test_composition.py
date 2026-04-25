@@ -11,7 +11,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort, tensor_coder,
     build_graph, assemble_graph, Equation,
     path, fan,
     PathSpec, FanSpec,
@@ -25,7 +25,7 @@ from unialg import (
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture
@@ -169,8 +169,8 @@ class TestPathReduce:
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
 
-        prim_relu = resolve_equation(eq_relu, backend)
-        prim_tanh = resolve_equation(eq_tanh, backend)
+        prim_relu, _ = resolve_equation(eq_relu, backend)
+        prim_tanh, _ = resolve_equation(eq_tanh, backend)
 
         p_name, p_term = path("act", ["relu", "tanh"])
 
@@ -206,7 +206,7 @@ class TestPathReduce:
 
         prims = {}
         for eq in [eq_relu, eq_tanh, eq_sig]:
-            p = resolve_equation(eq, backend)
+            p, _ = resolve_equation(eq, backend)
             prims[p.name] = p
 
         p_name, p_term = path("deep", ["relu", "tanh", "sigmoid"])
@@ -234,7 +234,7 @@ class TestPathReduce:
     def test_single_step_path(self, cx, real_sr, hidden, backend, coder):
         """Degenerate path with one equation == calling the equation directly."""
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
-        prim = resolve_equation(eq_relu, backend)
+        prim, _ = resolve_equation(eq_relu, backend)
 
         p_name, p_term = path("just_relu", ["relu"])
 
@@ -263,7 +263,7 @@ class TestPathReduce:
         All three references resolve to the same Hydra primitive via name lookup.
         """
         eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        prim = resolve_equation(eq_tanh, backend)
+        prim, _ = resolve_equation(eq_tanh, backend)
 
         p_name, p_term = path("triple", ["tanh", "tanh", "tanh"])
         graph = build_graph(
@@ -281,8 +281,8 @@ class TestPathReduce:
         eq_lin = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
 
-        prim_lin = resolve_equation(eq_lin, backend)
-        prim_relu = resolve_equation(eq_relu, backend)
+        prim_lin, _ = resolve_equation(eq_lin, backend)
+        prim_relu, _ = resolve_equation(eq_relu, backend)
 
         W = np.array([[1.0, -2.0], [-3.0, 4.0]])
         W_enc = encode_array(coder, W)
@@ -384,10 +384,11 @@ class TestFanReduce:
 
         prims = {}
         for eq in [eq_relu, eq_tanh]:
-            p = resolve_equation(eq, backend)
+            p, _ = resolve_equation(eq, backend)
             prims[p.name] = p
         # Merge is resolved as list-merge (prim1 over list<tensor>)
-        prims[resolve_equation_as_merge(eq_merge, backend).name] = resolve_equation_as_merge(eq_merge, backend)
+        merge_prim, _ = resolve_equation_as_merge(eq_merge, backend)
+        prims[merge_prim.name] = merge_prim
 
         f_name, f_term = fan("res", ["relu", "tanh"], "merge")
 
@@ -412,10 +413,10 @@ class TestFanReduce:
         eq_ident = Equation("ident", "i->i", hidden, hidden, real_sr)
 
         prims = {}
-        p = resolve_equation(eq_relu, backend)
+        p, _ = resolve_equation(eq_relu, backend)
         prims[p.name] = p
         # Merge is resolved as list-merge (unary: 1-element list passthrough)
-        p = resolve_equation_as_merge(eq_ident, backend)
+        p, _ = resolve_equation_as_merge(eq_ident, backend)
         prims[p.name] = p
 
         f_name, f_term = fan("single", ["relu"], "ident")
@@ -450,7 +451,7 @@ class TestAssembleWithComposition:
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_relu, eq_tanh], backend,
             specs=[PathSpec("act", ["relu", "tanh"], hidden, hidden)],
         )
@@ -476,7 +477,7 @@ class TestAssembleWithComposition:
         eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
         eq_merge = Equation("merge", "i,i->i", hidden, hidden, real_sr)
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_relu, eq_tanh, eq_merge], backend,
             specs=[FanSpec("res", ["relu", "tanh"], "merge", hidden, hidden)],
         )
@@ -501,7 +502,7 @@ class TestAssembleWithComposition:
         eq_sig = Equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
         eq_merge = Equation("merge", "i,i->i", hidden, hidden, real_sr)
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_relu, eq_tanh, eq_sig, eq_merge], backend,
             specs=[
                 PathSpec("act", ["relu", "tanh"], hidden, hidden),
@@ -544,10 +545,10 @@ class TestNesting:
 
         prims = {}
         for eq in [eq_relu, eq_tanh, eq_sig]:
-            p = resolve_equation(eq, backend)
+            p, _ = resolve_equation(eq, backend)
             prims[p.name] = p
         # Merge resolved as list-merge for fan compatibility
-        p = resolve_equation_as_merge(eq_merge, backend)
+        p, _ = resolve_equation_as_merge(eq_merge, backend)
         prims[p.name] = p
 
         f_name, f_term = fan("split", ["relu", "tanh"], "merge")
@@ -604,7 +605,7 @@ class TestOrderSensitivity:
 
         prims = {}
         for eq in [eq_relu, eq_sig]:
-            p = resolve_equation(eq, backend)
+            p, _ = resolve_equation(eq, backend)
             prims[p.name] = p
 
         # Path A: sigmoid then relu
@@ -649,10 +650,10 @@ class TestThreeBranchFan:
 
         prims = {}
         for eq in [eq_relu, eq_tanh, eq_sig]:
-            p = resolve_equation(eq, backend)
+            p, _ = resolve_equation(eq, backend)
             prims[p.name] = p
         # Merge resolved as list-merge
-        p = resolve_equation_as_merge(eq_merge3, backend)
+        p, _ = resolve_equation_as_merge(eq_merge3, backend)
         prims[p.name] = p
 
         f_name, f_term = fan(

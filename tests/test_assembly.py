@@ -14,14 +14,14 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort, tensor_coder,
     Equation, topo_edges, validate_pipeline, assemble_graph,
 )
 
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture
@@ -107,7 +107,7 @@ class TestValidComposition:
             Equation("linear2", "ij,j->i", hidden, hidden, real, inputs=("relu",)),
         ]
         validate_pipeline(eqs)  # no error
-        graph = assemble_graph(eqs, backend)
+        graph, _ = assemble_graph(eqs, backend)
         assert Name("ua.equation.linear1") in graph.primitives
         assert Name("ua.equation.relu") in graph.primitives
         assert Name("ua.equation.linear2") in graph.primitives
@@ -116,7 +116,7 @@ class TestValidComposition:
         real = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         hidden = Sort("hidden", real)
         eqs = [Equation("linear", "ij,j->i", hidden, hidden, real)]
-        graph = assemble_graph(eqs, backend)
+        graph, _ = assemble_graph(eqs, backend)
         assert Name("ua.sort.hidden") in graph.schema_types
         assert Name("ua.semiring.real") in graph.schema_types
 
@@ -134,7 +134,7 @@ class TestAssembleAndRun:
             Equation("linear", "ij,j->i", hidden, hidden, real),
             Equation("act", None, hidden, hidden, nonlinearity="relu", inputs=("linear",)),
         ]
-        graph = assemble_graph(eqs, backend)
+        graph, _ = assemble_graph(eqs, backend)
 
         W1 = np.array([[1.0, -1.0], [-1.0, 1.0]])
         W2 = np.array([[2.0, 0.0], [0.0, 2.0]])
@@ -156,7 +156,7 @@ class TestAssembleAndRun:
         real = Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
         hidden = Sort("hidden", real)
         eqs = [Equation("lr", "ij,j->i", hidden, hidden, real, nonlinearity="relu")]
-        graph = assemble_graph(eqs, backend)
+        graph, _ = assemble_graph(eqs, backend)
 
         W = np.array([[1.0, -2.0], [-3.0, 4.0]])
         x = np.array([1.0, 1.0])
@@ -256,7 +256,7 @@ class TestDAGAssemble:
         a = Equation("A", "ij,j->i", hidden, hidden, real)
         b = Equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
         c = Equation("C", None, hidden, hidden, nonlinearity="sigmoid", inputs=("A",))
-        graph = assemble_graph([a, b, c], backend)
+        graph, _ = assemble_graph([a, b, c], backend)
         assert Name("ua.equation.A") in graph.primitives
         assert Name("ua.equation.B") in graph.primitives
         assert Name("ua.equation.C") in graph.primitives
@@ -266,7 +266,7 @@ class TestDAGAssemble:
         a = Equation("linear", "ij,j->i", hidden, hidden, real)
         b = Equation("relu_out", None, hidden, hidden, nonlinearity="relu", inputs=("linear",))
         c = Equation("sig_out", None, hidden, hidden, nonlinearity="sigmoid", inputs=("linear",))
-        graph = assemble_graph([a, b, c], backend)
+        graph, _ = assemble_graph([a, b, c], backend)
 
         W = np.array([[1.0, -2.0], [-3.0, 4.0]])
         x = np.array([1.0, 1.0])
@@ -293,7 +293,7 @@ class TestDAGAssemble:
         a = Equation("A", "ij,j->i", hidden, hidden, real)
         b = Equation("B", None, hidden, hidden, nonlinearity="relu", inputs=("A",))
         c = Equation("C", None, hidden, hidden, nonlinearity="tanh", inputs=("A",))
-        graph = assemble_graph([a, b, c], backend)
+        graph, _ = assemble_graph([a, b, c], backend)
 
         W = np.array([[1.0, -1.0], [-1.0, 1.0]])
         x = np.array([2.0, 1.0])

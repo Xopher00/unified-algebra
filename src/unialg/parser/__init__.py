@@ -88,7 +88,7 @@ def parse_ua(text: str, backend) -> "Program":
 
     Args:
         text:    .ua source text
-        backend: Backend (numpy_backend() or pytorch_backend())
+        backend: Backend (NumpyBackend() or PytorchBackend())
 
     Returns:
         A compiled Program, callable by entry point name.

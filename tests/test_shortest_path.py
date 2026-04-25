@@ -28,7 +28,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort, tensor_coder,
     Equation, path,
     assemble_graph, build_graph, PathSpec,
     resolve_equation,
@@ -41,7 +41,7 @@ from unialg import (
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture
@@ -162,7 +162,7 @@ class TestShortestPath:
         numpy reference exactly.
         """
         eq = Equation("hop1", "ij,j->i", node_sort, node_sort, tropical_sr)
-        graph = assemble_graph([eq], backend)
+        graph, _ = assemble_graph([eq], backend)
 
         W_enc = enc(coder, W)
         x_enc = enc(coder, x0)
@@ -191,7 +191,7 @@ class TestShortestPath:
         eq1 = Equation("sp1", "ij,j->i", node_sort, node_sort, tropical_sr)
         eq2 = Equation("sp2", "ij,j->i", node_sort, node_sort, tropical_sr)
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq1, eq2], backend,
             specs=[PathSpec("two_hop", ["sp1", "sp2"], node_sort, node_sort)],
         )
@@ -206,11 +206,13 @@ class TestShortestPath:
             params={"sp1": [W_enc], "sp2": [W_enc]},
         )
 
+        prim_sp1, _ = resolve_equation(eq1, backend)
+        prim_sp2, _ = resolve_equation(eq2, backend)
         graph2 = build_graph(
             [],
             primitives={
-                Name("ua.equation.sp1"): resolve_equation(eq1, backend),
-                Name("ua.equation.sp2"): resolve_equation(eq2, backend),
+                Name("ua.equation.sp1"): prim_sp1,
+                Name("ua.equation.sp2"): prim_sp2,
             },
             bound_terms={p_name: p_term},
         )
@@ -257,11 +259,13 @@ class TestShortestPath:
             params={"real1": [W_enc], "real2": [W_enc]},
         )
 
+        prim_real1, _ = resolve_equation(eq1, backend)
+        prim_real2, _ = resolve_equation(eq2, backend)
         graph = build_graph(
             [],
             primitives={
-                Name("ua.equation.real1"): resolve_equation(eq1, backend),
-                Name("ua.equation.real2"): resolve_equation(eq2, backend),
+                Name("ua.equation.real1"): prim_real1,
+                Name("ua.equation.real2"): prim_real2,
             },
             bound_terms={p_name: p_term},
         )
@@ -294,7 +298,7 @@ class TestShortestPath:
         We verify both after one hop and after two hops.
         """
         eq = Equation("bfstep", "ij,j->i", node_sort, node_sort, tropical_sr)
-        prim = resolve_equation(eq, backend)
+        prim, _ = resolve_equation(eq, backend)
 
         W_enc = enc(coder, W)
         x_enc = enc(coder, x0)

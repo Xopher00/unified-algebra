@@ -38,7 +38,7 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort, tensor_coder,
     Equation,
     Lens,
     assemble_graph, LensPathSpec,
@@ -52,7 +52,7 @@ from unialg import (
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture
@@ -149,7 +149,7 @@ class TestAutoencoder:
         W_enc_term = encode_array(coder, W_enc)
         W_dec_term = encode_array(coder, W_dec)
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_enc, eq_dec], backend,
             lenses=[ae_lens],
             specs=[LensPathSpec(
@@ -178,7 +178,7 @@ class TestAutoencoder:
         against input x (input,) to produce z (latent,).
         """
         eq_enc = Equation("ae2_enc", "ij,j->i", input_sort, latent_sort, real_sr)
-        prim = resolve_equation(eq_enc, backend)
+        prim, _ = resolve_equation(eq_enc, backend)
 
         # W: 3 x 6,  x: 6  →  z: 3
         W = np.array([
@@ -212,7 +212,7 @@ class TestAutoencoder:
         (input x latent) against latent z (latent,) to reconstruct x_hat (input,).
         """
         eq_dec = Equation("ae3_dec", "ij,j->i", latent_sort, input_sort, real_sr)
-        prim = resolve_equation(eq_dec, backend)
+        prim, _ = resolve_equation(eq_dec, backend)
 
         # W_dec: 6 x 3,  z: 3  →  x_hat: 6
         W_dec = np.eye(6, 3)   # first 3 columns of identity
@@ -269,7 +269,7 @@ class TestAutoencoder:
         W3_t = encode_array(coder, W3)
         W4_t = encode_array(coder, W4)
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_enc1, eq_enc2, eq_dec1, eq_dec2], backend,
             lenses=[lens1, lens2],
             specs=[LensPathSpec(
@@ -311,7 +311,7 @@ class TestAutoencoder:
         eq_dec = Equation("ae6_dec", "i->i", trop_latent, trop_input, tropical_sr)
         ae_lens = Lens("ae6", "ae6_enc", "ae6_dec")
 
-        graph = assemble_graph(
+        graph, _ = assemble_graph(
             [eq_enc, eq_dec], backend,
             lenses=[ae_lens],
             specs=[LensPathSpec(

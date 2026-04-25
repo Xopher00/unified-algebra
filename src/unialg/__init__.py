@@ -1,10 +1,10 @@
 # Core API
-from unialg.backend import Backend, numpy_backend, pytorch_backend
+from unialg.backend import Backend, NumpyApiBackend, NumpyBackend, PytorchBackend, JaxBackend, CupyBackend
 from unialg.assembly.specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, LensPathSpec, LensFanSpec, FixpointSpec
 
 # Algebra (declarations)
 from unialg.algebra import (
-    Semiring, ResolvedSemiring,
+    Semiring,
     Equation, Lens,
     compile_einsum, semiring_contract,
     Sort, ProductSort, tensor_coder,

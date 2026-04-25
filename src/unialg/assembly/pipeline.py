@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING
 import hydra.core as core
 from hydra.context import Context
 from hydra.dsl.python import FrozenDict, Left
-from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
 from hydra.sources.libraries import standard_library
 from hydra.typing import TypeConstraint
 from hydra.unification import unify_type_constraints
 
+from unialg.algebra.contraction import compile_einsum
 from unialg.algebra.equation import Equation
 from unialg.algebra.sort import sort_wrap
-from unialg.algebra.contraction import contract_and_apply, contract_merge
+from unialg.assembly.resolver import resolve_equation, resolve_equation_as_merge
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
@@ -82,83 +82,17 @@ def validate_pipeline(eq_terms: list, schema_types=None) -> None:
             sort_wrap(d.domain_sort).type_,
             f"'{u.name}' codomain != '{d.name}' domain",
         ))
-        up_einsum, down_einsum = u.einsum, d.einsum
-        out_rank = len(up_einsum.split("->")[1].strip()) if up_einsum else None
-        parts = down_einsum.split("->")[0].split(",") if down_einsum else []
-        in_rank = len(parts[slot]) if slot < len(parts) else None
+        up_compiled = compile_einsum(u.einsum) if u.einsum else None
+        down_compiled = compile_einsum(d.einsum) if d.einsum else None
+        out_rank = len(up_compiled.output_vars) if up_compiled is not None else None
+        in_rank = (len(down_compiled.input_vars[slot])
+                   if down_compiled is not None and slot < len(down_compiled.input_vars)
+                   else None)
         if out_rank is not None and in_rank is not None and out_rank != in_rank:
             raise TypeError(
                 f"Rank mismatch: '{u.name}' output rank {out_rank} != "
                 f"'{d.name}' input rank {in_rank} at slot {slot}")
     _unify(cs, schema_types)
-
-
-# ---------------------------------------------------------------------------
-# Equation resolution
-# ---------------------------------------------------------------------------
-
-def _make_prim(prim_name, compute, coders, out_coder):
-    """Dispatch a compute closure + coder list to prim1/prim2/prim3."""
-    n = len(coders)
-    if n == 1:
-        return prim1(prim_name, compute, [], coders[0], out_coder)
-    elif n == 2:
-        return prim2(prim_name, compute, [], coders[0], coders[1], out_coder)
-    elif n == 3:
-        return prim3(prim_name, compute, [], coders[0], coders[1], coders[2], out_coder)
-    else:
-        raise ValueError(f"Primitive '{prim_name.value}': arity {n} exceeds max 3")
-
-
-def resolve_equation(eq: Equation, backend: "Backend", ctx=None):
-    """Compile an Equation to a Hydra Primitive."""
-    has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, compiled, n_inputs, n_params = \
-        ctx or eq.compile(backend)
-
-    if not has_einsum and not has_nl:
-        raise ValueError(f"Equation '{eq.name}' has neither einsum nor nonlinearity")
-    if not has_einsum:
-        n_inputs = 1
-
-    total_arity = n_params + n_inputs
-    if total_arity > 3:
-        raise ValueError(
-            f"Equation '{eq.name}': total arity {total_arity} "
-            f"({n_params} params + {n_inputs} tensor inputs) exceeds max 3"
-        )
-
-    def _compute(*args):
-        return contract_and_apply(compiled, list(args[n_params:]), sr, backend, nl_fn, args[:n_params])
-
-    coders = [float32_coder()] * n_params + [in_coder] * n_inputs
-    return _make_prim(prim_name, _compute, coders, out_coder)
-
-
-def resolve_equation_as_merge(eq: Equation, backend: "Backend", ctx=None):
-    """Compile an Equation as a list-consuming merge Primitive."""
-    has_einsum, has_nl, nl_fn, in_coder, out_coder, prim_name, sr, compiled, n_inputs, _ = \
-        ctx or eq.compile(backend)
-
-    if has_einsum:
-        if n_inputs not in (1, 2):
-            raise ValueError(
-                f"List-merge equation '{eq.name}': einsum must have 1 or 2 inputs, got {n_inputs}")
-
-        def compute_merge(tensors):
-            return contract_merge(compiled, tensors, sr, backend, nl_fn, n_inputs, eq.name)
-
-        return _make_prim(prim_name, compute_merge, [list_coder(in_coder)], out_coder)
-
-    elif has_nl:
-        def compute_nl(tensors):
-            result = tensors[0]
-            for t in tensors[1:]:
-                result = result + t
-            return nl_fn(result)
-        return _make_prim(prim_name, compute_nl, [list_coder(in_coder)], out_coder)
-
-    else:
-        raise ValueError(f"List-merge equation '{eq.name}' has neither einsum nor nonlinearity")
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +102,9 @@ def resolve_equation_as_merge(eq: Equation, backend: "Backend", ctx=None):
 class EquationPipeline:
     """Single-pass assembly over eq_terms producing schema, primitives, and eq_by_name.
 
-    Calling validate_pipeline and resolving primitives in one sweep avoids
-    iterating eq_terms multiple times.
+    The constructor orchestrates four phases: parse + dedupe → resolve user semirings
+    → resolve equations (also accumulates schema sorts) → register extra sorts +
+    validate. Each phase is its own private method.
     """
 
     def __init__(
@@ -180,6 +115,24 @@ class EquationPipeline:
         extra_sorts: list[core.Term] = (),
         semirings: dict[str, core.Term] | None = None,
     ):
+        equations = self._parse_equations(eq_terms)
+        self.eq_by_name: dict[str, Equation] = {eq.name: eq for eq in equations}
+        self.primitives: dict = dict(standard_library())
+        self.native_fns: dict = {}
+        self.resolved_semirings: dict = self._resolve_user_semirings(semirings, backend)
+        self.coder = None
+
+        schema = self._resolve_equations(equations, backend, merge_names)
+        for st in extra_sorts:
+            if st is not None:
+                sort_wrap(st).register_schema(schema)
+        self.schema_types = FrozenDict(schema)
+
+        validate_pipeline(eq_terms, self.schema_types)
+
+    @staticmethod
+    def _parse_equations(eq_terms: list) -> list[Equation]:
+        """Wrap raw terms as Equations; raise on duplicate names."""
         equations = [Equation.from_term(t) for t in eq_terms]
         seen: dict[str, int] = {}
         for i, eq in enumerate(equations):
@@ -187,17 +140,21 @@ class EquationPipeline:
                 raise ValueError(
                     f"Duplicate equation name '{eq.name}' (positions {seen[eq.name]} and {i})")
             seen[eq.name] = i
-        self.eq_by_name: dict[str, Equation] = {eq.name: eq for eq in equations}
+        return equations
 
+    @staticmethod
+    def _resolve_user_semirings(semirings: dict | None, backend: Backend) -> dict:
+        """Pre-resolve any user-provided semiring terms against the backend."""
+        if not semirings:
+            return {}
+        return {name: Equation.resolve_semiring_term(t, backend) for name, t in semirings.items()}
+
+    def _resolve_equations(self, equations: list[Equation], backend: Backend, merge_names: set[str]) -> dict:
+        """Compile each equation, register its primitive + native_fn, accumulate sorts.
+
+        Returns the populated schema dict (mutates self.primitives / native_fns / etc.).
+        """
         schema: dict = {}
-        self.primitives: dict = dict(standard_library())
-        self.resolved_semirings: dict = {}
-        self.coder = None
-
-        if semirings:
-            for name, sr_term in semirings.items():
-                self.resolved_semirings[name] = Equation.resolve_semiring_term(sr_term, backend)
-
         for eq in equations:
             eq.register_sorts(schema)
             ctx = eq.compile(backend)
@@ -206,16 +163,11 @@ class EquationPipeline:
                 self.resolved_semirings.setdefault(sr_name, ctx[6])
             if self.coder is None:
                 self.coder = ctx[3]
-            prim = resolve_equation_as_merge(eq, backend, ctx) if eq.name in merge_names \
-                else resolve_equation(eq, backend, ctx)
+            resolver = resolve_equation_as_merge if eq.name in merge_names else resolve_equation
+            prim, native_fn = resolver(eq, backend, ctx)
             self.primitives[prim.name] = prim
-
-        for st in extra_sorts:
-            if st is not None:
-                sort_wrap(st).register_schema(schema)
-
-        self.schema_types = FrozenDict(schema)
-        validate_pipeline(eq_terms, self.schema_types)
+            self.native_fns[prim.name] = native_fn
+        return schema
 
     def validate_spec(self, spec) -> None:
         spec.validate(self.eq_by_name, self.schema_types)

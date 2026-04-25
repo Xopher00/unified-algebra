@@ -1,281 +1,301 @@
-"""Backend abstraction for tensor operations.
+"""Backend abstraction — maps op names to library implementations.
 
-A backend maps operation names to their concrete implementations in a
-numerical computing library (numpy, pytorch, jax). Operations come in
-three categories:
-
-  - binary: two-argument ops with both elementwise and reduction forms
-    e.g. "add" -> elementwise: np.add(a, b), reduce: np.sum(arr, axis=k)
-  - unary: single-argument pointwise functions
-    e.g. "relu" -> np.maximum(0, x), "exp" -> np.exp(x)
-  - constants: named scalar values
-    e.g. "inf" -> np.inf, "pi" -> np.pi
-
-The backend is represented as a Hydra record type, so it participates in
-Hydra's type system and can be inspected, composed, and validated.
+Backend is an ABC. NumpyApiBackend is an intermediate class for backends with
+a numpy-compatible API (numpy, cupy, jax); it builds the shared op tables from
+a `lib` module. Concrete subclasses are directly instantiable.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field as datafield
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from collections.abc import Callable
-
+from functools import partial
 
 
 # ---------------------------------------------------------------------------
-# Hydra types
+# Abstract base
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Python-side types
-# ---------------------------------------------------------------------------
+class Backend(ABC):
+    """Abstract base for all tensor backends."""
 
-@dataclass(frozen=True)
-class BinaryOp:
-    """A binary operation's two forms: elementwise and reduction.
+    # Unary ops where op name == getattr(lib, name) across numpy, torch, and jax.
+    DIRECT_UNARY = ("tanh", "exp", "log", "log1p", "sqrt", "abs", "reciprocal", "sign", "square", "sin", "cos")
 
-    ``reduce`` may be ``None`` for operations that have no natural reduction
-    form (e.g. masking, conditional ops).  Attempting to use such an op as
-    a semiring plus/times in a contraction will raise ``ValueError`` at
-    resolve time via ``Backend.reduce()``.
-    """
-    elementwise: Callable        # (a, b) -> c
-    reduce: Callable | None = None  # (arr, axis=k) -> arr; None = not reducible
+    @dataclass(frozen=True)
+    class BinaryOp:
+        """Elementwise and reduction forms of a binary operation."""
+        elementwise: Callable
+        reduce: Callable | None = None
 
-@dataclass(frozen=True)
-class UnaryOp:
-    """A unary pointwise operation.
+    def __init__(
+        self,
+        name: str,
+        lib,
+        binary_ops: dict[str, BinaryOp],
+        unary_ops: dict[str, Callable],
+        constants: dict[str, object],
+        expand_dims: Callable,
+        transpose: Callable,
+        broadcast_copy: Callable,
+        where: Callable | None = None,
+    ):
+        self.name = name
+        self._lib = lib
+        self.binary_ops = binary_ops
+        self.unary_ops = unary_ops
+        self.constants = constants
+        self.expand_dims = expand_dims
+        self.transpose = transpose
+        self.broadcast_copy = broadcast_copy
+        self.where = where
 
-    ``fn`` is a bare ``Callable``.  For axis-aware operations (e.g. softmax
-    along a specific axis) use ``functools.partial`` when registering::
+    # ---- wire format: shared header, backend-specific serialization ----
 
-        import functools, scipy.special
-        backend.unary_ops["softmax_last"] = UnaryOp(
-            fn=functools.partial(scipy.special.softmax, axis=-1)
-        )
+    @staticmethod
+    def _parse_wire_header(raw: bytes) -> tuple[str, tuple[int, ...], bytes]:
+        i = raw.index(0)
+        j = raw.index(0, i + 1)
+        dtype = raw[:i].decode()
+        shape = tuple(int(x) for x in raw[i + 1:j].decode().split(",") if x)
+        return dtype, shape, raw[j + 1:]
 
-    For parametric operations (e.g. temperature-scaled softmax) leave the
-    axis/parameter as a positional argument and declare ``param_slots`` on
-    the equation — the parameter value is then injected at call time via a
-    Hydra bound term.
-    """
-    fn: Callable            # (a, *extra_params) -> b
+    @staticmethod
+    def _encode_wire_header(dtype_str: str, shape) -> bytes:
+        return dtype_str.encode() + b"\x00" + ",".join(str(s) for s in shape).encode() + b"\x00"
 
+    @abstractmethod
+    def from_wire(self, raw: bytes): ...
 
-@dataclass
-class Backend:
-    """A resolved backend mapping operation names to implementations."""
-    name: str
-    binary_ops: dict[str, BinaryOp] = datafield(default_factory=dict)
-    unary_ops: dict[str, UnaryOp] = datafield(default_factory=dict)
-    constants: dict[str, object] = datafield(default_factory=dict)
-    expand_dims: Callable = None     # (arr, axis) -> arr
-    transpose: Callable = None       # (arr, perm) -> arr
-    broadcast_copy: Callable = None  # (arr, shape) -> writable arr of given shape
-    where: Callable | None = None    # (condition, x, y) -> arr  — optional masking op
-    from_wire: Callable = None       # (wire_bytes) -> array — deserialize with header
-    to_wire: Callable = None         # (array) -> wire_bytes — serialize with header
+    @abstractmethod
+    def to_wire(self, arr) -> bytes: ...
 
-    def __post_init__(self):
-        for attr in ("expand_dims", "transpose", "broadcast_copy", "from_wire", "to_wire"):
-            if getattr(self, attr) is None:
-                raise ValueError(f"Backend '{self.name}' missing structural op: {attr}")
+    # ---- compilation and control flow ----
+
+    @abstractmethod
+    def compile(self, fn: Callable) -> Callable:
+        """Wrap fn in backend-native JIT. Returns fn unchanged if unsupported."""
+
+    def while_loop(self, cond_fn: Callable, body_fn: Callable, init_val):
+        """Python while loop. JAX overrides with jax.lax.while_loop."""
+        state = init_val
+        while cond_fn(state):
+            state = body_fn(state)
+        return state
+
+    # ---- dict lookups ----
 
     def elementwise(self, op_name: str) -> Callable:
-        """Get the elementwise form of a binary operation."""
         return self.binary_ops[op_name].elementwise
 
     def reduce(self, op_name: str) -> Callable:
-        """Get the reduction form of a binary operation.
-
-        Raises ``ValueError`` if the operation was registered without a
-        reduce form (e.g. a masking op registered with ``reduce=None``).
-        """
         fn = self.binary_ops[op_name].reduce
         if fn is None:
             raise ValueError(
                 f"Backend '{self.name}': binary op '{op_name}' has no "
-                "reduction form.  It cannot be used as a semiring ⊕ or ⊗ "
-                "in a contraction.  Use it as a BinaryOp in a custom "
-                "equation nonlinearity or as a structural op instead."
+                "reduction form — cannot be used as semiring +/* in a contraction."
             )
         return fn
 
     def unary(self, op_name: str) -> Callable:
-        """Get a unary pointwise operation."""
-        return self.unary_ops[op_name].fn
+        return self.unary_ops[op_name]
 
     def constant(self, name: str) -> object:
-        """Get a named constant."""
         return self.constants[name]
 
 
-
 # ---------------------------------------------------------------------------
-# numpy backend
+# Intermediate: backends with a numpy-compatible API (numpy, cupy, jax)
 # ---------------------------------------------------------------------------
 
-def _np_from_wire(raw: bytes):
-    """Deserialize wire format → numpy array."""
-    import numpy as np
-    i = raw.index(0)
-    j = raw.index(0, i + 1)
-    dtype = raw[:i].decode()
-    shape = tuple(int(x) for x in raw[i + 1:j].decode().split(",") if x)
-    return np.frombuffer(raw[j + 1:], dtype=dtype).reshape(shape)
+class NumpyApiBackend(Backend):
+    """Base for backends whose lib mirrors numpy's API.
 
+    Subclasses set NAME, LIB_PACKAGE, and (for the default _build_activations)
+    SCIPY_PACKAGE as class attributes. Override _build_activations,
+    _logaddexp_reduce, or _broadcast_copy where the backend differs.
+    """
 
-def _np_to_wire(arr) -> bytes:
-    """Serialize numpy array → wire format."""
-    import numpy as np
-    a = np.ascontiguousarray(arr)
-    return a.dtype.str.encode() + b"\x00" + ",".join(str(s) for s in a.shape).encode() + b"\x00" + a.tobytes()
+    NAME: str
+    LIB_PACKAGE: str
+    SCIPY_PACKAGE: str = ""
 
+    def __init__(self):
+        import importlib
+        lib = importlib.import_module(self.LIB_PACKAGE)
+        np_api = getattr(lib, "numpy", lib)  # jax → jax.numpy; numpy/cupy → lib itself
+        Op = Backend.BinaryOp
+        binary_ops = {
+            "add":       Op(elementwise=np_api.add,       reduce=np_api.sum),
+            "subtract":  Op(elementwise=np_api.subtract),
+            "multiply":  Op(elementwise=np_api.multiply,  reduce=np_api.prod),
+            "divide":    Op(elementwise=np_api.divide),
+            "power":     Op(elementwise=np_api.power),
+            "minimum":   Op(elementwise=np_api.minimum,   reduce=np_api.min),
+            "maximum":   Op(elementwise=np_api.maximum,   reduce=np_api.max),
+            "logaddexp": Op(elementwise=np_api.logaddexp, reduce=self._logaddexp_reduce(np_api)),
+        }
+        unary_ops = {
+            **{n: getattr(np_api, n) for n in Backend.DIRECT_UNARY},
+            "neg": np_api.negative,
+            **self._build_activations(np_api),
+        }
+        super().__init__(
+            name=self.NAME, lib=lib,
+            binary_ops=binary_ops, unary_ops=unary_ops,
+            constants={"inf": np_api.inf, "ninf": -np_api.inf, "pi": np_api.pi, "e": np_api.e},
+            expand_dims=np_api.expand_dims,
+            transpose=np_api.transpose,
+            broadcast_copy=self._broadcast_copy(np_api),
+            where=np_api.where,
+        )
 
-def numpy_backend() -> Backend:
-    """Build a backend from numpy."""
-    import numpy as np
-    from functools import partial
-    from scipy.special import softmax, expit
+    def _build_activations(self, np_api) -> dict[str, Callable]:
+        """Default: scipy-style. Override for backends with their own activation lib."""
+        import importlib
+        scipy = importlib.import_module(self.SCIPY_PACKAGE)
+        return {
+            "relu": lambda x: np_api.maximum(0, x), "sigmoid": scipy.expit,
+            "softmax": partial(scipy.softmax, axis=-1),
+            "softplus": lambda x: np_api.log1p(np_api.exp(x)),
+        }
 
-    return Backend(
-        name="numpy",
-        expand_dims=np.expand_dims,
-        transpose=np.transpose,
-        broadcast_copy=lambda a, shape: np.broadcast_to(a, shape).copy(),
-        where=np.where,
-        from_wire=_np_from_wire,
-        to_wire=_np_to_wire,
-        binary_ops={
-            # Arithmetic
-            "add":      BinaryOp(elementwise=np.add,       reduce=np.sum),
-            "subtract": BinaryOp(elementwise=np.subtract,  reduce=None),
-            "multiply": BinaryOp(elementwise=np.multiply,  reduce=np.prod),
-            "divide":   BinaryOp(elementwise=np.divide,    reduce=None),
-            "power":    BinaryOp(elementwise=np.power,     reduce=None),
+    def _logaddexp_reduce(self, np_api) -> Callable:
+        return np_api.logaddexp.reduce
 
-            # Min / max
-            "minimum":  BinaryOp(elementwise=np.minimum,   reduce=np.min),
-            "maximum":  BinaryOp(elementwise=np.maximum,   reduce=np.max),
-
-            # Log-space
-            "logaddexp": BinaryOp(elementwise=np.logaddexp, reduce=np.logaddexp.reduce),
-        },
-        unary_ops={
-            # Activations
-            "relu":     UnaryOp(fn=lambda x: np.maximum(0, x)),
-            "sigmoid":  UnaryOp(fn=expit),
-            "tanh":     UnaryOp(fn=np.tanh),
-            "softmax":  UnaryOp(fn=partial(softmax, axis=-1)),
-            "softplus": UnaryOp(fn=lambda x: np.log1p(np.exp(x))),
-
-            # Elementary
-            "exp":      UnaryOp(fn=np.exp),
-            "log":      UnaryOp(fn=np.log),
-            "log1p":    UnaryOp(fn=np.log1p),
-            "sqrt":     UnaryOp(fn=np.sqrt),
-            "abs":      UnaryOp(fn=np.abs),
-            "neg":      UnaryOp(fn=np.negative),
-            "reciprocal": UnaryOp(fn=np.reciprocal),
-            "sign":     UnaryOp(fn=np.sign),
-            "square":   UnaryOp(fn=np.square),
-
-            # Trig
-            "sin":      UnaryOp(fn=np.sin),
-            "cos":      UnaryOp(fn=np.cos),
-        },
-        constants={
-            "inf":  np.inf,
-            "ninf": -np.inf,
-            "pi":   np.pi,
-            "e":    np.e,
-        },
-    )
+    def _broadcast_copy(self, np_api) -> Callable:
+        return lambda a, shape: np_api.broadcast_to(a, shape).copy()
 
 
 # ---------------------------------------------------------------------------
-# pytorch backend
+# Concrete backends
 # ---------------------------------------------------------------------------
 
-_TORCH_DTYPE_MAP = {
-    "float32": "torch.float32", "<f4": "torch.float32",
-    "float64": "torch.float64", "<f8": "torch.float64",
-    "int32":   "torch.int32",   "<i4": "torch.int32",
-    "int64":   "torch.int64",   "<i8": "torch.int64",
-}
+class NumpyBackend(NumpyApiBackend):
+    NAME = "numpy"
+    LIB_PACKAGE = "numpy"
+    SCIPY_PACKAGE = "scipy.special"
 
-def _torch_from_wire(raw: bytes):
-    import torch
-    i = raw.index(0)
-    j = raw.index(0, i + 1)
-    dtype_str = raw[:i].decode()
-    shape = tuple(int(x) for x in raw[i + 1:j].decode().split(",") if x)
-    dtype = getattr(torch, _TORCH_DTYPE_MAP[dtype_str].replace("torch.", ""))
-    return torch.frombuffer(bytearray(raw[j + 1:]), dtype=dtype).reshape(shape).clone()
+    def __init__(self, *, jit: Callable | None = None):
+        self._jit = jit
+        super().__init__()
 
-def _torch_to_wire(arr) -> bytes:
-    import torch
-    a = arr.contiguous().detach().cpu()
-    dtype_str = str(a.dtype).replace("torch.", "")
-    shape_str = ",".join(str(s) for s in a.shape)
-    return dtype_str.encode() + b"\x00" + shape_str.encode() + b"\x00" + a.untyped_storage().tobytes()
+    def from_wire(self, raw: bytes):
+        dtype, shape, data = self._parse_wire_header(raw)
+        return self._lib.frombuffer(data, dtype=dtype).reshape(shape)
 
-def pytorch_backend() -> Backend:
-    """Build a backend from pytorch."""
-    import torch
+    def to_wire(self, arr) -> bytes:
+        a = self._lib.ascontiguousarray(arr)
+        return self._encode_wire_header(a.dtype.str, a.shape) + a.tobytes()
 
-    from functools import partial
+    def compile(self, fn):
+        return self._jit(fn) if self._jit is not None else fn
 
-    return Backend(
-        name="pytorch",
-        expand_dims=lambda a, axis: a.unsqueeze(axis),
-        transpose=lambda a, perm: a.permute(perm),
-        broadcast_copy=lambda a, shape: a.expand(shape).clone(),
-        where=torch.where,
-        from_wire=_torch_from_wire,
-        to_wire=_torch_to_wire,
-        binary_ops={
-            # Arithmetic
-            "add":      BinaryOp(elementwise=torch.add,  reduce=lambda a, axis: torch.sum(a, dim=axis)),
-            "subtract": BinaryOp(elementwise=torch.sub,  reduce=None),
-            "multiply": BinaryOp(elementwise=torch.mul,  reduce=lambda a, axis: torch.prod(a, dim=axis)),
-            "divide":   BinaryOp(elementwise=torch.div,  reduce=None),
-            "power":    BinaryOp(elementwise=torch.pow,  reduce=None),
 
-            # Min / max
-            "minimum":  BinaryOp(elementwise=torch.minimum, reduce=lambda a, axis: torch.amin(a, dim=axis)),
-            "maximum":  BinaryOp(elementwise=torch.maximum, reduce=lambda a, axis: torch.amax(a, dim=axis)),
+class CupyBackend(NumpyApiBackend):
+    NAME = "cupy"
+    LIB_PACKAGE = "cupy"
+    SCIPY_PACKAGE = "cupyx.scipy.special"
 
-            # Log-space
-            "logaddexp": BinaryOp(elementwise=torch.logaddexp, reduce=lambda a, axis: torch.logsumexp(a, dim=axis)),
-        },
-        unary_ops={
-            # Activations
-            "relu":     UnaryOp(fn=torch.relu),
-            "sigmoid":  UnaryOp(fn=torch.sigmoid),
-            "tanh":     UnaryOp(fn=torch.tanh),
-            "softmax":  UnaryOp(fn=partial(torch.nn.functional.softmax, dim=-1)),
-            "softplus": UnaryOp(fn=torch.nn.functional.softplus),
+    def from_wire(self, raw: bytes):
+        import numpy as np
+        dtype, shape, data = self._parse_wire_header(raw)
+        return self._lib.asarray(np.frombuffer(data, dtype=dtype).reshape(shape))
 
-            # Elementary
-            "exp":      UnaryOp(fn=torch.exp),
-            "log":      UnaryOp(fn=torch.log),
-            "log1p":    UnaryOp(fn=torch.log1p),
-            "sqrt":     UnaryOp(fn=torch.sqrt),
-            "abs":      UnaryOp(fn=torch.abs),
-            "neg":      UnaryOp(fn=torch.neg),
-            "reciprocal": UnaryOp(fn=torch.reciprocal),
-            "sign":     UnaryOp(fn=torch.sign),
-            "square":   UnaryOp(fn=torch.square),
+    def to_wire(self, arr) -> bytes:
+        a = arr.get()
+        return self._encode_wire_header(a.dtype.str, a.shape) + a.tobytes()
 
-            # Trig
-            "sin":      UnaryOp(fn=torch.sin),
-            "cos":      UnaryOp(fn=torch.cos),
-        },
-        constants={
-            "inf":  float("inf"),
-            "ninf": float("-inf"),
-            "pi":   3.141592653589793,
-            "e":    2.718281828459045,
-        },
-    )
+    def compile(self, fn):
+        return fn  # CuPy kernels are JIT-compiled per-op
+
+
+class JaxBackend(NumpyApiBackend):
+    NAME = "jax"
+    LIB_PACKAGE = "jax"
+
+    def _build_activations(self, np_api):
+        import jax
+        return {
+            "relu": jax.nn.relu, "sigmoid": jax.nn.sigmoid,
+            "softmax": partial(jax.nn.softmax, axis=-1),
+            "softplus": jax.nn.softplus,
+        }
+
+    def _logaddexp_reduce(self, np_api):
+        import jax
+        # Take axis as a runtime parameter — same contract as torch's reduce form.
+        # Hardcoding axis=-1 here (via partial) collides with callers that pass axis
+        # explicitly (semiring_contract.plus_reduce(term, reduced_dims)).
+        return lambda a, axis: jax.scipy.special.logsumexp(a, axis=axis)
+
+    def _broadcast_copy(self, np_api):
+        return lambda a, shape: np_api.array(np_api.broadcast_to(a, shape))
+
+    def from_wire(self, raw: bytes):
+        dtype, shape, data = self._parse_wire_header(raw)
+        return self._lib.numpy.frombuffer(data, dtype=dtype).reshape(shape)
+
+    def to_wire(self, arr) -> bytes:
+        a = self._lib.device_get(arr)
+        return self._encode_wire_header(a.dtype.str, a.shape) + a.tobytes()
+
+    def compile(self, fn):
+        return self._lib.jit(fn)
+
+    def while_loop(self, cond_fn, body_fn, init_val):
+        return self._lib.lax.while_loop(cond_fn, body_fn, init_val)
+
+
+class PytorchBackend(Backend):
+    """Torch uses its own naming conventions — does not inherit NumpyApiBackend."""
+
+    _DTYPE_MAP = {
+        "float32": "float32", "<f4": "float32",
+        "float64": "float64", "<f8": "float64",
+        "int32":   "int32",   "<i4": "int32",
+        "int64":   "int64",   "<i8": "int64",
+    }
+
+    def __init__(self):
+        import torch
+        super().__init__(
+            name="pytorch", lib=torch,
+            expand_dims=lambda a, axis: a.unsqueeze(axis),
+            transpose=lambda a, perm: a.permute(perm),
+            broadcast_copy=lambda a, shape: a.expand(shape).clone(),
+            where=torch.where,
+            binary_ops={
+                "add":       Backend.BinaryOp(elementwise=torch.add,       reduce=lambda a, axis: torch.sum(a, dim=axis)),
+                "subtract":  Backend.BinaryOp(elementwise=torch.sub),
+                "multiply":  Backend.BinaryOp(elementwise=torch.mul,       reduce=lambda a, axis: torch.prod(a, dim=axis)),
+                "divide":    Backend.BinaryOp(elementwise=torch.div),
+                "power":     Backend.BinaryOp(elementwise=torch.pow),
+                "minimum":   Backend.BinaryOp(elementwise=torch.minimum,   reduce=lambda a, axis: torch.amin(a, dim=axis)),
+                "maximum":   Backend.BinaryOp(elementwise=torch.maximum,   reduce=lambda a, axis: torch.amax(a, dim=axis)),
+                "logaddexp": Backend.BinaryOp(elementwise=torch.logaddexp, reduce=lambda a, axis: torch.logsumexp(a, dim=axis)),
+            },
+            unary_ops={
+                **{name: getattr(torch, name) for name in Backend.DIRECT_UNARY},
+                "relu":     torch.relu,
+                "sigmoid":  torch.sigmoid,
+                "softmax":  partial(torch.nn.functional.softmax, dim=-1),
+                "softplus": torch.nn.functional.softplus,
+                "neg":      torch.neg,
+            },
+            constants={"inf": float("inf"), "ninf": float("-inf"), "pi": 3.141592653589793, "e": 2.718281828459045},
+        )
+
+    def from_wire(self, raw: bytes):
+        dtype_str, shape, data = self._parse_wire_header(raw)
+        dtype = getattr(self._lib, self._DTYPE_MAP[dtype_str])
+        return self._lib.frombuffer(bytearray(data), dtype=dtype).reshape(shape).clone()
+
+    def to_wire(self, arr) -> bytes:
+        a = arr.contiguous().detach().cpu()
+        dtype_str = str(a.dtype).replace("torch.", "")
+        return self._encode_wire_header(dtype_str, a.shape) + a.untyped_storage().tobytes()
+
+    def compile(self, fn):
+        return self._lib.compile(fn)

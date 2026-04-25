@@ -10,7 +10,7 @@ import pytest
 from hydra.core import Name
 
 from unialg import (
-    numpy_backend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort, tensor_coder,
     Equation, compile_program, PathSpec,
 )
 
@@ -21,7 +21,7 @@ from unialg import (
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 @pytest.fixture
 def real_sr():

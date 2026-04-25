@@ -16,7 +16,7 @@ import hydra.graph
 from hydra.dsl.meta.phantoms import record, string, boolean, list_, TTerm
 from hydra.dsl.python import Nothing
 
-from unialg.terms import _RecordView, _TermField, _ScalarField, record_fields, literal_value
+from unialg.terms import _RecordView, _ScalarField, _TermField, _TermListField
 from unialg.algebra.semiring import Semiring
 from unialg.terms import tensor_coder
 
@@ -38,6 +38,7 @@ class Sort(_RecordView):
     _type_name = core.Name("ua.sort.Sort")
     name     = _ScalarField("name", str)
     semiring = _TermField("semiring")
+    batched  = _ScalarField("batched", bool, default=False)
 
     def __init__(self, name: str, semiring_term, batched: bool = False):
         semiring_term = self._unwrap(semiring_term)
@@ -50,11 +51,6 @@ class Sort(_RecordView):
     @property
     def semiring_name(self) -> str:
         return Semiring.from_term(self.semiring).name
-
-    @property
-    def batched(self) -> bool:
-        b = record_fields(self._term).get("batched")
-        return False if b is None else bool(literal_value(b))
 
     @property
     def type_(self) -> core.Type:
@@ -90,6 +86,7 @@ class ProductSort(_RecordView):
     """
 
     _type_name = core.Name("ua.sort.Product")
+    elements = _TermListField("sorts")
 
     def __init__(self, sorts: list):
         if len(sorts) < 2:
@@ -98,10 +95,6 @@ class ProductSort(_RecordView):
         super().__init__(record(self._type_name, [
             core.Name("sorts") >> list_([TTerm(s) for s in raw_sorts]),
         ]).value)
-
-    @property
-    def elements(self) -> list[core.Term]:
-        return list(record_fields(self._term)["sorts"].value)
 
     @property
     def type_(self) -> core.Type:

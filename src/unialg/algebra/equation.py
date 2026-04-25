@@ -15,23 +15,17 @@ import hydra.core as core
 from hydra.core import Name
 from hydra.dsl.meta.phantoms import record, string, list_, unit, TTerm
 
-from unialg.terms import record_fields, literal_value
-from unialg.terms import _RecordView, _TermField, _ScalarField
+from unialg.terms import _RecordView, _ScalarField, _StringListField, _TermField
 from unialg.algebra.sort import sort_wrap
 from unialg.algebra.semiring import Semiring
 from unialg.algebra.contraction import compile_einsum
 
 
 def _prepend_batch_dim(einsum_str: str) -> str:
-    """Prepend a fresh batch dimension to every operand of an einsum string."""
+    """Prepend a fresh batch dimension via the structured CompiledEinsum path."""
     if not einsum_str:
         return einsum_str
-    used = set(einsum_str) - {",", "-", ">"}
-    batch_char = next(c for c in "bcdefghmnopqrstuvwxyz" if c not in used)
-    lhs, rhs = einsum_str.split("->")
-    inputs = lhs.split(",")
-    batched_inputs = ",".join(batch_char + inp for inp in inputs)
-    return f"{batched_inputs}->{batch_char + rhs}"
+    return compile_einsum(einsum_str).prepend_batch_var().to_string()
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +53,9 @@ class Equation(_RecordView):
     nonlinearity = _ScalarField("nonlinearity", str)
     domain_sort  = _TermField("domainSort")
     codomain_sort = _TermField("codomainSort")
-    semiring      = _TermField("semiring")
+    semiring      = _TermField("semiring", optional=True)
+    inputs       = _StringListField("inputs")
+    param_slots  = _StringListField("paramSlots")
 
     def __init__(
         self,
@@ -84,19 +80,9 @@ class Equation(_RecordView):
         ]).value)
 
     @property
-    def inputs(self) -> list[str]:
-        return [literal_value(t) for t in record_fields(self._term)["inputs"].value]
-
-    @property
-    def param_slots(self) -> list[str]:
-        return [literal_value(t) for t in record_fields(self._term)["paramSlots"].value]
-
-    @property
     def semiring_name(self) -> str | None:
         sr = self.semiring
-        if not isinstance(sr, core.TermRecord):
-            return None
-        return Semiring.from_term(sr).name
+        return Semiring.from_term(sr).name if sr is not None else None
 
     @staticmethod
     def resolve_semiring_term(sr_term, backend):

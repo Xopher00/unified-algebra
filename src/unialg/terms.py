@@ -7,6 +7,7 @@ import hydra.graph
 from hydra.dsl.meta.phantoms import binary as phantom_binary
 from hydra.dsl.python import Right
 from hydra.extract.core import binary as extract_binary
+from hydra.literals import float_value_to_bigfloat, integer_value_to_bigint
 
 
 def tensor_coder(backend, type_=None) -> hydra.graph.TermCoder:
@@ -15,10 +16,9 @@ def tensor_coder(backend, type_=None) -> hydra.graph.TermCoder:
         type_ = core.TypeVariable(core.Name("ua.tensor.NDArray"))
 
     def encode(cx, graph, term):
-        result = extract_binary(graph, term)
-        match result:
+        match extract_binary(graph, term):
             case Right(value=raw): pass
-            case _: raw = term.value.value
+            case _: raw = literal_value(term)  # fallback for unwrapped LiteralBinary
         return Right(backend.from_wire(raw))
 
     def decode(cx, arr):
@@ -32,9 +32,14 @@ def record_fields(term) -> dict[str, object]:
     return {f.name.value: f.term for f in term.value.fields}
 
 def literal_value(term):
-    """Extract a Python primitive from a Hydra TermLiteral."""
-    v = term.value.value
-    return v.value if hasattr(v, 'value') else v
+    """Extract a Python primitive from a Hydra TermLiteral via canonical extractors."""
+    match term.value:
+        case core.LiteralInteger(value=iv): return int(integer_value_to_bigint(iv))
+        case core.LiteralFloat(value=fv): return float(float_value_to_bigfloat(fv))
+        case core.LiteralString(value=s): return s
+        case core.LiteralBoolean(value=b): return b
+        case core.LiteralBinary(value=bs): return bs
+    raise ValueError(f"Unknown literal kind: {type(term.value).__name__}")
 
 def bind_composition(kind, name, var_name, body):
     """Wrap a body term in a lambda and return (Name, lambda_term)."""
@@ -50,21 +55,53 @@ def bind_composition(kind, name, var_name, body):
 # ---------------------------------------------------------------------------
 
 class _TermField:
-    """Descriptor: extracts a raw Term field (no conversion)."""
+    """Descriptor: extracts a raw Term field (no conversion).
+
+    With optional=True, returns None for missing fields or TermUnit values.
+    """
+    __slots__ = ("_key", "_optional")
+    def __init__(self, key, optional: bool = False):
+        self._key = key
+        self._optional = optional
+    def __get__(self, obj, cls=None):
+        fields = record_fields(obj._term)
+        if self._optional:
+            t = fields.get(self._key)
+            return None if t is None or isinstance(t, core.TermUnit) else t
+        return fields[self._key]
+
+class _ScalarField:
+    __slots__ = ("_key", "_coerce", "_default", "_has_default")
+    def __init__(self, key, coerce=None, default=None, *, has_default=False):
+        self._key = key
+        self._coerce = coerce
+        self._default = default
+        self._has_default = has_default or default is not None
+
+    def __get__(self, obj, cls=None):
+        fields = record_fields(obj._term)
+        if self._key not in fields:
+            if self._has_default:
+                return self._default
+            raise KeyError(self._key)
+        value = literal_value(fields[self._key])
+        return self._coerce(value) if self._coerce else value
+
+
+class _StringListField:
+    """Descriptor: extracts a list of string values from a TermList field."""
     __slots__ = ("_key",)
     def __init__(self, key): self._key = key
     def __get__(self, obj, cls=None):
-        return record_fields(obj._term)[self._key]
+        return [literal_value(t) for t in record_fields(obj._term)[self._key].value]
 
-class _ScalarField:
-    __slots__ = ("_key", "_coerce")
-    def __init__(self, key, coerce=None):
-        self._key = key
-        self._coerce = coerce
 
+class _TermListField:
+    """Descriptor: extracts the raw Term list from a TermList field."""
+    __slots__ = ("_key",)
+    def __init__(self, key): self._key = key
     def __get__(self, obj, cls=None):
-        value = literal_value(record_fields(obj._term)[self._key])
-        return self._coerce(value) if self._coerce else value
+        return list(record_fields(obj._term)[self._key].value)
 
 
 class _RecordView:

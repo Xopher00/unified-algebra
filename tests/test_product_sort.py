@@ -11,7 +11,7 @@ import hydra.core as core
 from hydra.dsl.python import Right
 
 from unialg import (
-    numpy_backend, Semiring, Sort,
+    NumpyBackend, Semiring, Sort,
     ProductSort,
 )
 
@@ -22,7 +22,7 @@ from unialg import (
 
 @pytest.fixture
 def backend():
-    return numpy_backend()
+    return NumpyBackend()
 
 
 @pytest.fixture

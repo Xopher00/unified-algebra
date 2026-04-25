@@ -123,8 +123,12 @@ lens_fwd_primitive, lens_bwd_primitive = _build_lens_primitives()
 
 
 def residual_add_primitive(sr_name, resolved_sr, coder):
-    """Build ua.prim.residual_add.<sr_name> from an already-resolved semiring."""
+    """Build ua.prim.residual_add.<sr_name> from an already-resolved semiring.
+
+    Returns (Primitive, Callable) — the Callable is the raw plus closure,
+    exposed so the compiler can compose it without Hydra encode/decode.
+    """
     prim_name = core.Name(f"ua.prim.residual_add.{sr_name}")
     def compute(a, b):
         return resolved_sr.plus_elementwise(a, b)
-    return prims.prim2(prim_name, compute, [], coder, coder, coder)
+    return prims.prim2(prim_name, compute, [], coder, coder, coder), compute

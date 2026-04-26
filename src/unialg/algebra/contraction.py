@@ -255,11 +255,13 @@ def contract_and_apply(compiled, tensor_args, sr, backend, nl_fn=None, params=()
 
 
 def contract_merge(compiled, tensors, sr, backend, nl_fn=None, n_inputs=2, name=""):
-    """Fold-reduce a list of tensors via repeated contraction."""
+    """Reduce a list of tensors via contraction. N-ary when arity matches, binary fold otherwise."""
     if n_inputs == 1:
         if len(tensors) != 1:
             raise ValueError(f"Unary merge '{name}' expects 1-element list, got {len(tensors)}")
         result = semiring_contract(compiled, [tensors[0]], sr, backend)
+    elif n_inputs == len(tensors):
+        result = semiring_contract(compiled, tensors, sr, backend)
     else:
         result = tensors[0]
         for t in tensors[1:]:

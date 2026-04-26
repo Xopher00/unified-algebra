@@ -189,9 +189,6 @@ class Equation(_RecordView):
     def resolve_as_merge(self, backend: "Backend") -> tuple[Primitive, Callable, object, object]:
         ctx = self.compile(backend)
         if ctx.has_einsum:
-            if ctx.n_inputs not in (1, 2):
-                raise ValueError(
-                    f"List-merge equation '{self.name}': einsum must have 1 or 2 inputs, got {ctx.n_inputs}")
             def compute_merge(tensors):
                 return contract_merge(ctx.compiled, tensors, ctx.sr, backend, ctx.nl_fn, ctx.n_inputs, self.name)
             prim = self._make_prim(ctx.prim_name, compute_merge, [list_coder(ctx.in_coder)], ctx.out_coder)

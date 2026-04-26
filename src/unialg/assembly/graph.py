@@ -103,14 +103,20 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
 
 
 def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, schema_types, coder, backend, **kwargs):
+    from unialg.assembly.compositions import Composition
     compiled_fns = {}
     for spec in specs:
         spec.validate(eq_by_name, schema_types)
-        for name, term in spec.build(primitives, native_fns, coder=coder, **kwargs):
-            bound_terms[name] = term
-            fn = spec.COMPOSITION.compile_entry(term, native_fns, coder, backend)
-            if fn is not None:
-                compiled_fns[spec.name] = fn
+        for entry in spec.build(primitives, native_fns, coder=coder, **kwargs):
+            if isinstance(entry, Composition):
+                name, term = entry.to_lambda()
+                bound_terms[name] = term
+                fn = entry.resolve_and_compile(native_fns, coder, backend)
+                if fn is not None:
+                    compiled_fns[spec.name] = fn
+            else:
+                name, term = entry
+                bound_terms[name] = term
     return compiled_fns
 
 

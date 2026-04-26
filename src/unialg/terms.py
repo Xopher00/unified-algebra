@@ -6,7 +6,7 @@ import hydra.core as core
 import hydra.graph
 from hydra.context import Context
 from hydra.dsl.meta.phantoms import (
-    binary as phantom_binary, boolean, float64, list_, record, string, TTerm, unit,
+    binary as phantom_binary, boolean, float64, int32, list_, record, string, TTerm, unit,
 )
 from hydra.dsl.python import FrozenDict, Left, Right
 from hydra.unification import unify_type_constraints
@@ -15,7 +15,7 @@ from hydra.literals import float_value_to_bigfloat, integer_value_to_bigint
 
 EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
 
-_ENCODERS = {str: string, bool: boolean, float: float64}
+_ENCODERS = {str: string, bool: boolean, float: float64, int: int32}
 
 
 def unify_or_raise(constraints, schema):

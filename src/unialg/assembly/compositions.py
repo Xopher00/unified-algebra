@@ -1,4 +1,4 @@
-"""Composition types: build, extract, and compile Hydra lambda terms."""
+"""Composition types: record-based declarations that generate Hydra lambda terms."""
 
 from __future__ import annotations
 
@@ -6,10 +6,8 @@ from collections.abc import Callable
 from functools import partial, reduce
 
 import hydra.core as core
-from hydra.analysis import gather_applications
-from hydra.dsl.meta.phantoms import var, lam, int32, list_, TTerm
+from hydra.dsl.meta.phantoms import var, int32, list_, TTerm
 from hydra.dsl.python import Right
-from hydra.strip import deannotate_term
 
 from unialg.terms import _RecordView
 
@@ -20,18 +18,8 @@ def _eq_var(name: str) -> TTerm:
     return var(f"{_EQ_PREFIX}{name}")
 
 
-def _eq_name(term: core.Term) -> str | None:
-    if isinstance(term, core.TermVariable) and term.value.value.startswith(_EQ_PREFIX):
-        return term.value.value[len(_EQ_PREFIX):]
-    return None
-
-
-def _is_var(term: core.Term, name: str) -> bool:
-    return isinstance(term, core.TermVariable) and term.value.value == name
-
-
-def bind_composition(kind, name, var_name, body):
-    """Wrap a body term in a lambda and return (Name, lambda_term)."""
+def _bind(kind, name, var_name, body):
+    from hydra.dsl.meta.phantoms import lam
     if not isinstance(body, TTerm):
         body = TTerm(body)
     term = lam(var_name, body).value
@@ -39,107 +27,65 @@ def bind_composition(kind, name, var_name, body):
 
 
 class Composition(_RecordView):
-    PREFIX: str
 
-    @classmethod
-    def compile_entry(cls, term, native_fns, coder, backend) -> Callable | None:
-        comp = cls.extract(term)
-        if comp is None:
-            return None
-        return comp.resolve_and_compile(native_fns, coder, backend)
+    name = _RecordView.Scalar(str)
 
+    def to_lambda(self):
+        raise NotImplementedError
+
+    def resolve_and_compile(self, native_fns, coder, backend) -> Callable | None:
+        raise NotImplementedError
+
+
+# ---------------------------------------------------------------------------
+# Path
+# ---------------------------------------------------------------------------
 
 class PathComposition(Composition):
-    PREFIX = "ua.path."
-    LENS_PREFIX = "ua.lens."
-    RESIDUAL_PREFIX = "ua.prim.residual_add."
+    _type_name = core.Name("ua.composition.Path")
 
-    @staticmethod
-    def _extract_chain(body, lp):
-        steps = []
-        t = body
-        while True:
-            if isinstance(t, core.TermVariable) and t.value.value == lp:
-                return steps
-            args, head = gather_applications(t)
-            if not args or _eq_name(head) is None:
-                return None
-            params = list(args[:-1])
-            if not all(isinstance(p, core.TermLiteral) for p in params):
-                return None
-            steps.insert(0, (head.value, params))
-            t = args[-1]
+    name              = _RecordView.Scalar(str)
+    eq_names          = _RecordView.ScalarList(key="eqNames")
+    residual          = _RecordView.Scalar(bool, default=False)
+    residual_semiring = _RecordView.Scalar(str, default="", key="residualSemiring")
 
-    @staticmethod
-    def build(name, eq_names, params=None, residual=False, residual_semiring=None):
+    def __init__(self, name, eq_names, params=None, residual=False, residual_semiring=None):
         if not eq_names:
             raise ValueError(f"Path '{name}' must have at least one equation")
+        self._params = params
+        super().__init__(name=name, eq_names=eq_names,
+                         residual=residual, residual_semiring=residual_semiring or "")
+
+    def to_lambda(self):
         body: TTerm = var("x")
-        for eq_name in eq_names:
+        for eq_name in self.eq_names:
             fn: TTerm = _eq_var(eq_name)
-            if params and eq_name in params:
-                for p in params[eq_name]:
+            if self._params and eq_name in self._params:
+                for p in self._params[eq_name]:
                     fn = fn @ TTerm(p)
             body = fn @ body
-        if residual:
-            body = var(f"{PathComposition.RESIDUAL_PREFIX}{residual_semiring or 'default'}") @ body @ var("x")
-        return bind_composition("path", name, "x", body)
-
-    @staticmethod
-    def build_lens(name, fwd_eq_names, bwd_eq_names, params=None, has_residual=False):
-        if not fwd_eq_names:
-            raise ValueError(f"lens_path '{name}' must have at least one lens")
-        if has_residual and len(fwd_eq_names) > 1:
-            fwd = bind_composition("path", f"{name}.fwd", "x",
-                                   var("ua.prim.lens_fwd") @ list_([_eq_var(n) for n in fwd_eq_names]) @ var("x"))
-            bwd = bind_composition("path", f"{name}.bwd", "p",
-                                   var("ua.prim.lens_bwd") @ list_([_eq_var(n) for n in bwd_eq_names]) @ var("p"))
-            return fwd, bwd
-        fwd = PathComposition.build(f"{name}.fwd", fwd_eq_names, params)
-        bwd = PathComposition.build(f"{name}.bwd", list(reversed(bwd_eq_names)))
-        return fwd, bwd
-
-    @classmethod
-    def extract(cls, term):
-        if not isinstance(term, core.TermLambda):
-            return None
-        lp = term.value.parameter.value
-        args, head = gather_applications(term.value.body)
-        if (isinstance(head, core.TermVariable)
-                and head.value.value.startswith(PathComposition.RESIDUAL_PREFIX)
-                and len(args) == 2 and _is_var(args[1], lp)):
-            steps = PathComposition._extract_chain(args[0], lp)
-            if steps is not None:
-                obj = cls.__new__(cls)
-                obj._term = term
-                obj.steps = steps
-                obj.residual_prim = head.value
-                return obj
-        steps = PathComposition._extract_chain(term.value.body, lp)
-        if steps is None:
-            return None
-        obj = cls.__new__(cls)
-        obj._term = term
-        obj.steps = steps
-        obj.residual_prim = None
-        return obj
+        if self.residual:
+            sr = self.residual_semiring or "default"
+            body = var(f"ua.prim.residual_add.{sr}") @ body @ var("x")
+        return _bind("path", self.name, "x", body)
 
     def resolve_and_compile(self, native_fns, coder, backend):
         fns: list[Callable] = []
-        for eq_name, param_literals in self.steps:
-            fn = native_fns.get(eq_name)
+        for eq_name in self.eq_names:
+            fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{eq_name}"))
             if fn is None:
                 return None
-            if param_literals:
+            if self._params and eq_name in self._params:
                 decoded = []
-                for lit in param_literals:
+                for lit in self._params[eq_name]:
                     match coder.encode(None, None, lit):
                         case Right(value=arr): decoded.append(arr)
                         case _: return None
                 fn = partial(fn, *decoded)
             fns.append(fn)
-        if self.residual_prim is not None:
-            plus_fn = native_fns.get(self.residual_prim)
+        if self.residual:
+            sr = self.residual_semiring or "default"
+            plus_fn = native_fns.get(core.Name(f"ua.prim.residual_add.{sr}"))
             if plus_fn is None:
                 return None
             def compiled(x):
@@ -154,49 +100,40 @@ class PathComposition(Composition):
                 return x
         return backend.compile(compiled)
 
-
-class FanComposition(Composition):
-    PREFIX = "ua.fan."
-
     @staticmethod
-    def build(name, branch_names, merge_name):
-        if not branch_names:
-            raise ValueError(f"Fan '{name}' must have at least one branch")
-        body = _eq_var(merge_name) @ list_([_eq_var(b) @ var("x") for b in branch_names])
-        return bind_composition("fan", name, "x", body)
-
-    @staticmethod
-    def build_lens(name, fwd_branches, bwd_branches, merge_fwd, merge_bwd):
-        if not fwd_branches:
-            raise ValueError(f"lens_fan '{name}' must have at least one branch lens")
-        fwd = FanComposition.build(f"{name}.fwd", fwd_branches, merge_fwd)
-        bwd = FanComposition.build(f"{name}.bwd", bwd_branches, merge_bwd)
+    def build_lens(name, fwd_eq_names, bwd_eq_names, params=None, has_residual=False):
+        if not fwd_eq_names:
+            raise ValueError(f"lens_path '{name}' must have at least one lens")
+        if has_residual and len(fwd_eq_names) > 1:
+            fwd = _bind("path", f"{name}.fwd", "x",
+                         var("ua.prim.lens_fwd") @ list_([_eq_var(n) for n in fwd_eq_names]) @ var("x"))
+            bwd = _bind("path", f"{name}.bwd", "p",
+                         var("ua.prim.lens_bwd") @ list_([_eq_var(n) for n in bwd_eq_names]) @ var("p"))
+            return fwd, bwd
+        fwd = PathComposition(f"{name}.fwd", fwd_eq_names, params).to_lambda()
+        bwd = PathComposition(f"{name}.bwd", list(reversed(bwd_eq_names))).to_lambda()
         return fwd, bwd
 
-    @classmethod
-    def extract(cls, term):
-        if not isinstance(term, core.TermLambda):
-            return None
-        lp = term.value.parameter.value
-        body = term.value.body
-        if not isinstance(body, core.TermApplication):
-            return None
-        merge_name = _eq_name(body.value.function)
-        if merge_name is None or not isinstance(body.value.argument, core.TermList):
-            return None
-        branches = []
-        for b in body.value.argument.value:
-            if not isinstance(b, core.TermApplication):
-                return None
-            bname = _eq_name(b.value.function)
-            if bname is None or not _is_var(b.value.argument, lp):
-                return None
-            branches.append(bname)
-        obj = cls.__new__(cls)
-        obj._term = term
-        obj.merge_name = merge_name
-        obj.branches = branches
-        return obj
+
+# ---------------------------------------------------------------------------
+# Fan
+# ---------------------------------------------------------------------------
+
+class FanComposition(Composition):
+    _type_name = core.Name("ua.composition.Fan")
+
+    name       = _RecordView.Scalar(str)
+    merge_name = _RecordView.Scalar(str, key="mergeName")
+    branches   = _RecordView.ScalarList()
+
+    def __init__(self, name, branches, merge_name):
+        if not branches:
+            raise ValueError(f"Fan '{name}' must have at least one branch")
+        super().__init__(name=name, branches=branches, merge_name=merge_name)
+
+    def to_lambda(self):
+        body = _eq_var(self.merge_name) @ list_([_eq_var(b) @ var("x") for b in self.branches])
+        return _bind("fan", self.name, "x", body)
 
     def resolve_and_compile(self, native_fns, coder, backend):
         _eq = lambda name: native_fns.get(core.Name(f"{_EQ_PREFIX}{name}"))
@@ -206,99 +143,59 @@ class FanComposition(Composition):
             return None
         return backend.compile(lambda x: merge_fn([fn(x) for fn in branch_fns]))
 
+    @staticmethod
+    def build_lens(name, fwd_branches, bwd_branches, merge_fwd, merge_bwd):
+        if not fwd_branches:
+            raise ValueError(f"lens_fan '{name}' must have at least one branch lens")
+        fwd = FanComposition(f"{name}.fwd", fwd_branches, merge_fwd).to_lambda()
+        bwd = FanComposition(f"{name}.bwd", bwd_branches, merge_bwd).to_lambda()
+        return fwd, bwd
 
-class PrimComposition(Composition):
-    """λvar. prim @ eq_ref(s) @ literal(s) @ var — shared build/extract."""
-    PRIM_PREFIX: str
-    KIND: str
-    VAR_NAME: str
 
-    @classmethod
-    def build(cls, name, step_name, *extra):
-        body = cls._prim_term(*extra) @ _eq_var(step_name) @ cls._wrap_extra(*extra) @ var(cls.VAR_NAME)
-        return bind_composition(cls.KIND, name, cls.VAR_NAME, body)
+# ---------------------------------------------------------------------------
+# Fold
+# ---------------------------------------------------------------------------
 
-    @classmethod
-    def _prim_term(cls, *extra):
-        return var(cls.PRIM_PREFIX)
+class FoldComposition(Composition):
+    _type_name = core.Name("ua.composition.Fold")
 
-    @classmethod
-    def _wrap_extra(cls, *extra):
-        raise NotImplementedError
+    name      = _RecordView.Scalar(str)
+    step_name = _RecordView.Scalar(str, key="stepName")
+    init_term = _RecordView.Term(key="initTerm")
 
-    @classmethod
-    def extract(cls, term):
-        term = deannotate_term(term)
-        if not isinstance(term, core.TermLambda):
-            return None
-        args, head = gather_applications(term.value.body)
-        if not (isinstance(head, core.TermVariable) and head.value.value.startswith(cls.PRIM_PREFIX)):
-            return None
-        lp = term.value.parameter.value
-        if len(args) != 3 or not _is_var(args[-1], lp):
-            return None
-        obj = cls._parse(head.value.value, args[:-1])
-        if obj is None:
-            return None
-        obj._term = term
-        return obj
-
-    @classmethod
-    def _parse(cls, prim_name, args):
-        step = _eq_name(args[0])
-        if step is None or not isinstance(args[1], core.TermLiteral):
-            return None
-        obj = cls.__new__(cls)
-        obj.step_name = step
-        obj.extra = args[1]
-        return obj
+    def to_lambda(self):
+        body = var("hydra.lib.lists.foldl") @ _eq_var(self.step_name) @ TTerm(self.init_term) @ var("seq")
+        return _bind("fold", self.name, "seq", body)
 
     def resolve_and_compile(self, native_fns, coder, backend):
         step_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.step_name}"))
         if step_fn is None:
             return None
-        return self.compile(step_fn, native_fns, coder, backend)
-
-    def compile(self, step_fn, native_fns, coder, backend):
-        raise NotImplementedError
-
-
-class FoldComposition(PrimComposition):
-    PREFIX = "ua.fold."
-    PRIM_PREFIX = "hydra.lib.lists.foldl"
-    KIND = "fold"
-    VAR_NAME = "seq"
-
-    @classmethod
-    def _wrap_extra(cls, init_term): return TTerm(init_term)
-
-    def compile(self, step_fn, native_fns, coder, backend):
-        match coder.encode(None, None, self.extra):
+        match coder.encode(None, None, self.init_term):
             case Right(value=init): pass
             case _: return None
         return backend.compile(lambda seq: reduce(step_fn, seq, init))
 
 
-class UnfoldComposition(PrimComposition):
-    PREFIX = "ua.unfold."
-    PRIM_PREFIX = "ua.prim.unfold_n"
-    KIND = "unfold"
-    VAR_NAME = "state"
+# ---------------------------------------------------------------------------
+# Unfold
+# ---------------------------------------------------------------------------
 
-    @classmethod
-    def _parse(cls, prim_name, args):
-        step = _eq_name(args[0])
-        if step is None or not isinstance(args[1], core.TermLiteral):
+class UnfoldComposition(Composition):
+    _type_name = core.Name("ua.composition.Unfold")
+
+    name      = _RecordView.Scalar(str)
+    step_name = _RecordView.Scalar(str, key="stepName")
+    n         = _RecordView.Scalar(int, key="nSteps")
+
+    def to_lambda(self):
+        body = var("ua.prim.unfold_n") @ _eq_var(self.step_name) @ int32(self.n) @ var("state")
+        return _bind("unfold", self.name, "state", body)
+
+    def resolve_and_compile(self, native_fns, coder, backend):
+        step_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.step_name}"))
+        if step_fn is None:
             return None
-        obj = cls.__new__(cls)
-        obj.step_name = step
-        obj.n = int(cls._decode_scalar(args[1]))
-        return obj
-
-    @classmethod
-    def _wrap_extra(cls, n_steps): return int32(n_steps)
-
-    def compile(self, step_fn, native_fns, coder, backend):
         n = self.n
         def compiled(state):
             outs = []
@@ -308,40 +205,28 @@ class UnfoldComposition(PrimComposition):
         return backend.compile(compiled)
 
 
-class FixpointComposition(PrimComposition):
-    PREFIX = "ua.fixpoint."
-    PRIM_PREFIX = "ua.prim.fixpoint."
-    KIND = "fixpoint"
-    VAR_NAME = "state"
+# ---------------------------------------------------------------------------
+# Fixpoint
+# ---------------------------------------------------------------------------
 
-    @classmethod
-    def _prim_term(cls, predicate_name, epsilon, max_iter):
-        return var(f"{cls.PRIM_PREFIX}{epsilon}.{max_iter}")
+class FixpointComposition(Composition):
+    _type_name = core.Name("ua.composition.Fixpoint")
 
-    @classmethod
-    def _wrap_extra(cls, predicate_name, epsilon, max_iter):
-        return _eq_var(predicate_name)
+    name      = _RecordView.Scalar(str)
+    step_name = _RecordView.Scalar(str, key="stepName")
+    pred_name = _RecordView.Scalar(str, key="predName")
+    epsilon   = _RecordView.Scalar(float)
+    max_iter  = _RecordView.Scalar(int, key="maxIter")
 
-    @classmethod
-    def _parse(cls, prim_name, args):
-        step, pred = _eq_name(args[0]), _eq_name(args[1])
-        if step is None or pred is None:
-            return None
-        tail = prim_name[len(cls.PRIM_PREFIX):]
-        dot = tail.rfind(".")
-        try:
-            obj = cls.__new__(cls)
-            obj.step_name = step
-            obj.pred_name = pred
-            obj.epsilon = float(tail[:dot])
-            obj.max_iter = int(tail[dot + 1:])
-            return obj
-        except (ValueError, IndexError):
-            return None
+    def to_lambda(self):
+        prim = var(f"ua.prim.fixpoint.{self.epsilon}.{self.max_iter}")
+        body = prim @ _eq_var(self.step_name) @ _eq_var(self.pred_name) @ var("state")
+        return _bind("fixpoint", self.name, "state", body)
 
-    def compile(self, step_fn, native_fns, coder, backend):
+    def resolve_and_compile(self, native_fns, coder, backend):
+        step_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.step_name}"))
         pred_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.pred_name}"))
-        if not pred_fn:
+        if step_fn is None or pred_fn is None:
             return None
         epsilon, max_iter = self.epsilon, self.max_iter
         def cond_fn(c): return (pred_fn(c[0]) > epsilon) & (c[1] < max_iter)

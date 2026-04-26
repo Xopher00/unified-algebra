@@ -134,7 +134,7 @@ class PathSpec(Spec):
         return [(prim, fn)]
 
     def _compose(self) -> list:
-        return [self.COMPOSITION.build(self.name, self.eq_names, self.params,
+        return [self.COMPOSITION(self.name, self.eq_names, self.params,
                      residual=self.residual, residual_semiring=self.residual_semiring)]
 
 
@@ -169,7 +169,7 @@ class FanSpec(Spec):
         return cs
 
     def _compose(self) -> list:
-        return [self.COMPOSITION.build(self.name, self.branch_names, self.merge_name)]
+        return [self.COMPOSITION(self.name, self.branch_names, self.merge_name)]
 
 
 @dataclass
@@ -189,7 +189,7 @@ class FoldSpec(Spec):
             f"Fold step codomain != state sort")]
 
     def _compose(self) -> list:
-        return [self.COMPOSITION.build(self.name, self.step_name, self.init_term)]
+        return [self.COMPOSITION(self.name, self.step_name, self.init_term)]
 
 
 @dataclass
@@ -209,7 +209,7 @@ class UnfoldSpec(Spec):
         return [(unfold_n_primitive, None)]
 
     def _compose(self) -> list:
-        return [self.COMPOSITION.build(self.name, self.step_name, self.n_steps)]
+        return [self.COMPOSITION(self.name, self.step_name, self.n_steps)]
 
 
 @dataclass
@@ -297,4 +297,4 @@ class FixpointSpec(Spec):
         return [(fixpoint_primitive(self.epsilon, self.max_iter), None)]
 
     def _compose(self) -> list:
-        return [self.COMPOSITION.build(self.name, self.step_name, self.predicate_name, self.epsilon, self.max_iter)]
+        return [self.COMPOSITION(self.name, self.step_name, self.predicate_name, self.epsilon, self.max_iter)]

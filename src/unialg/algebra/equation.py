@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hydra.core as core
-from hydra.core import Name
-from hydra.dsl.meta.phantoms import record, string, list_, unit, TTerm
 
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -22,7 +20,7 @@ from typing import TYPE_CHECKING
 from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
 from hydra.graph import Primitive
 
-from unialg.terms import _RecordView, _ScalarField, _StringListField, _TermField
+from unialg.terms import _RecordView
 from unialg.algebra.sort import sort_wrap
 from unialg.algebra.semiring import Semiring
 from unialg.algebra.contraction import compile_einsum, contract_and_apply, contract_merge
@@ -71,53 +69,23 @@ class Equation(_RecordView):
 
     _type_name = core.Name("ua.equation.Equation")
 
-    name         = _ScalarField("name", str)
-    einsum       = _ScalarField("einsum", str)
-    nonlinearity = _ScalarField("nonlinearity", str)
-    _domain_sort_term  = _TermField("domainSort")
-    _codomain_sort_term = _TermField("codomainSort")
-
-    @property
-    def domain_sort(self):
-        return sort_wrap(self._domain_sort_term)
-
-    @property
-    def codomain_sort(self):
-        return sort_wrap(self._codomain_sort_term)
-    semiring      = _TermField("semiring", optional=True)
-    inputs       = _StringListField("inputs")
-    param_slots  = _StringListField("paramSlots")
-
-    def __init__(
-        self,
-        name: str,
-        einsum: str | None,
-        domain_sort: core.Term,
-        codomain_sort: core.Term,
-        semiring_term: core.Term | None = None,
-        nonlinearity: str | None = None,
-        inputs: tuple[str, ...] = (),
-        param_slots: tuple[str, ...] = (),
-    ):
-        super().__init__(record(self._type_name, [
-            Name("name") >> string(name),
-            Name("einsum") >> string(einsum or ""),
-            Name("domainSort") >> TTerm(self._unwrap(domain_sort)),
-            Name("codomainSort") >> TTerm(self._unwrap(codomain_sort)),
-            Name("semiring") >> (TTerm(self._unwrap(semiring_term)) if semiring_term is not None else unit()),
-            Name("nonlinearity") >> string(nonlinearity or ""),
-            Name("inputs") >> list_([string(n) for n in inputs]),
-            Name("paramSlots") >> list_([string(p) for p in param_slots]),
-        ]).value)
+    name          = _RecordView.Scalar(str)
+    einsum        = _RecordView.Scalar(str, default="")
+    domain_sort   = _RecordView.Term(key="domainSort", coerce=sort_wrap)
+    codomain_sort = _RecordView.Term(key="codomainSort", coerce=sort_wrap)
+    semiring      = _RecordView.Term(optional=True, coerce=Semiring.from_term)
+    nonlinearity  = _RecordView.Scalar(str, default="")
+    inputs        = _RecordView.ScalarList()
+    param_slots   = _RecordView.ScalarList(key="paramSlots")
 
     @property
     def semiring_name(self) -> str | None:
         sr = self.semiring
-        return Semiring.from_term(sr).name if sr is not None else None
+        return sr.name if sr is not None else None
 
     @staticmethod
     def resolve_semirings(semirings: dict, backend) -> dict:
-        return {name: Semiring.from_term(t).resolve(backend) for name, t in semirings.items()}
+        return {name: sr.resolve(backend) for name, sr in semirings.items()}
 
     @property
     def prim_name(self) -> core.Name:
@@ -157,7 +125,7 @@ class Equation(_RecordView):
         has_einsum = bool(einsum_str)
         has_nl = bool(self.nonlinearity)
         if has_einsum:
-            sr = Semiring.from_term(self.semiring).resolve(backend)
+            sr = self.semiring.resolve(backend)
             compiled = compile_einsum(einsum_str)
             n_inputs = len(compiled.input_vars)
         else:

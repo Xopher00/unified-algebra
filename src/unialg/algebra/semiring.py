@@ -14,10 +14,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import hydra.core as core
-from hydra.core import Name
-from hydra.dsl.meta.phantoms import record, string, float64
 
-from unialg.terms import _RecordView, _ScalarField
+from unialg.terms import _RecordView
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
@@ -43,14 +41,14 @@ class Semiring(_RecordView):
 
     _type_name = core.Name("ua.semiring.Semiring")
 
-    name     = _ScalarField("name", str)
-    plus     = _ScalarField("plus", str)
-    times    = _ScalarField("times", str)
-    zero     = _ScalarField("zero", float)
-    one      = _ScalarField("one", float)
-    residual = _ScalarField("residual", str, default="")
-    bottom   = _ScalarField("bottom", float, default=-10.0)
-    top      = _ScalarField("top", float, default=10.0)
+    name     = _RecordView.Scalar(str)
+    plus     = _RecordView.Scalar(str)
+    times    = _RecordView.Scalar(str)
+    zero     = _RecordView.Scalar(float)
+    one      = _RecordView.Scalar(float)
+    residual = _RecordView.Scalar(str, default="")
+    bottom   = _RecordView.Scalar(float, default=-10.0)
+    top      = _RecordView.Scalar(float, default=10.0)
 
     @dataclass(frozen=True, slots=True)
     class Resolved:
@@ -66,20 +64,6 @@ class Semiring(_RecordView):
         one: float
         residual_name: str | None = None
         residual_elementwise: object | None = None
-
-    def __init__(self, name: str, plus: str, times: str, zero: float, one: float,
-                 residual: str | None = None,
-                 bottom: float = -10.0, top: float = 10.0):
-        super().__init__(record(self._type_name, [
-            Name("name") >> string(name),
-            Name("plus") >> string(plus),
-            Name("times") >> string(times),
-            Name("zero") >> float64(zero),
-            Name("one") >> float64(one),
-            Name("residual") >> string(residual or ""),
-            Name("bottom") >> float64(bottom),
-            Name("top") >> float64(top),
-        ]).value)
 
     def _validation_samples(self, n: int = 5, seed: int = 42) -> list:
         """Draw n triplets uniformly from [bottom, top]."""

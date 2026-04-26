@@ -13,10 +13,9 @@ from typing import TYPE_CHECKING
 
 import hydra.core as core
 import hydra.graph
-from hydra.dsl.meta.phantoms import record, string, boolean, list_, TTerm
 from hydra.dsl.python import Nothing
 
-from unialg.terms import _RecordView, _ScalarField, _TermField, _TermListField
+from unialg.terms import _RecordView
 from unialg.algebra.semiring import Semiring
 from unialg.terms import tensor_coder
 
@@ -36,21 +35,13 @@ class Sort(_RecordView):
     """
 
     _type_name = core.Name("ua.sort.Sort")
-    name     = _ScalarField("name", str)
-    semiring = _TermField("semiring")
-    batched  = _ScalarField("batched", bool, default=False)
-
-    def __init__(self, name: str, semiring_term, batched: bool = False):
-        semiring_term = self._unwrap(semiring_term)
-        super().__init__(record(self._type_name, [
-            core.Name("name") >> string(name),
-            core.Name("semiring") >> TTerm(semiring_term),
-            core.Name("batched") >> boolean(batched),
-        ]).value)
+    name     = _RecordView.Scalar(str)
+    semiring = _RecordView.Term(coerce=Semiring.from_term)
+    batched  = _RecordView.Scalar(bool, default=False)
 
     @property
     def semiring_name(self) -> str:
-        return Semiring.from_term(self.semiring).name
+        return self.semiring.name
 
     @property
     def type_(self) -> core.Type:
@@ -86,19 +77,16 @@ class ProductSort(_RecordView):
     """
 
     _type_name = core.Name("ua.sort.Product")
-    elements = _TermListField("sorts")
+    elements = _RecordView.TermList(key="sorts", coerce=lambda t: sort_wrap(t))
 
-    def __init__(self, sorts: list):
-        if len(sorts) < 2:
+    def __init__(self, elements):
+        if len(elements) < 2:
             raise ValueError("Product sort requires at least 2 component sorts")
-        raw_sorts = [self._unwrap(s) for s in sorts]
-        super().__init__(record(self._type_name, [
-            core.Name("sorts") >> list_([TTerm(s) for s in raw_sorts]),
-        ]).value)
+        super().__init__(elements=elements)
 
     @property
     def type_(self) -> core.Type:
-        types = [Sort.from_term(e).type_ for e in self.elements]
+        types = [e.type_ for e in self.elements]
         result = types[-1]
         for t in reversed(types[:-1]):
             result = core.TypePair(core.PairType(first=t, second=result))
@@ -106,7 +94,7 @@ class ProductSort(_RecordView):
 
     def coder(self, backend):
         from hydra.dsl.prims import pair as pair_coder
-        coders = [Sort.from_term(e).coder(backend) for e in self.elements]
+        coders = [e.coder(backend) for e in self.elements]
         result = coders[-1]
         for c in reversed(coders[:-1]):
             result = pair_coder(c, result)
@@ -114,7 +102,7 @@ class ProductSort(_RecordView):
 
     def register_schema(self, schema: dict) -> None:
         for elem in self.elements:
-            sort_wrap(elem).register_schema(schema)
+            elem.register_schema(schema)
 
 
 _sort_cache: dict[int, "Sort | ProductSort"] = {}
@@ -147,6 +135,6 @@ def check_sort_compatibility(sort_a, sort_b) -> bool:
         if app.function == core.TypeVariable(core.Name("ua.batched")):
             app = app.argument.value
         return app.argument
-    return _semiring(Sort.from_term(sort_a).type_) == _semiring(Sort.from_term(sort_b).type_)
+    return _semiring(sort_a.type_) == _semiring(sort_b.type_)
 
 

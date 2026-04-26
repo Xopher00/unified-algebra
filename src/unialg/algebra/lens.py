@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import hydra.core as core
-from hydra.dsl.meta.phantoms import record, string, unit, TTerm
 
-from unialg.terms import _RecordView, _ScalarField, _TermField
+from unialg.terms import _RecordView
+from unialg.algebra.sort import sort_wrap
 
 
 class Lens(_RecordView):
@@ -21,15 +21,8 @@ class Lens(_RecordView):
 
     _type_name = core.Name("ua.lens.Lens")
 
-    name          = _ScalarField("name", str)
-    forward       = _ScalarField("forward", str)
-    backward      = _ScalarField("backward", str)
-    residual_sort = _TermField("residualSort", optional=True)
+    name          = _RecordView.Scalar(str)
+    forward       = _RecordView.Scalar(str)
+    backward      = _RecordView.Scalar(str)
+    residual_sort = _RecordView.Term(key="residualSort", optional=True, coerce=sort_wrap)
 
-    def __init__(self, name: str, forward: str, backward: str, residual_sort=None):
-        super().__init__(record(self._type_name, [
-            core.Name("name") >> string(name),
-            core.Name("forward") >> string(forward),
-            core.Name("backward") >> string(backward),
-            core.Name("residualSort") >> (TTerm(self._unwrap(residual_sort)) if residual_sort is not None else unit()),
-        ]).value)

@@ -7,11 +7,11 @@ from functools import partial, reduce
 
 import hydra.core as core
 from hydra.analysis import gather_applications
-from hydra.dsl.meta.phantoms import var, int32, list_, TTerm
+from hydra.dsl.meta.phantoms import var, lam, int32, list_, TTerm
 from hydra.dsl.python import Right
 from hydra.strip import deannotate_term
 
-from unialg.terms import bind_composition, literal_value
+from unialg.terms import _RecordView
 
 _EQ_PREFIX = "ua.equation."
 
@@ -30,21 +30,23 @@ def _is_var(term: core.Term, name: str) -> bool:
     return isinstance(term, core.TermVariable) and term.value.value == name
 
 
-def _decode_literal(lit, coder):
-    match coder.encode(None, None, lit):
-        case Right(value=arr): return arr
-    return None
+def bind_composition(kind, name, var_name, body):
+    """Wrap a body term in a lambda and return (Name, lambda_term)."""
+    if not isinstance(body, TTerm):
+        body = TTerm(body)
+    term = lam(var_name, body).value
+    return (core.Name(f"ua.{kind}.{name}"), term)
 
 
-class Composition:
+class Composition(_RecordView):
     PREFIX: str
 
     @classmethod
     def compile_entry(cls, term, native_fns, coder, backend) -> Callable | None:
-        extracted = cls.extract(term)
-        if extracted is None:
+        comp = cls.extract(term)
+        if comp is None:
             return None
-        return cls._resolve_and_compile(extracted, native_fns, coder, backend)
+        return comp.resolve_and_compile(native_fns, coder, backend)
 
 
 class PathComposition(Composition):
@@ -97,8 +99,8 @@ class PathComposition(Composition):
         bwd = PathComposition.build(f"{name}.bwd", list(reversed(bwd_eq_names)))
         return fwd, bwd
 
-    @staticmethod
-    def extract(term):
+    @classmethod
+    def extract(cls, term):
         if not isinstance(term, core.TermLambda):
             return None
         lp = term.value.parameter.value
@@ -108,29 +110,36 @@ class PathComposition(Composition):
                 and len(args) == 2 and _is_var(args[1], lp)):
             steps = PathComposition._extract_chain(args[0], lp)
             if steps is not None:
-                return steps, head.value
+                obj = cls.__new__(cls)
+                obj._term = term
+                obj.steps = steps
+                obj.residual_prim = head.value
+                return obj
         steps = PathComposition._extract_chain(term.value.body, lp)
-        return (steps, None) if steps is not None else None
+        if steps is None:
+            return None
+        obj = cls.__new__(cls)
+        obj._term = term
+        obj.steps = steps
+        obj.residual_prim = None
+        return obj
 
-    @classmethod
-    def _resolve_and_compile(cls, extracted, native_fns, coder, backend):
-        steps, residual_prim = extracted
+    def resolve_and_compile(self, native_fns, coder, backend):
         fns: list[Callable] = []
-        for eq_name, param_literals in steps:
+        for eq_name, param_literals in self.steps:
             fn = native_fns.get(eq_name)
             if fn is None:
                 return None
             if param_literals:
                 decoded = []
                 for lit in param_literals:
-                    arr = _decode_literal(lit, coder)
-                    if arr is None:
-                        return None
-                    decoded.append(arr)
+                    match coder.encode(None, None, lit):
+                        case Right(value=arr): decoded.append(arr)
+                        case _: return None
                 fn = partial(fn, *decoded)
             fns.append(fn)
-        if residual_prim is not None:
-            plus_fn = native_fns.get(residual_prim)
+        if self.residual_prim is not None:
+            plus_fn = native_fns.get(self.residual_prim)
             if plus_fn is None:
                 return None
             def compiled(x):
@@ -164,8 +173,8 @@ class FanComposition(Composition):
         bwd = FanComposition.build(f"{name}.bwd", bwd_branches, merge_bwd)
         return fwd, bwd
 
-    @staticmethod
-    def extract(term):
+    @classmethod
+    def extract(cls, term):
         if not isinstance(term, core.TermLambda):
             return None
         lp = term.value.parameter.value
@@ -183,13 +192,16 @@ class FanComposition(Composition):
             if bname is None or not _is_var(b.value.argument, lp):
                 return None
             branches.append(bname)
-        return merge_name, branches
+        obj = cls.__new__(cls)
+        obj._term = term
+        obj.merge_name = merge_name
+        obj.branches = branches
+        return obj
 
-    @classmethod
-    def _resolve_and_compile(cls, extracted, native_fns, coder, backend):
+    def resolve_and_compile(self, native_fns, coder, backend):
         _eq = lambda name: native_fns.get(core.Name(f"{_EQ_PREFIX}{name}"))
-        merge_fn = _eq(extracted[0])
-        branch_fns = [_eq(b) for b in extracted[1]]
+        merge_fn = _eq(self.merge_name)
+        branch_fns = [_eq(b) for b in self.branches]
         if merge_fn is None or not all(branch_fns):
             return None
         return backend.compile(lambda x: merge_fn([fn(x) for fn in branch_fns]))
@@ -225,24 +237,29 @@ class PrimComposition(Composition):
         lp = term.value.parameter.value
         if len(args) != 3 or not _is_var(args[-1], lp):
             return None
-        return cls._parse_args(head.value.value, args[:-1])
+        obj = cls._parse(head.value.value, args[:-1])
+        if obj is None:
+            return None
+        obj._term = term
+        return obj
 
     @classmethod
-    def _parse_args(cls, prim_name, args):
+    def _parse(cls, prim_name, args):
         step = _eq_name(args[0])
         if step is None or not isinstance(args[1], core.TermLiteral):
             return None
-        return step, args[1]
+        obj = cls.__new__(cls)
+        obj.step_name = step
+        obj.extra = args[1]
+        return obj
 
-    @classmethod
-    def _resolve_and_compile(cls, extracted, native_fns, coder, backend):
-        step_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{extracted[0]}"))
+    def resolve_and_compile(self, native_fns, coder, backend):
+        step_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.step_name}"))
         if step_fn is None:
             return None
-        return cls._compile(step_fn, extracted, native_fns, coder, backend)
+        return self.compile(step_fn, native_fns, coder, backend)
 
-    @classmethod
-    def _compile(cls, step_fn, extracted, native_fns, coder, backend):
+    def compile(self, step_fn, native_fns, coder, backend):
         raise NotImplementedError
 
 
@@ -255,11 +272,10 @@ class FoldComposition(PrimComposition):
     @classmethod
     def _wrap_extra(cls, init_term): return TTerm(init_term)
 
-    @classmethod
-    def _compile(cls, step_fn, extracted, native_fns, coder, backend):
-        init = _decode_literal(extracted[1], coder)
-        if init is None:
-            return None
+    def compile(self, step_fn, native_fns, coder, backend):
+        match coder.encode(None, None, self.extra):
+            case Right(value=init): pass
+            case _: return None
         return backend.compile(lambda seq: reduce(step_fn, seq, init))
 
 
@@ -270,11 +286,20 @@ class UnfoldComposition(PrimComposition):
     VAR_NAME = "state"
 
     @classmethod
-    def _wrap_extra(cls, n_steps): return int32(n_steps)
+    def _parse(cls, prim_name, args):
+        step = _eq_name(args[0])
+        if step is None or not isinstance(args[1], core.TermLiteral):
+            return None
+        obj = cls.__new__(cls)
+        obj.step_name = step
+        obj.n = int(cls._decode_scalar(args[1]))
+        return obj
 
     @classmethod
-    def _compile(cls, step_fn, extracted, native_fns, coder, backend):
-        n = int(literal_value(extracted[1]))
+    def _wrap_extra(cls, n_steps): return int32(n_steps)
+
+    def compile(self, step_fn, native_fns, coder, backend):
+        n = self.n
         def compiled(state):
             outs = []
             for _ in range(n):
@@ -298,23 +323,27 @@ class FixpointComposition(PrimComposition):
         return _eq_var(predicate_name)
 
     @classmethod
-    def _parse_args(cls, prim_name, args):
+    def _parse(cls, prim_name, args):
         step, pred = _eq_name(args[0]), _eq_name(args[1])
         if step is None or pred is None:
             return None
         tail = prim_name[len(cls.PRIM_PREFIX):]
         dot = tail.rfind(".")
         try:
-            return step, pred, float(tail[:dot]), int(tail[dot + 1:])
+            obj = cls.__new__(cls)
+            obj.step_name = step
+            obj.pred_name = pred
+            obj.epsilon = float(tail[:dot])
+            obj.max_iter = int(tail[dot + 1:])
+            return obj
         except (ValueError, IndexError):
             return None
 
-    @classmethod
-    def _compile(cls, step_fn, extracted, native_fns, coder, backend):
-        pred_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{extracted[1]}"))
+    def compile(self, step_fn, native_fns, coder, backend):
+        pred_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.pred_name}"))
         if not pred_fn:
             return None
-        epsilon, max_iter = extracted[2], extracted[3]
+        epsilon, max_iter = self.epsilon, self.max_iter
         def cond_fn(c): return (pred_fn(c[0]) > epsilon) & (c[1] < max_iter)
         def body_fn(c): return step_fn(c[0]), c[1] + 1
         return backend.compile(lambda init: backend.while_loop(cond_fn, body_fn, (init, 0)))

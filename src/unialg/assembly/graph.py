@@ -1,67 +1,124 @@
-"""DAG validation and graph assembly for equation sets.
-
-Handles topological ordering, sort/rank junction checking, and
-Hydra Graph construction from resolved equations.
-"""
+"""Graph assembly: equation resolution, validation, composition, and Hydra Graph construction."""
 
 from __future__ import annotations
 
 import dataclasses
+from collections import deque
 from typing import TYPE_CHECKING
 
 import hydra.core as core
 import hydra.graph
 from hydra.dsl.python import FrozenDict, Nothing
 from hydra.lexical import empty_graph
+from hydra.sources.libraries import standard_library
+from hydra.typing import TypeConstraint
 import hydra.substitution as subst
 import hydra.typing
 
-import unialg.assembly.specs as sp
 from unialg.algebra.equation import Equation
-from unialg.algebra.sort import sort_wrap
-from unialg.assembly.pipeline import EquationPipeline
+from unialg.terms import unify_or_raise
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
 
 
-def _build_compositions(
-    specs: list,
-    eq_by_name: dict[str, core.Term],
-    primitives: dict,
-    native_fns: dict,
-    bound_terms: dict,
-    schema_types,
-    **kwargs,
-) -> None:
-    """Validate and build all composition specs. Mutates primitives, native_fns, and bound_terms."""
+def topo_edges(equations: list) -> list:
+    """Return (upstream, downstream, slot) triples in topological order."""
+    by_name = {eq.name: eq for eq in equations}
+    edges, in_degree, children = [], {eq.name: 0 for eq in equations}, {eq.name: [] for eq in equations}
+    for eq in equations:
+        for slot, inp in enumerate(eq.inputs):
+            if inp in by_name:
+                edges.append((by_name[inp], eq, slot))
+                children[inp].append(eq.name)
+                in_degree[eq.name] += 1
+    queue = deque(n for n, d in in_degree.items() if d == 0)
+    order = []
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for child in children[node]:
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+    if len(order) != len(equations):
+        raise ValueError("Cycle detected in equation DAG")
+    return edges
+
+
+def _build_schema(equations: list) -> FrozenDict:
+    schema: dict = {}
+    for eq in equations:
+        eq.register_sorts(schema)
+    return FrozenDict(schema)
+
+
+def validate_pipeline(equations: list, schema_types=None) -> None:
+    """Check sort and rank junctions across all equations."""
+    if schema_types is None:
+        schema_types = _build_schema(equations)
+    cs = []
+    for u, d, slot in topo_edges(equations):
+        cs.append(TypeConstraint(
+            u.codomain_sort.type_,
+            d.domain_sort.type_,
+            f"'{u.name}' codomain != '{d.name}' domain",
+        ))
+        out_rank = u.output_rank
+        in_rank = d.input_rank(slot)
+        if out_rank is not None and in_rank is not None and out_rank != in_rank:
+            raise TypeError(
+                f"Rank mismatch: '{u.name}' output rank {out_rank} != "
+                f"'{d.name}' input rank {in_rank} at slot {slot}")
+    unify_or_raise(cs, schema_types)
+
+
+def _resolve_equations(eq_terms, backend, merge_names, semirings):
+    """Parse, dedupe, and resolve equations. Returns (eq_by_name, primitives, native_fns, resolved_semirings, coder, schema_types)."""
+    eq_by_name: dict[str, Equation] = {}
+    for i, t in enumerate(eq_terms):
+        eq = Equation.from_term(t)
+        if eq.name in eq_by_name:
+            raise ValueError(f"Duplicate equation name '{eq.name}' (positions {list(eq_by_name).index(eq.name)} and {i})")
+        eq_by_name[eq.name] = eq
+
+    primitives: dict = dict(standard_library())
+    native_fns: dict = {}
+    coder = None
+    resolved_semirings = Equation.resolve_semirings(semirings, backend) if semirings else {}
+
+    schema: dict = {}
+    for eq in eq_by_name.values():
+        eq.register_sorts(schema)
+        prim, native_fn, sr, eq_coder = eq.resolve_as_merge(backend) if eq.name in merge_names else eq.resolve(backend)
+        sr_name = eq.semiring_name
+        if sr_name and sr is not None:
+            resolved_semirings.setdefault(sr_name, sr)
+        if coder is None:
+            coder = eq_coder
+        primitives[prim.name] = prim
+        native_fns[prim.name] = native_fn
+
+    return eq_by_name, primitives, native_fns, resolved_semirings, coder, schema
+
+
+def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, schema_types, coder, backend, **kwargs):
+    compiled_fns = {}
     for spec in specs:
         spec.validate(eq_by_name, schema_types)
-        for name, term in spec.build(primitives, native_fns, **kwargs):
+        for name, term in spec.build(primitives, native_fns, coder=coder, **kwargs):
             bound_terms[name] = term
+            fn = spec.COMPOSITION.compile_entry(term, native_fns, coder, backend)
+            if fn is not None:
+                compiled_fns[spec.name] = fn
+    return compiled_fns
 
 
-# ---------------------------------------------------------------------------
-# Graph construction
-# ---------------------------------------------------------------------------
-
-def build_graph(
-    sort_terms: list[core.Term],
-    primitives: dict | None = None,
-    bound_terms: dict | None = None,
-) -> hydra.graph.Graph:
-    """Assemble a Hydra Graph with sorts registered as schema_types.
-
-    Args:
-        sort_terms:  list of sort record terms (from sort())
-        primitives:  optional dict of Name -> Primitive (for Phase 3+)
-        bound_terms: optional dict of Name -> Term
-    """
+def build_graph(sort_terms, primitives=None, bound_terms=None):
     tensor_name = core.Name("ua.tensor.NDArray")
     schema = {tensor_name: core.TypeScheme((), core.TypeVariable(tensor_name), Nothing())}
-    # Register each sort's structural component names so sort_type_from_term results are ground.
     for st in sort_terms:
-        sort_wrap(st).register_schema(schema)
+        st.register_schema(schema)
     return dataclasses.replace(
         empty_graph(),
         bound_terms=FrozenDict(bound_terms or {}),
@@ -69,10 +126,6 @@ def build_graph(
         schema_types=FrozenDict(schema),
     )
 
-
-# ---------------------------------------------------------------------------
-# Public orchestrator
-# ---------------------------------------------------------------------------
 
 def assemble_graph(
     eq_terms: list[core.Term],
@@ -82,64 +135,46 @@ def assemble_graph(
     hyperparams: dict[str, core.Term] | None = None,
     lenses: list[core.Term] | None = None,
     semirings: dict[str, core.Term] | None = None,
-) -> tuple[hydra.graph.Graph, dict]:
-    """Resolve equation terms and assemble a Hydra Graph.
-
-    Args:
-        eq_terms:     list of equation record terms
-        backend:      Backend providing op implementations
-        extra_sorts:  additional sort terms to register
-        specs:        list of composition specs (PathSpec, FanSpec, FoldSpec,
-                      UnfoldSpec, LensPathSpec, FixpointSpec)
-        hyperparams:  dict of param_name → scalar Term
-        lenses:       list of lens record terms (from lens())
-        semirings:    optional dict of semiring_name → semiring Term, used
-                      as fallback when a residual path's semiring is not
-                      referenced by any equation
-    """
+) -> tuple[hydra.graph.Graph, dict, dict]:
+    """Resolve equations, assemble a Hydra Graph, and compile compositions."""
     all_specs = list(specs or [])
-    merge_names: set[str] = {spec.merge_name for spec in all_specs if isinstance(spec, sp.FanSpec)}
+    merge_names = {spec.merge_name for spec in all_specs if hasattr(spec, 'merge_name')}
 
-    pipeline = EquationPipeline(eq_terms, backend, merge_names, semirings=semirings)
+    eq_by_name, primitives, native_fns, resolved_semirings, coder, schema = \
+        _resolve_equations(eq_terms, backend, merge_names, semirings)
+
+    for st in (extra_sorts or []):
+        if st is not None:
+            st.register_schema(schema)
+    schema_types = FrozenDict(schema)
+    validate_pipeline(list(eq_by_name.values()), schema_types)
 
     bound_terms: dict[core.Name, core.Term] = {}
     if hyperparams:
         for param_name, param_term in hyperparams.items():
             bound_terms[core.Name(f"ua.param.{param_name}")] = param_term
 
-    _build_compositions(all_specs, pipeline.eq_by_name, pipeline.primitives,
-                        pipeline.native_fns, bound_terms, pipeline.schema_types,
-                        resolved_semirings=pipeline.resolved_semirings, coder=pipeline.coder)
+    compiled_fns = _build_compositions(
+        all_specs, eq_by_name, primitives, native_fns, bound_terms, schema_types,
+        coder=coder, backend=backend, resolved_semirings=resolved_semirings)
+
+    for eq_name in eq_by_name:
+        fn = native_fns.get(core.Name(f"ua.equation.{eq_name}"))
+        if fn is not None:
+            compiled_fns[eq_name] = fn
 
     seen_sorts: dict[str, core.Term] = {}
-    for eq in pipeline.eq_by_name.values():
+    for eq in eq_by_name.values():
         for st in (eq.domain_sort, eq.codomain_sort):
-            seen_sorts.setdefault(str(sort_wrap(st).type_), st)
-    all_sorts = list(seen_sorts.values()) + list(extra_sorts or [])
-    graph = build_graph(all_sorts, primitives=pipeline.primitives, bound_terms=bound_terms)
-    return graph, pipeline.native_fns
+            seen_sorts.setdefault(str(st.type_), st)
+    graph = build_graph(list(seen_sorts.values()) + list(extra_sorts or []),
+                        primitives=primitives, bound_terms=bound_terms)
+    return graph, native_fns, compiled_fns
 
 
-# ---------------------------------------------------------------------------
-# Hyperparameter rebinding
-# ---------------------------------------------------------------------------
-
-def rebind_hyperparams(
-    graph: hydra.graph.Graph,
-    updates: dict[str, core.Term],
-) -> hydra.graph.Graph:
-    """Return a new Graph with hyperparameters substituted into term bodies.
-
-    Uses Hydra's structural substitution to replace var("ua.param.X")
-    references directly inside lambda bodies, respecting variable scoping.
-
-    Args:
-        graph:   existing Hydra Graph
-        updates: dict of param_name → new scalar Term
-                 (keys without "ua.param." prefix — it's added automatically)
-    """
+def rebind_hyperparams(graph, updates):
     param_updates = {core.Name(f"ua.param.{k}"): v for k, v in updates.items()}
     ts = hydra.typing.TermSubst(FrozenDict(param_updates))
     new_terms = {name: subst.substitute_in_term(ts, term) for name, term in graph.bound_terms.items()}
-    new_terms.update(param_updates)  # also bind the params themselves
+    new_terms.update(param_updates)
     return dataclasses.replace(graph, bound_terms=FrozenDict(new_terms))

@@ -6,9 +6,9 @@ import pytest
 from unialg import (
     compile_program, Program,
     Semiring, Sort, Equation, NumpyBackend, tensor_coder,
-    path, fan,
     PathSpec, FanSpec, FoldSpec,
 )
+from unialg.assembly.compositions import PathComposition, FanComposition
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ class TestSingleEquation:
         from unialg import assemble_graph
 
         eq = Equation("t1_relu", None, hidden, hidden, nonlinearity="relu")
-        graph, _ = assemble_graph([eq], backend)
+        graph, *_ = assemble_graph([eq], backend)
         cx = Context(trace=(), messages=(), other=FrozenDict({}))
 
         x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])

@@ -36,11 +36,10 @@ from hydra.reduction import reduce_term
 from unialg import (
     NumpyBackend, Semiring, Sort, tensor_coder,
     Equation,
-    fold, unfold,
     build_graph, assemble_graph,
     FoldSpec, UnfoldSpec,
-    resolve_equation,
 )
+from unialg.assembly.compositions import FoldComposition, UnfoldComposition
 from unialg.assembly import unfold_n_primitive
 
 
@@ -114,6 +113,16 @@ def make_graph_with_stdlib(primitives=None, bound_terms=None):
     return build_graph([], primitives=all_prims, bound_terms=bound_terms)
 
 
+def _schema(eq_by_name, extra_sorts=()):
+    from unialg.algebra.sort import sort_wrap
+    schema = {}
+    for eq in eq_by_name.values():
+        eq.register_sorts(schema)
+    for s in extra_sorts:
+        sort_wrap(s).register_schema(schema)
+    return FrozenDict(schema)
+
+
 # ---------------------------------------------------------------------------
 # TestRNN
 # ---------------------------------------------------------------------------
@@ -131,7 +140,7 @@ class TestRNN:
             "rnn_fold_step", "i,i->i", hidden, hidden, real_sr,
             nonlinearity="tanh",
         )
-        prim_fold, _ = resolve_equation(eq_fold_step, backend)
+        prim_fold, *_ = eq_fold_step.resolve(backend)
         assert prim_fold.name == core.Name("ua.equation.rnn_fold_step")
 
         # Unfold step: h -> tanh(h)
@@ -139,16 +148,16 @@ class TestRNN:
             "rnn_unfold_step", None, hidden, hidden,
             nonlinearity="tanh",
         )
-        prim_unfold, _ = resolve_equation(eq_unfold_step, backend)
+        prim_unfold, *_ = eq_unfold_step.resolve(backend)
         assert prim_unfold.name == core.Name("ua.equation.rnn_unfold_step")
 
         # Fold and unfold lambdas build without error
         init = encode_array(coder, np.zeros(4))
-        f_name, f_term = fold("rnn", "rnn_fold_step", init)
+        f_name, f_term = FoldComposition.build("rnn", "rnn_fold_step", init)
         assert f_name == core.Name("ua.fold.rnn")
         assert isinstance(f_term.value, core.Lambda)
 
-        u_name, u_term = unfold("rnn_echo", "rnn_unfold_step", 3)
+        u_name, u_term = UnfoldComposition.build("rnn_echo", "rnn_unfold_step", 3)
         assert u_name == core.Name("ua.unfold.rnn_echo")
         assert isinstance(u_term.value, core.Lambda)
 
@@ -159,7 +168,8 @@ class TestRNN:
             nonlinearity="tanh",
         )
         # Should not raise
-        FoldSpec("rnn_v", "fold_step_v", None, hidden, hidden).validate({"fold_step_v": eq_step})
+        ebn = {"fold_step_v": eq_step}
+        FoldSpec("rnn_v", "fold_step_v", None, hidden, hidden).validate(ebn, _schema(ebn))
 
     def test_rnn_step_validate_unfold_spec(self, real_sr, hidden):
         """UnfoldSpec validation passes for a pure-nonlinearity RNN step."""
@@ -167,7 +177,8 @@ class TestRNN:
             "unfold_step_v", None, hidden, hidden,
             nonlinearity="tanh",
         )
-        UnfoldSpec("rnn_echo_v", "unfold_step_v", 3, hidden, hidden).validate({"unfold_step_v": eq_step})
+        ebn = {"unfold_step_v": eq_step}
+        UnfoldSpec("rnn_echo_v", "unfold_step_v", 3, hidden, hidden).validate(ebn, _schema(ebn))
 
     # ------------------------------------------------------------------
     # 2. Unfold produces a sequence of states
@@ -183,9 +194,9 @@ class TestRNN:
             "echo_step", None, hidden, hidden,
             nonlinearity="tanh",
         )
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
-        u_name, u_term = unfold("echo3", "echo_step", 3)
+        u_name, u_term = UnfoldComposition.build("echo3", "echo_step", 3)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_n_primitive.name: unfold_n_primitive},
@@ -222,12 +233,12 @@ class TestRNN:
             "elman_step", "i,i->i", hidden, hidden, real_sr,
             nonlinearity="tanh",
         )
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         h0 = np.ones(3)
         init_term = encode_array(coder, h0)
 
-        f_name, f_term = fold("elman", "elman_step", init_term)
+        f_name, f_term = FoldComposition.build("elman", "elman_step", init_term)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -275,10 +286,10 @@ class TestRNN:
             "tied_step", None, hidden, hidden,
             nonlinearity="relu",
         )
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         n_steps = 4
-        u_name, u_term = unfold("tied_rnn", "tied_step", n_steps)
+        u_name, u_term = UnfoldComposition.build("tied_rnn", "tied_step", n_steps)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_n_primitive.name: unfold_n_primitive},
@@ -319,11 +330,11 @@ class TestRNN:
         eq_step = Equation(
             "tied_fold_step", "i,i->i", hidden, hidden, real_sr,
         )
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
-        f_name, f_term = fold("tied_fold", "tied_fold_step", init_term)
+        f_name, f_term = FoldComposition.build("tied_fold", "tied_fold_step", init_term)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -374,10 +385,10 @@ class TestRNN:
             "trop_echo_step", None, hidden_trop, hidden_trop,
             nonlinearity="tanh",
         )
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         n_steps = 3
-        u_name, u_term = unfold("trop_echo", "trop_echo_step", n_steps)
+        u_name, u_term = UnfoldComposition.build("trop_echo", "trop_echo_step", n_steps)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_n_primitive.name: unfold_n_primitive},
@@ -413,12 +424,12 @@ class TestRNN:
         eq_step = Equation(
             "trop_step", "i,i->i", hidden_trop, hidden_trop, tropical_sr,
         )
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         h0 = np.array([0.0, 0.0, 0.0])
         init_term = encode_array(coder, h0)
 
-        f_name, f_term = fold("trop_rnn", "trop_step", init_term)
+        f_name, f_term = FoldComposition.build("trop_rnn", "trop_step", init_term)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -461,19 +472,19 @@ class TestRNN:
         """
         # Real fold: h_t = h_{t-1} * x_t
         eq_real = Equation("poly_real_step", "i,i->i", hidden, hidden, real_sr)
-        prim_real, _ = resolve_equation(eq_real, backend)
+        prim_real, *_ = eq_real.resolve(backend)
 
         h0_real = np.array([1.0, 1.0, 1.0])
         init_real = encode_array(coder, h0_real)
-        r_name, r_term = fold("poly_real", "poly_real_step", init_real)
+        r_name, r_term = FoldComposition.build("poly_real", "poly_real_step", init_real)
 
         # Tropical fold: h_t = h_{t-1} + x_t
         eq_trop = Equation("poly_trop_step", "i,i->i", hidden_trop, hidden_trop, tropical_sr)
-        prim_trop, _ = resolve_equation(eq_trop, backend)
+        prim_trop, *_ = eq_trop.resolve(backend)
 
         h0_trop = np.array([0.0, 0.0, 0.0])
         init_trop = encode_array(coder, h0_trop)
-        t_name, t_term = fold("poly_trop", "poly_trop_step", init_trop)
+        t_name, t_term = FoldComposition.build("poly_trop", "poly_trop_step", init_trop)
 
         graph = make_graph_with_stdlib(
             primitives={
@@ -515,7 +526,7 @@ class TestRNN:
         )
         h0 = encode_array(coder, np.ones(3))
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_step], backend,
             specs=[FoldSpec("asm_elman", "asm_elman_step", h0, hidden, hidden)],
         )
@@ -541,7 +552,7 @@ class TestRNN:
             nonlinearity="tanh",
         )
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_step], backend,
             specs=[UnfoldSpec("asm_echo", "asm_echo_step", 3, hidden, hidden)],
         )

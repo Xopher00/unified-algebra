@@ -19,15 +19,14 @@ from __future__ import annotations
 import hydra.core as core
 import hydra.graph as gr
 from hydra.checking import type_of_term
-from hydra.context import Context
-from hydra.dsl.python import FrozenDict, Just, Node, Right, Left
+from hydra.dsl.python import Just, Left, Node, Right
 from hydra.dsl.terms import apply, var
 from hydra.lexical import lookup_primitive, lookup_term
 from hydra.reduction import reduce_term
 
 import unialg.algebra as alg
 from unialg.assembly.graph import assemble_graph, rebind_hyperparams
-from unialg.runtime.compiler import compile_graph
+from unialg.terms import EMPTY_CX
 
 
 # ---------------------------------------------------------------------------
@@ -44,8 +43,7 @@ def type_check_term(
     Uses Hydra's own type checker (hydra.checking.type_of_term).
     Raises TypeError with a descriptive message on failure.
     """
-    cx = Context(trace=(), messages=(), other=FrozenDict({}))
-    result = type_of_term(cx, graph, term)
+    result = type_of_term(EMPTY_CX, graph, term)
     match result:
         case Left(value=err):
             raise TypeError(f"Hydra type error in {label}: {err}")
@@ -236,7 +234,7 @@ def compile_program(
     This is the single entry point for converting DSL terms into a callable.
     Parser output (future) and hand-written Python both flow through here.
     """
-    graph, native_fns = assemble_graph(
+    graph, native_fns, compiled_fns = assemble_graph(
         equations,
         backend,
         specs=specs,
@@ -246,6 +244,4 @@ def compile_program(
         semirings=semirings,
     )
     coder = alg.tensor_coder(backend)
-    compiled_fns = compile_graph(graph, native_fns, coder, backend=backend)
-    cx = Context(trace=(), messages=(), other=FrozenDict({}))
-    return Program(graph, backend, coder, cx, compiled_fns=compiled_fns)
+    return Program(graph, backend, coder, EMPTY_CX, compiled_fns=compiled_fns)

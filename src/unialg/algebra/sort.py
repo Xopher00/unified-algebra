@@ -117,13 +117,22 @@ class ProductSort(_RecordView):
             sort_wrap(elem).register_schema(schema)
 
 
+_sort_cache: dict[int, "Sort | ProductSort"] = {}
+
 def sort_wrap(term) -> "Sort | ProductSort":
     """Return Sort or ProductSort wrapper for a raw sort term."""
     if isinstance(term, _RecordView):
-        term = term._term
+        return term
+    key = id(term)
+    cached = _sort_cache.get(key)
+    if cached is not None and cached._term is term:
+        return cached
     if term.value.type_name == ProductSort._type_name:
-        return ProductSort.from_term(term)
-    return Sort.from_term(term)
+        result = ProductSort.from_term(term)
+    else:
+        result = Sort.from_term(term)
+    _sort_cache[key] = result
+    return result
 
 
 # ---------------------------------------------------------------------------

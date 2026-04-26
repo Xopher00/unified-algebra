@@ -9,21 +9,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from hydra.context import Context
-from hydra.dsl.python import FrozenDict, Left
+from hydra.dsl.python import FrozenDict
 from hydra.typing import TypeConstraint
-from hydra.unification import unify_type_constraints
 
-import unialg.algebra as alg
-from unialg.algebra.equation import Equation
-from unialg.algebra.sort import sort_wrap
-from unialg.assembly._composition import path, fan, fold, unfold, fixpoint, lens_path, lens_fan
+from unialg.terms import unify_or_raise
+from unialg.assembly.compositions import (
+    PathComposition, FanComposition, FoldComposition, UnfoldComposition, FixpointComposition,
+)
 from unialg.assembly._primitives import (
     unfold_n_primitive, fixpoint_primitive,
     lens_fwd_primitive, lens_bwd_primitive, residual_add_primitive,
 )
-
-_CX = Context(trace=(), messages=(), other=FrozenDict({}))
 
 
 # ---------------------------------------------------------------------------
@@ -42,21 +38,10 @@ class Spec:
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         raise NotImplementedError
 
-    def validate(self, eq_by_name: dict, schema_types=None) -> None:
+    def validate(self, eq_by_name: dict, schema_types) -> None:
         cs = self.constraints(eq_by_name)
-        if not cs:
-            return
-        if schema_types is None:
-            schema: dict = {}
-            for v in eq_by_name.values():
-                Equation.from_term(v).register_sorts(schema)
-            for st in self.sort_terms():
-                sort_wrap(st).register_schema(schema)
-            schema_types = FrozenDict(schema)
         if cs:
-            result = unify_type_constraints(_CX, schema_types if isinstance(schema_types, FrozenDict) else FrozenDict(schema_types), tuple(cs))
-            if isinstance(result, Left):
-                raise TypeError(result.value.message)
+            unify_or_raise(cs, schema_types)
 
     def build(self, primitives: dict, native_fns: dict, **kwargs) -> list:
         for prim, fn in self._primitives(**kwargs):
@@ -80,11 +65,11 @@ class Spec:
     def _eq_sort_type(eq_by_name: dict, eq_name: str, field: str):
         """Return the Hydra Type for an equation's domain ('d') or codomain ('c')."""
         v = eq_by_name[eq_name]
-        return alg.sort_wrap(v.domain_sort if field == "d" else v.codomain_sort).type_
+        return (v.domain_sort if field == "d" else v.codomain_sort).type_
 
     @staticmethod
     def _sort_type(sort_term):
-        return alg.sort_wrap(sort_term).type_
+        return sort_term.type_
 
     @staticmethod
     def _endomorphism(eq_by_name: dict, eq_name: str, sort_type, label: str) -> list:
@@ -110,9 +95,10 @@ class Spec:
 @dataclass
 class PathSpec(Spec):
     """Sequential path composition."""
+    COMPOSITION = PathComposition
     eq_names: list[str]
-    domain_sort: object  # core.Term
-    codomain_sort: object  # core.Term
+    domain_sort: object
+    codomain_sort: object
     params: dict[str, list] | None = None
     residual: bool = False
     residual_semiring: str | None = None
@@ -148,17 +134,18 @@ class PathSpec(Spec):
         return [(prim, fn)]
 
     def _compose(self) -> list:
-        return [path(self.name, self.eq_names, self.params,
+        return [self.COMPOSITION.build(self.name, self.eq_names, self.params,
                      residual=self.residual, residual_semiring=self.residual_semiring)]
 
 
 @dataclass
 class FanSpec(Spec):
     """Parallel fan composition."""
+    COMPOSITION = FanComposition
     branch_names: list[str]
     merge_name: str
-    domain_sort: object  # core.Term
-    codomain_sort: object  # core.Term
+    domain_sort: object
+    codomain_sort: object
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         cs = []
@@ -182,16 +169,17 @@ class FanSpec(Spec):
         return cs
 
     def _compose(self) -> list:
-        return [fan(self.name, self.branch_names, self.merge_name)]
+        return [self.COMPOSITION.build(self.name, self.branch_names, self.merge_name)]
 
 
 @dataclass
 class FoldSpec(Spec):
     """Fold (catamorphism)."""
+    COMPOSITION = FoldComposition
     step_name: str
     init_term: object  # core.Term
-    domain_sort: object  # core.Term
-    state_sort: object  # core.Term
+    domain_sort: object
+    state_sort: object
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         self._require_eq(eq_by_name, self.step_name, "Fold step")
@@ -201,16 +189,17 @@ class FoldSpec(Spec):
             f"Fold step codomain != state sort")]
 
     def _compose(self) -> list:
-        return [fold(self.name, self.step_name, self.init_term)]
+        return [self.COMPOSITION.build(self.name, self.step_name, self.init_term)]
 
 
 @dataclass
 class UnfoldSpec(Spec):
     """Unfold (anamorphism)."""
+    COMPOSITION = UnfoldComposition
     step_name: str
     n_steps: int
-    domain_sort: object  # core.Term
-    state_sort: object  # core.Term
+    domain_sort: object
+    state_sort: object
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         self._require_eq(eq_by_name, self.step_name, "Unfold step")
@@ -220,7 +209,7 @@ class UnfoldSpec(Spec):
         return [(unfold_n_primitive, None)]
 
     def _compose(self) -> list:
-        return [unfold(self.name, self.step_name, self.n_steps)]
+        return [self.COMPOSITION.build(self.name, self.step_name, self.n_steps)]
 
 
 @dataclass
@@ -254,7 +243,7 @@ class LensPathSpec(PathSpec):
         return [(lens_fwd_primitive, None), (lens_bwd_primitive, None)]
 
     def _compose(self) -> list:
-        fwd, bwd = lens_path(self.name, self.eq_names, self.bwd_eq_names, self.params, self.has_residual)
+        fwd, bwd = self.COMPOSITION.build_lens(self.name, self.eq_names, self.bwd_eq_names, self.params, self.has_residual)
         return [fwd, bwd]
 
 
@@ -274,13 +263,14 @@ class LensFanSpec(FanSpec):
         return cs
 
     def _compose(self) -> list:
-        fwd, bwd = lens_fan(self.name, self.branch_names, self.bwd_branch_names, self.merge_name, self.merge_bwd_name)
+        fwd, bwd = self.COMPOSITION.build_lens(self.name, self.branch_names, self.bwd_branch_names, self.merge_name, self.merge_bwd_name)
         return [fwd, bwd]
 
 
 @dataclass
 class FixpointSpec(Spec):
     """Fixpoint iteration."""
+    COMPOSITION = FixpointComposition
     step_name: str
     predicate_name: str
     epsilon: float
@@ -307,4 +297,4 @@ class FixpointSpec(Spec):
         return [(fixpoint_primitive(self.epsilon, self.max_iter), None)]
 
     def _compose(self) -> list:
-        return [fixpoint(self.name, self.step_name, self.predicate_name, self.epsilon, self.max_iter)]
+        return [self.COMPOSITION.build(self.name, self.step_name, self.predicate_name, self.epsilon, self.max_iter)]

@@ -1,6 +1,6 @@
 """Fixpoint iteration tests: convergence, max-iter bounds, and related features.
 
-Covers fixpoint_primitive + fixpoint() as Hydra lambda terms,
+Covers fixpoint_primitive + FixpointComposition.build() as Hydra lambda terms,
 validate_fixpoint() constraint enforcement, semiring residual field
 extraction, and backend axis-aware operations.
 """
@@ -18,11 +18,11 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     NumpyBackend, Semiring, Sort, tensor_coder,
-    Equation, fixpoint,
+    Equation,
     build_graph,
     FixpointSpec,
-    resolve_equation,
 )
+from unialg.assembly.compositions import FixpointComposition
 from unialg.assembly import fixpoint_primitive
 from unialg.terms import record_fields
 from unialg.algebra.sort import sort_wrap
@@ -93,6 +93,16 @@ def make_graph_with_stdlib(primitives=None, bound_terms=None, sorts=None):
     return build_graph(sorts or [], primitives=all_prims, bound_terms=bound_terms or {})
 
 
+def _schema(eq_by_name, extra_sorts=()):
+    from unialg.algebra.sort import sort_wrap
+    schema = {}
+    for eq in eq_by_name.values():
+        eq.register_sorts(schema)
+    for s in extra_sorts:
+        sort_wrap(s).register_schema(schema)
+    return FrozenDict(schema)
+
+
 # ===========================================================================
 # Fixpoint validation
 # ===========================================================================
@@ -112,7 +122,7 @@ class TestFixpointValidation:
         step_eq = Equation("fp_step", None, hidden, hidden, nonlinearity="relu")
         pred_eq = Equation("fp_pred", None, hidden, output_sort, nonlinearity="abs")
         eq_by_name = {"fp_step": step_eq, "fp_pred": pred_eq}
-        FixpointSpec("_", "fp_step", "fp_pred", 0.0, 0, hidden).validate(eq_by_name)
+        FixpointSpec("_", "fp_step", "fp_pred", 0.0, 0, hidden).validate(eq_by_name, _schema(eq_by_name))
 
     def test_validate_fixpoint_raises_for_endomorphism_predicate(
         self, hidden, real_sr
@@ -122,7 +132,7 @@ class TestFixpointValidation:
         pred_eq = Equation("endo_pred", None, hidden, hidden, nonlinearity="abs")
         eq_by_name = {"endo_step": step_eq, "endo_pred": pred_eq}
         with pytest.raises(TypeError, match="scalar residual"):
-            FixpointSpec("_", "endo_step", "endo_pred", 0.0, 0, hidden).validate(eq_by_name)
+            FixpointSpec("_", "endo_step", "endo_pred", 0.0, 0, hidden).validate(eq_by_name, _schema(eq_by_name))
 
     def test_validate_fixpoint_raises_for_non_endomorphism_step(
         self, hidden, output_sort, real_sr
@@ -132,21 +142,21 @@ class TestFixpointValidation:
         pred_eq = Equation("bad_pred", None, hidden, output_sort, nonlinearity="abs")
         eq_by_name = {"bad_step": step_eq, "bad_pred": pred_eq}
         with pytest.raises(TypeError):
-            FixpointSpec("_", "bad_step", "bad_pred", 0.0, 0, hidden).validate(eq_by_name)
+            FixpointSpec("_", "bad_step", "bad_pred", 0.0, 0, hidden).validate(eq_by_name, _schema(eq_by_name))
 
     def test_validate_fixpoint_raises_for_missing_predicate(self, hidden):
         """validate_fixpoint raises ValueError when predicate equation is not found."""
         step_eq = Equation("ms_step", None, hidden, hidden, nonlinearity="relu")
         eq_by_name = {"ms_step": step_eq}
         with pytest.raises(ValueError, match="predicate equation 'missing_pred' not found"):
-            FixpointSpec("_", "ms_step", "missing_pred", 0.0, 0, hidden).validate(eq_by_name)
+            FixpointSpec("_", "ms_step", "missing_pred", 0.0, 0, hidden).validate(eq_by_name, _schema(eq_by_name))
 
     def test_validate_fixpoint_raises_for_missing_step(self, hidden):
         """validate_fixpoint raises ValueError when step equation is not found."""
         pred_eq = Equation("ms_pred", None, hidden, hidden, nonlinearity="abs")
         eq_by_name = {"ms_pred": pred_eq}
         with pytest.raises(ValueError, match="step equation 'missing_step' not found"):
-            FixpointSpec("_", "missing_step", "ms_pred", 0.0, 0, hidden).validate(eq_by_name)
+            FixpointSpec("_", "missing_step", "ms_pred", 0.0, 0, hidden).validate(eq_by_name, _schema(eq_by_name))
 
 
 # ===========================================================================
@@ -165,7 +175,7 @@ class TestFixpointEndToEnd:
     def _make_step_prim(self, name, sort_term, nl_name, backend):
         """Resolve a unary endomorphism equation into a Primitive."""
         eq = Equation(name, None, sort_term, sort_term, nonlinearity=nl_name)
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
         return prim
 
     def _make_pred_prim(self, name, sort_term, fn, backend):
@@ -201,7 +211,7 @@ class TestFixpointEndToEnd:
         max_iter = 100
         fp_prim = fixpoint_primitive(epsilon, max_iter)
 
-        fp_name, fp_term = fixpoint(
+        fp_name, fp_term = FixpointComposition.build(
             "converge1", "fp1_step", "fp1_pred", epsilon, max_iter
         )
 
@@ -243,7 +253,7 @@ class TestFixpointEndToEnd:
         max_iter = 5
         fp_prim = fixpoint_primitive(epsilon, max_iter)
 
-        fp_name, fp_term = fixpoint(
+        fp_name, fp_term = FixpointComposition.build(
             "no_converge", "fp2_step", "fp2_pred", epsilon, max_iter
         )
 
@@ -284,7 +294,7 @@ class TestFixpointEndToEnd:
         )
 
         fp_prim = fixpoint_primitive(0.001, 50)
-        fp_name, fp_term = fixpoint(
+        fp_name, fp_term = FixpointComposition.build(
             "conv_scalar", "fp3_step", "fp3_pred", 0.001, 50
         )
 

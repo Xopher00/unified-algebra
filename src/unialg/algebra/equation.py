@@ -11,14 +11,24 @@ Resolution (compilation to primitives) lives in unialg.assembly.pipeline.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hydra.core as core
 from hydra.core import Name
 from hydra.dsl.meta.phantoms import record, string, list_, unit, TTerm
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
+from hydra.graph import Primitive
+
 from unialg.terms import _RecordView, _ScalarField, _StringListField, _TermField
 from unialg.algebra.sort import sort_wrap
 from unialg.algebra.semiring import Semiring
-from unialg.algebra.contraction import compile_einsum
+from unialg.algebra.contraction import compile_einsum, contract_and_apply, contract_merge
+
+if TYPE_CHECKING:
+    from unialg.backend import Backend
 
 
 def _prepend_batch_dim(einsum_str: str) -> str:
@@ -46,13 +56,34 @@ class Equation(_RecordView):
         eq = Equation.from_term(term)
     """
 
+    @dataclass(frozen=True, slots=True)
+    class Compiled:
+        has_einsum: bool
+        has_nl: bool
+        nl_fn: object
+        in_coder: object
+        out_coder: object
+        prim_name: object
+        sr: object
+        compiled: object
+        n_inputs: int
+        n_params: int
+
     _type_name = core.Name("ua.equation.Equation")
 
     name         = _ScalarField("name", str)
     einsum       = _ScalarField("einsum", str)
     nonlinearity = _ScalarField("nonlinearity", str)
-    domain_sort  = _TermField("domainSort")
-    codomain_sort = _TermField("codomainSort")
+    _domain_sort_term  = _TermField("domainSort")
+    _codomain_sort_term = _TermField("codomainSort")
+
+    @property
+    def domain_sort(self):
+        return sort_wrap(self._domain_sort_term)
+
+    @property
+    def codomain_sort(self):
+        return sort_wrap(self._codomain_sort_term)
     semiring      = _TermField("semiring", optional=True)
     inputs       = _StringListField("inputs")
     param_slots  = _StringListField("paramSlots")
@@ -85,26 +116,40 @@ class Equation(_RecordView):
         return Semiring.from_term(sr).name if sr is not None else None
 
     @staticmethod
-    def resolve_semiring_term(sr_term, backend):
-        return Semiring.from_term(sr_term).resolve(backend)
+    def resolve_semirings(semirings: dict, backend) -> dict:
+        return {name: Semiring.from_term(t).resolve(backend) for name, t in semirings.items()}
 
     @property
     def prim_name(self) -> core.Name:
         return core.Name(f"ua.equation.{self.name}")
 
+    @property
+    def output_rank(self) -> int | None:
+        es = self.einsum
+        if not es:
+            return None
+        return len(compile_einsum(es).output_vars)
+
+    def input_rank(self, slot: int) -> int | None:
+        es = self.einsum
+        if not es:
+            return None
+        ivars = compile_einsum(es).input_vars
+        return len(ivars[slot]) if slot < len(ivars) else None
+
     def effective_einsum(self) -> str:
         es = self.einsum
-        if es and sort_wrap(self.domain_sort).batched:
+        if es and self.domain_sort.batched:
             return _prepend_batch_dim(es)
         return es
 
     def coders(self, backend):
-        return (sort_wrap(self.domain_sort).coder(backend),
-                sort_wrap(self.codomain_sort).coder(backend))
+        return (self.domain_sort.coder(backend),
+                self.codomain_sort.coder(backend))
 
     def register_sorts(self, schema: dict) -> None:
-        sort_wrap(self.domain_sort).register_schema(schema)
-        sort_wrap(self.codomain_sort).register_schema(schema)
+        self.domain_sort.register_schema(schema)
+        self.codomain_sort.register_schema(schema)
 
     def compile(self, backend):
         """Prepare this equation for resolution against a backend."""
@@ -120,6 +165,77 @@ class Equation(_RecordView):
             n_inputs = 0
         in_coder, out_coder = self.coders(backend)
         nl_fn = backend.unary(self.nonlinearity) if has_nl else None
-        return (has_einsum, has_nl, nl_fn, in_coder, out_coder,
-                self.prim_name, sr, compiled, n_inputs, len(self.param_slots))
+        return Equation.Compiled(
+            has_einsum=has_einsum, has_nl=has_nl, nl_fn=nl_fn,
+            in_coder=in_coder, out_coder=out_coder,
+            prim_name=self.prim_name, sr=sr, compiled=compiled,
+            n_inputs=n_inputs, n_params=len(self.param_slots))
+
+    _PRIMS = {1: prim1, 2: prim2, 3: prim3}
+
+    @staticmethod
+    def _make_prim(prim_name, compute, coders, out_coder) -> Primitive:
+        n = len(coders)
+        if n not in Equation._PRIMS:
+            raise ValueError(f"Primitive '{prim_name.value}': packed arity {n} exceeds max 3")
+        return Equation._PRIMS[n](prim_name, compute, [], *coders, out_coder)
+
+    @staticmethod
+    def _build_resolved(in_coder, n_params, n_inputs, sr, compiled, backend, nl_fn):
+        def _core(params, tensors):
+            return contract_and_apply(compiled, list(tensors), sr, backend, nl_fn, tuple(params))
+
+        def native_fn(*args):
+            return _core(args[:n_params], args[n_params:])
+
+        if n_params + n_inputs <= 3:
+            coders = [float32_coder()] * n_params + [in_coder] * n_inputs
+            return coders, native_fn, native_fn
+
+        coders = []
+        if n_params > 0:
+            coders.append(list_coder(float32_coder()))
+        if n_inputs > 0:
+            coders.append(list_coder(in_coder))
+
+        def hydra_compute(*args):
+            i = 0
+            params = tuple(args[i]) if n_params > 0 else ()
+            if n_params > 0:
+                i += 1
+            tensors = list(args[i]) if n_inputs > 0 else []
+            return _core(params, tensors)
+
+        return coders, hydra_compute, native_fn
+
+    def resolve(self, backend: "Backend") -> tuple[Primitive, Callable, object, object]:
+        ctx = self.compile(backend)
+        if not ctx.has_einsum and not ctx.has_nl:
+            raise ValueError(f"Equation '{self.name}' has neither einsum nor nonlinearity")
+        n_inputs = 1 if not ctx.has_einsum else ctx.n_inputs
+        coders, hydra_compute, native_fn = self._build_resolved(
+            ctx.in_coder, ctx.n_params, n_inputs, ctx.sr, ctx.compiled, backend, ctx.nl_fn)
+        prim = self._make_prim(ctx.prim_name, hydra_compute, coders, ctx.out_coder)
+        return prim, native_fn, ctx.sr, ctx.in_coder
+
+    def resolve_as_merge(self, backend: "Backend") -> tuple[Primitive, Callable, object, object]:
+        ctx = self.compile(backend)
+        if ctx.has_einsum:
+            if ctx.n_inputs not in (1, 2):
+                raise ValueError(
+                    f"List-merge equation '{self.name}': einsum must have 1 or 2 inputs, got {ctx.n_inputs}")
+            def compute_merge(tensors):
+                return contract_merge(ctx.compiled, tensors, ctx.sr, backend, ctx.nl_fn, ctx.n_inputs, self.name)
+            prim = self._make_prim(ctx.prim_name, compute_merge, [list_coder(ctx.in_coder)], ctx.out_coder)
+            return prim, compute_merge, ctx.sr, ctx.in_coder
+        elif ctx.has_nl:
+            def compute_nl(tensors):
+                result = tensors[0]
+                for t in tensors[1:]:
+                    result = result + t
+                return ctx.nl_fn(result)
+            prim = self._make_prim(ctx.prim_name, compute_nl, [list_coder(ctx.in_coder)], ctx.out_coder)
+            return prim, compute_nl, ctx.sr, ctx.in_coder
+        else:
+            raise ValueError(f"List-merge equation '{self.name}' has neither einsum nor nonlinearity")
 

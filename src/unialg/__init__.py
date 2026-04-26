@@ -10,12 +10,10 @@ from unialg.algebra import (
     Sort, ProductSort, tensor_coder,
 )
 
-# Assembly (compilation, composition, validation, graph)
+# Assembly (graph construction, validation, composition)
 from unialg.assembly import (
     assemble_graph, rebind_hyperparams, build_graph,
     validate_pipeline, topo_edges,
-    resolve_equation, resolve_equation_as_merge,
-    path, fan, fold, unfold, fixpoint, lens_path, lens_fan,
 )
 
 # Runtime

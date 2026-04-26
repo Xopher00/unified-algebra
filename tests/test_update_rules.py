@@ -94,7 +94,7 @@ class TestIteratedUpdate:
 
         eq_decay = Equation("decay", None, state_sort, state_sort, nonlinearity="decay")
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_decay], backend,
             specs=[UnfoldSpec("converge", "decay", 10, state_sort, state_sort)],
         )
@@ -128,7 +128,7 @@ class TestHyperparamsInUpdate:
         lr1 = encode_array(coder, np.array([0.1, 0.1, 0.1]))
         lr2 = encode_array(coder, np.array([0.01, 0.01, 0.01]))
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_scale], backend,
             hyperparams={"lr": lr1},
             specs=[PathSpec("scaled", ["lr_scale"], hidden, hidden,
@@ -160,7 +160,7 @@ class TestHyperparamsInUpdate:
         eq = Equation("scaled_decay", None, state_sort, state_sort,
                       nonlinearity="scaled_decay", param_slots=("rate",))
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq], backend,
             hyperparams={"rate": Terms.float32(0.5)},
             specs=[PathSpec("decay_path", ["scaled_decay"], state_sort, state_sort,

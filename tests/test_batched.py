@@ -18,10 +18,9 @@ from hydra.reduction import reduce_term
 from unialg import (
     NumpyBackend, Semiring, Sort, tensor_coder,
     validate_pipeline, Equation,
-    path, fan,
     build_graph, assemble_graph, PathSpec, FanSpec,
-    resolve_equation,
 )
+from unialg.assembly.compositions import PathComposition, FanComposition
 from unialg.algebra.equation import _prepend_batch_dim
 
 
@@ -205,28 +204,28 @@ class TestBatchedEquationResolution:
         """
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.relu_b")
 
     def test_batched_unary_einsum_resolves(self, real_sr, backend):
         """Unary einsum on batched sort resolves (the einsum gets prepended)."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("bn_scale", "i->i", hidden_b, hidden_b, real_sr)
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.bn_scale")
 
     def test_batched_binary_einsum_resolves(self, real_sr, backend):
         """Binary einsum on batched sort resolves — becomes a 2-input prim2."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.linear_b")
 
     def test_unbatched_still_works(self, real_sr, backend):
         """Sort() with default batched=False is unchanged from pre-Phase9 behaviour."""
         hidden = Sort("hidden", real_sr)  # batched=False by default
         eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
         assert prim.name == core.Name("ua.equation.linear")
 
 
@@ -282,7 +281,7 @@ class TestBatchedEndToEnd:
         """Relu on a batch of vectors produces elementwise relu."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -305,7 +304,7 @@ class TestBatchedEndToEnd:
         hidden_b = Sort("hidden", real_sr, batched=True)
         # "i->i" is a trace/copy — with real semiring it's just identity copy
         eq = Equation("identity_b", "i->i", hidden_b, hidden_b, real_sr)
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -328,7 +327,7 @@ class TestBatchedEndToEnd:
         """
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -357,7 +356,7 @@ class TestBatchedEndToEnd:
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_relu_b", "ij,j->i", hidden_b, hidden_b,
                       real_sr, nonlinearity="relu")
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
 
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
@@ -389,12 +388,12 @@ class TestBatchedPath:
     """Sequential composition of batched equations."""
 
     def test_batched_path_structure(self, real_sr, backend):
-        """path() on batched equations builds the same lambda structure as unbatched."""
+        """PathComposition.build() on batched equations builds the same lambda structure as unbatched."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq1 = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq2 = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
-        p = path("b_pipe", ["relu_b", "tanh_b"])
-        # path() returns a Hydra Term (lambda)
+        p = PathComposition.build("b_pipe", ["relu_b", "tanh_b"])
+        # PathComposition.build() returns a Hydra Term (lambda)
         assert p is not None
 
     def test_batched_path_end_to_end(self, cx, real_sr, backend, coder):
@@ -403,7 +402,7 @@ class TestBatchedPath:
         eq_relu = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq_tanh = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_relu, eq_tanh], backend,
             specs=[PathSpec("b_pipe", ["relu_b", "tanh_b"], hidden_b, hidden_b)],
         )
@@ -425,7 +424,7 @@ class TestBatchedPath:
         eq_tanh = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
         eq_relu2 = Equation("relu_b2", None, hidden_b, hidden_b, nonlinearity="relu")
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_relu, eq_tanh, eq_relu2], backend,
             specs=[PathSpec("b_pipe3", ["relu_b", "tanh_b", "relu_b2"], hidden_b, hidden_b)],
         )
@@ -450,7 +449,7 @@ class TestBatchedFan:
         eq_tanh = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
         eq_merge = Equation("merge_b", "i,i->i", hidden_b, hidden_b, real_sr)
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_relu, eq_tanh, eq_merge], backend,
             specs=[FanSpec("b_fan", ["relu_b", "tanh_b"], "merge_b", hidden_b, hidden_b)],
         )

@@ -12,11 +12,11 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     NumpyBackend, Semiring, Sort, tensor_coder,
-    Equation, fold, unfold,
+    Equation,
     build_graph, assemble_graph,
     PathSpec, FoldSpec, UnfoldSpec,
-    resolve_equation,
 )
+from unialg.assembly.compositions import FoldComposition, UnfoldComposition
 from unialg.assembly import unfold_n_primitive
 
 
@@ -85,6 +85,16 @@ def make_graph_with_stdlib(primitives=None, bound_terms=None):
     return build_graph([], primitives=all_prims, bound_terms=bound_terms)
 
 
+def _schema(eq_by_name, extra_sorts=()):
+    from unialg.algebra.sort import sort_wrap
+    schema = {}
+    for eq in eq_by_name.values():
+        eq.register_sorts(schema)
+    for s in extra_sorts:
+        sort_wrap(s).register_schema(schema)
+    return FrozenDict(schema)
+
+
 # ---------------------------------------------------------------------------
 # Fold: structure
 # ---------------------------------------------------------------------------
@@ -93,13 +103,13 @@ class TestFoldStructure:
 
     def test_fold_returns_name_and_lambda(self, hidden, coder):
         init = encode_array(coder, np.zeros(3))
-        name, term = fold("rnn", "step", init)
+        name, term = FoldComposition.build("rnn", "step", init)
         assert name == Name("ua.fold.rnn")
         assert isinstance(term.value, core.Lambda)
 
     def test_fold_name_prefix(self, hidden, coder):
         init = encode_array(coder, np.zeros(3))
-        name, _ = fold("test", "step", init)
+        name, _ = FoldComposition.build("test", "step", init)
         assert name.value == "ua.fold.test"
 
 
@@ -111,16 +121,18 @@ class TestFoldValidation:
 
     def test_valid_fold(self, real_sr, hidden):
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        FoldSpec("_", "step", None, hidden, hidden).validate({"step": eq_step})
+        ebn = {"step": eq_step}
+        FoldSpec("_", "step", None, hidden, hidden).validate(ebn, _schema(ebn))
 
     def test_fold_step_not_found(self, hidden):
         with pytest.raises(ValueError, match="not found"):
-            FoldSpec("_", "missing", None, hidden, hidden).validate({})
+            FoldSpec("_", "missing", None, hidden, hidden).validate({}, _schema({}))
 
     def test_fold_state_recurrence_mismatch(self, real_sr, hidden, output_sort):
         eq_step = Equation("step", "i,i->i", hidden, output_sort, real_sr)
+        ebn = {"step": eq_step}
         with pytest.raises(TypeError, match="codomain.*state sort"):
-            FoldSpec("_", "step", None, hidden, hidden).validate({"step": eq_step})
+            FoldSpec("_", "step", None, hidden, hidden).validate(ebn, _schema(ebn, [hidden]))
 
 
 # ---------------------------------------------------------------------------
@@ -134,15 +146,15 @@ class TestFoldReduce:
 
         step(state, element) = state * element  (einsum "i,i->i")
         init = [1, 1, 1]
-        fold([x1, x2, x3]) = x1 * x2 * x3 (elementwise)
+        FoldComposition.build([x1, x2, x3]) = x1 * x2 * x3 (elementwise)
         """
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         init = np.ones(3)
         init_term = encode_array(coder, init)
 
-        f_name, f_term = fold("prod", "step", init_term)
+        f_name, f_term = FoldComposition.build("prod", "step", init_term)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -177,11 +189,11 @@ class TestFoldReduce:
     def test_fold_single_element(self, cx, real_sr, hidden, backend, coder):
         """Fold over length-1 list = single step application."""
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         init = np.ones(2)
         init_term = encode_array(coder, init)
-        f_name, f_term = fold("single", "step", init_term)
+        f_name, f_term = FoldComposition.build("single", "step", init_term)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -205,11 +217,11 @@ class TestFoldReduce:
         from a manual loop using the same step.
         """
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
-        f_name, f_term = fold("tied", "step", init_term)
+        f_name, f_term = FoldComposition.build("tied", "step", init_term)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -237,7 +249,7 @@ class TestFoldReduce:
 class TestUnfoldStructure:
 
     def test_unfold_returns_name_and_lambda(self, hidden):
-        name, term = unfold("stream", "step", 3)
+        name, term = UnfoldComposition.build("stream", "step", 3)
         assert name == Name("ua.unfold.stream")
         assert isinstance(term.value, core.Lambda)
 
@@ -250,21 +262,24 @@ class TestUnfoldValidation:
 
     def test_valid_unfold(self, real_sr, hidden):
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
-        UnfoldSpec("_", "step", 0, hidden, hidden).validate({"step": eq_step})
+        ebn = {"step": eq_step}
+        UnfoldSpec("_", "step", 0, hidden, hidden).validate(ebn, _schema(ebn))
 
     def test_unfold_step_not_found(self, hidden):
         with pytest.raises(ValueError, match="not found"):
-            UnfoldSpec("_", "missing", 0, hidden, hidden).validate({})
+            UnfoldSpec("_", "missing", 0, hidden, hidden).validate({}, _schema({}))
 
     def test_unfold_domain_mismatch(self, real_sr, hidden, output_sort):
         eq_step = Equation("step", None, output_sort, hidden, nonlinearity="tanh")
+        ebn = {"step": eq_step}
         with pytest.raises(TypeError, match="domain.*state sort"):
-            UnfoldSpec("_", "step", 0, hidden, hidden).validate({"step": eq_step})
+            UnfoldSpec("_", "step", 0, hidden, hidden).validate(ebn, _schema(ebn, [hidden]))
 
     def test_unfold_codomain_mismatch(self, real_sr, hidden, output_sort):
         eq_step = Equation("step", None, hidden, output_sort, nonlinearity="tanh")
         with pytest.raises(TypeError, match="codomain.*state sort"):
-            UnfoldSpec("_", "step", 0, hidden, hidden).validate({"step": eq_step})
+            ebn = {"step": eq_step}
+            UnfoldSpec("_", "step", 0, hidden, hidden).validate(ebn, _schema(ebn))
 
 
 # ---------------------------------------------------------------------------
@@ -276,10 +291,10 @@ class TestUnfoldReduce:
     def test_unfold_tanh(self, cx, real_sr, hidden, backend, coder):
         """Unfold tanh for 3 steps: s0 → tanh(s0) → tanh(tanh(s0)) → ..."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         unfold_prim = unfold_n_primitive
-        u_name, u_term = unfold("stream", "step", 3)
+        u_name, u_term = UnfoldComposition.build("stream", "step", 3)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_prim.name: unfold_prim},
@@ -318,10 +333,10 @@ class TestUnfoldReduce:
     def test_unfold_single_step(self, cx, real_sr, hidden, backend, coder):
         """Unfold with n_steps=1."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="relu")
-        prim_step, _ = resolve_equation(eq_step, backend)
+        prim_step, *_ = eq_step.resolve(backend)
 
         unfold_prim = unfold_n_primitive
-        u_name, u_term = unfold("one", "step", 1)
+        u_name, u_term = UnfoldComposition.build("one", "step", 1)
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_prim.name: unfold_prim},
@@ -349,7 +364,7 @@ class TestAssembleWithRecursion:
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
         init = encode_array(coder, np.ones(2))
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_step], backend,
             specs=[FoldSpec("prod", "step", init, hidden, hidden)],
         )
@@ -367,7 +382,7 @@ class TestAssembleWithRecursion:
         """assemble_graph with unfolds parameter produces a working graph."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_step], backend,
             specs=[UnfoldSpec("stream", "step", 2, hidden, hidden)],
         )
@@ -390,7 +405,7 @@ class TestAssembleWithRecursion:
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
         init = encode_array(coder, np.ones(3))
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq_relu, eq_tanh, eq_step], backend,
             specs=[
                 PathSpec("act", ["relu", "tanh"], hidden, hidden),

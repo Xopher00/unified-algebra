@@ -29,10 +29,10 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     NumpyBackend, Semiring, Sort, tensor_coder,
-    Equation, path,
+    Equation,
     assemble_graph, build_graph, PathSpec,
-    resolve_equation,
 )
+from unialg.assembly.compositions import PathComposition
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ class TestShortestPath:
         numpy reference exactly.
         """
         eq = Equation("hop1", "ij,j->i", node_sort, node_sort, tropical_sr)
-        graph, _ = assemble_graph([eq], backend)
+        graph, *_ = assemble_graph([eq], backend)
 
         W_enc = enc(coder, W)
         x_enc = enc(coder, x0)
@@ -191,7 +191,7 @@ class TestShortestPath:
         eq1 = Equation("sp1", "ij,j->i", node_sort, node_sort, tropical_sr)
         eq2 = Equation("sp2", "ij,j->i", node_sort, node_sort, tropical_sr)
 
-        graph, _ = assemble_graph(
+        graph, *_ = assemble_graph(
             [eq1, eq2], backend,
             specs=[PathSpec("two_hop", ["sp1", "sp2"], node_sort, node_sort)],
         )
@@ -200,14 +200,14 @@ class TestShortestPath:
         x_enc = enc(coder, x0)
 
         # Pre-bind W into each hop so the path only takes x as input.
-        p_name, p_term = path(
+        p_name, p_term = PathComposition.build(
             "two_hop_bound",
             ["sp1", "sp2"],
             params={"sp1": [W_enc], "sp2": [W_enc]},
         )
 
-        prim_sp1, _ = resolve_equation(eq1, backend)
-        prim_sp2, _ = resolve_equation(eq2, backend)
+        prim_sp1, *_ = eq1.resolve(backend)
+        prim_sp2, *_ = eq2.resolve(backend)
         graph2 = build_graph(
             [],
             primitives={
@@ -253,14 +253,14 @@ class TestShortestPath:
         W_enc = enc(coder, W_real)
         x_enc = enc(coder, x_real)
 
-        p_name, p_term = path(
+        p_name, p_term = PathComposition.build(
             "real_two_hop",
             ["real1", "real2"],
             params={"real1": [W_enc], "real2": [W_enc]},
         )
 
-        prim_real1, _ = resolve_equation(eq1, backend)
-        prim_real2, _ = resolve_equation(eq2, backend)
+        prim_real1, *_ = eq1.resolve(backend)
+        prim_real2, *_ = eq2.resolve(backend)
         graph = build_graph(
             [],
             primitives={
@@ -298,7 +298,7 @@ class TestShortestPath:
         We verify both after one hop and after two hops.
         """
         eq = Equation("bfstep", "ij,j->i", node_sort, node_sort, tropical_sr)
-        prim, _ = resolve_equation(eq, backend)
+        prim, *_ = eq.resolve(backend)
 
         W_enc = enc(coder, W)
         x_enc = enc(coder, x0)

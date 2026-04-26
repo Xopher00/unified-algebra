@@ -14,6 +14,7 @@ backend abstraction.
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -37,8 +38,6 @@ class CompiledEinsum:
         self.num_vars = num_vars
         self.var_locations = var_locations # var_id -> [(arg_idx, dim_idx)]
         self._char_to_int = char_to_int   # original char→var_id mapping, for to_string()
-        self._reduced_vars = None
-        self._reduced_dims = None
 
     def to_string(self) -> str:
         """Render back to einsum form. Requires char_to_int (preserved by compile_einsum)."""
@@ -73,27 +72,22 @@ class CompiledEinsum:
             char_to_int=new_char_to_int,
         )
 
-    @property
+    @cached_property
     def reduced_vars(self):
-        if self._reduced_vars is None:
-            out_set = set(self.output_vars)
-            seen = set()
-            self._reduced_vars = []
-            for var_list in self.input_vars:
-                for v in var_list:
-                    if v not in out_set and v not in seen:
-                        self._reduced_vars.append(v)
-                        seen.add(v)
-        return self._reduced_vars
+        out_set = set(self.output_vars)
+        seen = set()
+        result = []
+        for var_list in self.input_vars:
+            for v in var_list:
+                if v not in out_set and v not in seen:
+                    result.append(v)
+                    seen.add(v)
+        return result
 
-    @property
+    @cached_property
     def reduced_dims(self):
-        """Dimension indices of reduced vars in the aligned tensor
-        (output_vars ++ reduced_vars)."""
-        if self._reduced_dims is None:
-            n_out = len(self.output_vars)
-            self._reduced_dims = tuple(range(n_out, n_out + len(self.reduced_vars)))
-        return self._reduced_dims
+        n_out = len(self.output_vars)
+        return tuple(range(n_out, n_out + len(self.reduced_vars)))
 
     def get_sizes(self, args, variables):
         return [args[loc[0][0]].shape[loc[0][1]]
@@ -196,9 +190,8 @@ def _contract_full(einsum: CompiledEinsum, args, sr: Semiring.Resolved, backend:
     all_target_vars = einsum.output_vars + einsum.reduced_vars
 
     # Align each tensor to target dims
-    factors = []
-    for arg, arg_vars in zip(args, einsum.input_vars):
-        factors.append(_align_tensor(arg, arg_vars, all_target_vars, backend))
+    factors = [_align_tensor(arg, arg_vars, all_target_vars, backend)
+               for arg, arg_vars in zip(args, einsum.input_vars)]
 
     # Elementwise ⊗
     term = factors[0]
@@ -258,9 +251,7 @@ def _align_tensor(tensor, tensor_vars, target_vars, backend):
 def contract_and_apply(compiled, tensor_args, sr, backend, nl_fn=None, params=()):
     """Contract tensors via compiled einsum, then apply optional nonlinearity."""
     r = semiring_contract(compiled, tensor_args, sr, backend) if compiled else tensor_args[0]
-    if nl_fn:
-        return nl_fn(r, *params) if params else nl_fn(r)
-    return r
+    return nl_fn(r, *params) if nl_fn else r
 
 
 def contract_merge(compiled, tensors, sr, backend, nl_fn=None, n_inputs=2, name=""):

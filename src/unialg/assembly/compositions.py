@@ -78,6 +78,8 @@ class PathComposition(Composition):
             if self._params and eq_name in self._params:
                 decoded = []
                 for lit in self._params[eq_name]:
+                    if not isinstance(lit, core.TermLiteral):
+                        return None
                     match coder.encode(None, None, lit):
                         case Right(value=arr): decoded.append(arr)
                         case _: return None

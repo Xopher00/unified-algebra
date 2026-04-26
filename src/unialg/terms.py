@@ -43,10 +43,6 @@ def tensor_coder(backend, type_=None) -> hydra.graph.TermCoder:
     return hydra.graph.TermCoder(type=type_, encode=encode, decode=decode)
 
 
-def _record_fields(term) -> dict[str, object]:
-    return {f.name.value: f.term for f in term.value.fields}
-
-
 def _literal_value(term):
     match term.value:
         case core.LiteralInteger(value=iv): return int(integer_value_to_bigint(iv))
@@ -90,9 +86,8 @@ class _RecordView:
                 t = fields.get(self._key)
                 if t is None or isinstance(t, core.TermUnit):
                     return None
-                value = self._extract(t)
-                return self._coerce(value) if self._coerce else value
-            t = fields[self._key]
+            else:
+                t = fields[self._key]
             value = self._extract(t)
             return self._coerce(value) if self._coerce else value
 
@@ -157,7 +152,7 @@ class _RecordView:
 
     @property
     def _fields(self) -> dict[str, object]:
-        return _record_fields(self._term)
+        return {f.name.value: f.term for f in self._term.value.fields}
 
     @classmethod
     def _build_record(cls, **values):
@@ -180,6 +175,3 @@ class _RecordView:
     def _unwrap(term):
         return term.term if isinstance(term, _RecordView) else term
 
-    @staticmethod
-    def _decode_scalar(term):
-        return _literal_value(term)

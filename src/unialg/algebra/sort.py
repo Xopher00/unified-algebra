@@ -1,10 +1,12 @@
-"""Sorts: named tensor types carrying a semiring.
+"""Sorts and lenses: named tensor types and bidirectional morphisms.
 
 A sort is a named space of tensors (e.g. "hidden", "output") bound to a
 semiring. Two sorts are compatible iff they share the same semiring.
 
 Sorts map to Hydra TypeVariables for type checking, and sort declarations
 are registered in the Graph's schema_types.
+
+A lens pairs forward and backward equations into a bidirectional morphism.
 """
 
 from __future__ import annotations
@@ -136,5 +138,20 @@ def check_sort_compatibility(sort_a, sort_b) -> bool:
             app = app.argument.value
         return app.argument
     return _semiring(sort_a.type_) == _semiring(sort_b.type_)
+
+
+# ---------------------------------------------------------------------------
+# Lens
+# ---------------------------------------------------------------------------
+
+class Lens(_RecordView):
+    """A bidirectional morphism pairing forward and backward equations."""
+
+    _type_name = core.Name("ua.lens.Lens")
+
+    name          = _RecordView.Scalar(str)
+    forward       = _RecordView.Scalar(str)
+    backward      = _RecordView.Scalar(str)
+    residual_sort = _RecordView.Term(key="residualSort", optional=True, coerce=sort_wrap)
 
 

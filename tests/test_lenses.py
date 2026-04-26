@@ -24,9 +24,8 @@ from unialg import (
     FoldSpec, LensPathSpec,
 )
 from unialg.assembly.compositions import PathComposition, FanComposition
-from unialg.algebra.lens import Lens
+from unialg.algebra.sort import Lens
 from unialg.assembly import lens_fwd_primitive, lens_bwd_primitive
-from unialg.terms import record_fields, literal_value
 
 
 # ---------------------------------------------------------------------------
@@ -148,19 +147,15 @@ class TestLensDeclaration:
         assert l.backward == "linear_bwd"
 
     def test_lens_without_residual_stores_unit(self):
-        """When no residual_sort is provided, the residualSort field is a unit term."""
+        """When no residual_sort is provided, residual_sort property returns None."""
         l = Lens("linear", "fwd", "bwd")
-        fields = record_fields(l.term)
-        residual = fields["residualSort"]
-        assert residual is not None
+        assert l.residual_sort is None
 
     def test_lens_with_residual_stores_sort(self, hidden):
         """Lens() with residual_sort stores the sort term in the residualSort field."""
         import hydra.core as core
         l = Lens("linear", "fwd", "bwd", residual_sort=hidden)
-        fields = record_fields(l.term)
-        residual = fields["residualSort"]
-        t = Sort.from_term(residual).type_
+        t = Sort.from_term(l.residual_sort).type_
         assert t.value.function == core.TypeVariable(core.Name("ua.sort.hidden"))
 
 
@@ -173,7 +168,7 @@ class TestLensValidation:
 
     def _make_matching_pair(self, hidden, output_sort):
         """Build a valid fwd (hidden→output) + bwd (output→hidden) pair."""
-        real_sr = record_fields(hidden.term)["semiring"]
+        real_sr = hidden.semiring
         eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
         eq_bwd = Equation("bwd", "j->i", output_sort, hidden, real_sr)
         return eq_fwd, eq_bwd
@@ -206,7 +201,7 @@ class TestLensValidation:
             spec.validate(ebn, _schema(ebn))
 
     def test_invalid_lens_domain_mismatch(self, hidden, output_sort):
-        real_sr = record_fields(hidden.term)["semiring"]
+        real_sr = hidden.semiring
         # both fwd and bwd go hidden->output, so fwd.domain != bwd.codomain
         eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
         eq_bwd = Equation("bwd", "i->j", hidden, output_sort, real_sr)
@@ -216,7 +211,7 @@ class TestLensValidation:
             spec.validate(ebn, _schema(ebn))
 
     def test_invalid_lens_codomain_mismatch(self, hidden, output_sort):
-        real_sr = record_fields(hidden.term)["semiring"]
+        real_sr = hidden.semiring
         # fwd: hidden->output, bwd: hidden->hidden; fwd.codomain != bwd.domain
         eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
         eq_bwd = Equation("bwd", None, hidden, hidden, nonlinearity="relu")
@@ -402,7 +397,7 @@ class TestAssembleGraphWithLenses:
         assert Name("ua.path.id_pipe.bwd") in graph.bound_terms
 
     def test_assemble_graph_with_invalid_lens_raises(self, hidden, output_sort, backend):
-        real_sr = record_fields(hidden.term)["semiring"]
+        real_sr = hidden.semiring
         # Both fwd and bwd go hidden->output: bidi sort contract violated
         eq_fwd = Equation("enc_fwd", None, hidden, output_sort, real_sr, nonlinearity="relu")
         eq_bwd = Equation("enc_bwd", None, hidden, output_sort, real_sr, nonlinearity="relu")
@@ -457,7 +452,7 @@ class TestLensFoldIntegration:
 
     def test_lens_coexists_with_fold_and_path(self, cx, hidden, backend, coder):
         """A graph can contain lenses, lens_paths, and folds simultaneously."""
-        real_sr = record_fields(hidden.term)["semiring"]
+        real_sr = hidden.semiring
         eq_relu_fwd = Equation("rl_fwd", None, hidden, hidden, nonlinearity="relu")
         eq_relu_bwd = Equation("rl_bwd", None, hidden, hidden, nonlinearity="relu")
         eq_step = Equation("fold_step", "i,i->i", hidden, hidden, real_sr)

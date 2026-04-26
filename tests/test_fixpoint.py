@@ -1,6 +1,6 @@
 """Fixpoint iteration tests: convergence, max-iter bounds, and related features.
 
-Covers fixpoint_primitive + FixpointComposition.build() as Hydra lambda terms,
+Covers fixpoint_primitive + FixpointComposition as Hydra lambda terms,
 validate_fixpoint() constraint enforcement, semiring residual field
 extraction, and backend axis-aware operations.
 """
@@ -24,7 +24,6 @@ from unialg import (
 )
 from unialg.assembly.compositions import FixpointComposition
 from unialg.assembly import fixpoint_primitive
-from unialg.terms import record_fields
 from unialg.algebra.sort import sort_wrap
 
 
@@ -211,9 +210,9 @@ class TestFixpointEndToEnd:
         max_iter = 100
         fp_prim = fixpoint_primitive(epsilon, max_iter)
 
-        fp_name, fp_term = FixpointComposition.build(
+        fp_name, fp_term = FixpointComposition(
             "converge1", "fp1_step", "fp1_pred", epsilon, max_iter
-        )
+        ).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={
@@ -253,9 +252,9 @@ class TestFixpointEndToEnd:
         max_iter = 5
         fp_prim = fixpoint_primitive(epsilon, max_iter)
 
-        fp_name, fp_term = FixpointComposition.build(
+        fp_name, fp_term = FixpointComposition(
             "no_converge", "fp2_step", "fp2_pred", epsilon, max_iter
-        )
+        ).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={
@@ -294,9 +293,9 @@ class TestFixpointEndToEnd:
         )
 
         fp_prim = fixpoint_primitive(0.001, 50)
-        fp_name, fp_term = FixpointComposition.build(
+        fp_name, fp_term = FixpointComposition(
             "conv_scalar", "fp3_step", "fp3_pred", 0.001, 50
-        )
+        ).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={
@@ -327,13 +326,10 @@ class TestSemiringResidualField:
     """Semiring() residual kwarg and resolve_semiring residual_elementwise extraction."""
 
     def test_semiring_with_residual_creates_record_with_residual_field(self):
-        """Semiring(..., residual='divide') creates a TermRecord with a 'residual' field."""
-        from unialg.terms import literal_value
+        """Semiring(..., residual='divide') exposes residual via the .residual property."""
         sr = Semiring("real_res", plus="add", times="multiply",
                       residual="divide", zero=0.0, one=1.0)
-        fields = record_fields(sr.term)
-        assert "residual" in fields
-        assert literal_value(fields["residual"]) == "divide"
+        assert sr.residual == "divide"
 
     def test_resolve_semiring_extracts_residual_elementwise(self, backend):
         """Semiring.resolve extracts residual_elementwise as the divide callable."""

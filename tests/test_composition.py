@@ -101,28 +101,28 @@ def _schema(eq_by_name, extra_sorts=()):
 class TestPathStructure:
 
     def test_path_returns_name_and_lambda(self, hidden):
-        name, term = PathComposition.build("act", ["relu"])
+        name, term = PathComposition("act", ["relu"]).to_lambda()
         assert name == Name("ua.path.act")
         assert isinstance(term.value, core.Lambda)
 
     def test_path_name_prefix(self, hidden):
-        name, _ = PathComposition.build("ffn", ["a", "b", "c"])
+        name, _ = PathComposition("ffn", ["a", "b", "c"]).to_lambda()
         assert name.value == "ua.path.ffn"
 
     def test_path_empty_raises(self, hidden):
         with pytest.raises(ValueError, match="at least one equation"):
-            PathComposition.build("bad", [])
+            PathComposition("bad", [])
 
     def test_path_single_step(self, hidden):
         """Single-equation path should be lambda x. eq(x)."""
-        _, term = PathComposition.build("single", ["relu"])
+        _, term = PathComposition("single", ["relu"]).to_lambda()
         # The body should be an application
         body = term.value.body
         assert isinstance(body.value, core.Application)
 
     def test_path_two_step(self, hidden):
         """Two-equation path: lambda x. b(a(x))."""
-        _, term = PathComposition.build("two", ["a", "b"])
+        _, term = PathComposition("two", ["a", "b"]).to_lambda()
         body = term.value.body
         # outer: apply(var("ua.equation.b"), ...)
         assert isinstance(body.value, core.Application)
@@ -177,14 +177,14 @@ class TestPathValidation:
 class TestPathReduce:
 
     def test_pointwise_path(self, cx, real_sr, hidden, backend, coder):
-        """PathComposition.build("act", ["relu", "tanh"]) == tanh(relu(x))."""
+        """PathComposition("act", ["relu", "tanh"]).to_lambda() == tanh(relu(x))."""
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
 
         prim_relu, *_ = eq_relu.resolve(backend)
         prim_tanh, *_ = eq_tanh.resolve(backend)
 
-        p_name, p_term = PathComposition.build("act", ["relu", "tanh"])
+        p_name, p_term = PathComposition("act", ["relu", "tanh"]).to_lambda()
 
         graph = build_graph(
             [],
@@ -221,7 +221,7 @@ class TestPathReduce:
             p, *_ = eq.resolve(backend)
             prims[p.name] = p
 
-        p_name, p_term = PathComposition.build("deep", ["relu", "tanh", "sigmoid"])
+        p_name, p_term = PathComposition("deep", ["relu", "tanh", "sigmoid"]).to_lambda()
 
         graph = build_graph(
             [], primitives=prims, bound_terms={p_name: p_term}
@@ -248,7 +248,7 @@ class TestPathReduce:
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         prim, *_ = eq_relu.resolve(backend)
 
-        p_name, p_term = PathComposition.build("just_relu", ["relu"])
+        p_name, p_term = PathComposition("just_relu", ["relu"]).to_lambda()
 
         graph = build_graph(
             [], primitives={prim.name: prim}, bound_terms={p_name: p_term}
@@ -271,13 +271,13 @@ class TestPathReduce:
     def test_path_weight_tying(self, cx, real_sr, hidden, backend, coder):
         """Repeated equation name in path = same primitive applied multiple times.
 
-        PathComposition.build("triple", ["tanh", "tanh", "tanh"]) == tanh(tanh(tanh(x)))
+        PathComposition("triple", ["tanh", "tanh", "tanh"]).to_lambda() == tanh(tanh(tanh(x)))
         All three references resolve to the same Hydra primitive via name lookup.
         """
         eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
         prim, *_ = eq_tanh.resolve(backend)
 
-        p_name, p_term = PathComposition.build("triple", ["tanh", "tanh", "tanh"])
+        p_name, p_term = PathComposition("triple", ["tanh", "tanh", "tanh"]).to_lambda()
         graph = build_graph(
             [], primitives={prim.name: prim}, bound_terms={p_name: p_term}
         )
@@ -299,10 +299,10 @@ class TestPathReduce:
         W = np.array([[1.0, -2.0], [-3.0, 4.0]])
         W_enc = encode_array(coder, W)
 
-        p_name, p_term = PathComposition.build(
+        p_name, p_term = PathComposition(
             "lr", ["linear", "relu"],
             params={"linear": [W_enc]},
-        )
+        ).to_lambda()
 
         graph = build_graph(
             [],
@@ -337,17 +337,17 @@ class TestPathReduce:
 class TestFanStructure:
 
     def test_fan_returns_name_and_lambda(self, hidden):
-        name, term = FanComposition.build("f", ["a", "b"], "m")
+        name, term = FanComposition("f", ["a", "b"], "m").to_lambda()
         assert name == Name("ua.fan.f")
         assert isinstance(term.value, core.Lambda)
 
     def test_fan_empty_branches_raises(self, hidden):
         with pytest.raises(ValueError, match="at least one branch"):
-            FanComposition.build("bad", [], "m")
+            FanComposition("bad", [], "m")
 
     def test_fan_many_branches_allowed(self, hidden):
         """Fan arity is unbounded — list-based merge handles any branch count."""
-        _, term = FanComposition.build("wide", ["a", "b", "c", "d", "e"], "m")
+        _, term = FanComposition("wide", ["a", "b", "c", "d", "e"], "m").to_lambda()
         # Should not raise — produces a valid lambda term
         assert term is not None
 
@@ -401,7 +401,7 @@ class TestFanReduce:
         merge_prim, *_ = eq_merge.resolve_as_merge(backend)
         prims[merge_prim.name] = merge_prim
 
-        f_name, f_term = FanComposition.build("res", ["relu", "tanh"], "merge")
+        f_name, f_term = FanComposition("res", ["relu", "tanh"], "merge").to_lambda()
 
         graph = build_graph(
             [], primitives=prims, bound_terms={f_name: f_term}
@@ -430,7 +430,7 @@ class TestFanReduce:
         p, *_ = eq_ident.resolve_as_merge(backend)
         prims[p.name] = p
 
-        f_name, f_term = FanComposition.build("single", ["relu"], "ident")
+        f_name, f_term = FanComposition("single", ["relu"], "ident").to_lambda()
 
         graph = build_graph(
             [], primitives=prims, bound_terms={f_name: f_term}
@@ -544,9 +544,9 @@ class TestAssembleWithComposition:
 class TestNesting:
 
     def test_path_of_fan_and_equation(self, cx, real_sr, hidden, backend, coder):
-        """Nested composition: sigmoid(FanComposition.build(x)) via transitive bound_terms resolution.
+        """Nested composition: sigmoid(FanComposition(x)) via transitive bound_terms resolution.
 
-        FanComposition.build("split", [relu, tanh], merge)  then  sigmoid
+        FanComposition("split", [relu, tanh], merge)  then  sigmoid
         Tests that reduce_term resolves bound_terms transitively.
         """
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
@@ -562,7 +562,7 @@ class TestNesting:
         p, *_ = eq_merge.resolve_as_merge(backend)
         prims[p.name] = p
 
-        f_name, f_term = FanComposition.build("split", ["relu", "tanh"], "merge")
+        f_name, f_term = FanComposition("split", ["relu", "tanh"], "merge").to_lambda()
 
         # lambda x. sigmoid(split(x))
         import hydra.dsl.terms as Terms
@@ -620,9 +620,9 @@ class TestOrderSensitivity:
             prims[p.name] = p
 
         # Path A: sigmoid then relu
-        pa_name, pa_term = PathComposition.build("sig_relu", ["sigmoid", "relu"])
+        pa_name, pa_term = PathComposition("sig_relu", ["sigmoid", "relu"]).to_lambda()
         # Path B: relu then sigmoid
-        pb_name, pb_term = PathComposition.build("relu_sig", ["relu", "sigmoid"])
+        pb_name, pb_term = PathComposition("relu_sig", ["relu", "sigmoid"]).to_lambda()
 
         graph = build_graph(
             [], primitives=prims,
@@ -667,9 +667,9 @@ class TestThreeBranchFan:
         p, *_ = eq_merge3.resolve_as_merge(backend)
         prims[p.name] = p
 
-        f_name, f_term = FanComposition.build(
+        f_name, f_term = FanComposition(
             "triple", ["relu", "tanh", "sigmoid"], "merge3"
-        )
+        ).to_lambda()
 
         graph = build_graph(
             [], primitives=prims, bound_terms={f_name: f_term}

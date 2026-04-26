@@ -153,11 +153,11 @@ class TestRNN:
 
         # Fold and unfold lambdas build without error
         init = encode_array(coder, np.zeros(4))
-        f_name, f_term = FoldComposition.build("rnn", "rnn_fold_step", init)
+        f_name, f_term = FoldComposition("rnn", "rnn_fold_step", init).to_lambda()
         assert f_name == core.Name("ua.fold.rnn")
         assert isinstance(f_term.value, core.Lambda)
 
-        u_name, u_term = UnfoldComposition.build("rnn_echo", "rnn_unfold_step", 3)
+        u_name, u_term = UnfoldComposition("rnn_echo", "rnn_unfold_step", 3).to_lambda()
         assert u_name == core.Name("ua.unfold.rnn_echo")
         assert isinstance(u_term.value, core.Lambda)
 
@@ -196,7 +196,7 @@ class TestRNN:
         )
         prim_step, *_ = eq_step.resolve(backend)
 
-        u_name, u_term = UnfoldComposition.build("echo3", "echo_step", 3)
+        u_name, u_term = UnfoldComposition("echo3", "echo_step", 3).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_n_primitive.name: unfold_n_primitive},
@@ -238,7 +238,7 @@ class TestRNN:
         h0 = np.ones(3)
         init_term = encode_array(coder, h0)
 
-        f_name, f_term = FoldComposition.build("elman", "elman_step", init_term)
+        f_name, f_term = FoldComposition("elman", "elman_step", init_term).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -289,7 +289,7 @@ class TestRNN:
         prim_step, *_ = eq_step.resolve(backend)
 
         n_steps = 4
-        u_name, u_term = UnfoldComposition.build("tied_rnn", "tied_step", n_steps)
+        u_name, u_term = UnfoldComposition("tied_rnn", "tied_step", n_steps).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_n_primitive.name: unfold_n_primitive},
@@ -334,7 +334,7 @@ class TestRNN:
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
-        f_name, f_term = FoldComposition.build("tied_fold", "tied_fold_step", init_term)
+        f_name, f_term = FoldComposition("tied_fold", "tied_fold_step", init_term).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -388,7 +388,7 @@ class TestRNN:
         prim_step, *_ = eq_step.resolve(backend)
 
         n_steps = 3
-        u_name, u_term = UnfoldComposition.build("trop_echo", "trop_echo_step", n_steps)
+        u_name, u_term = UnfoldComposition("trop_echo", "trop_echo_step", n_steps).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_n_primitive.name: unfold_n_primitive},
@@ -429,7 +429,7 @@ class TestRNN:
         h0 = np.array([0.0, 0.0, 0.0])
         init_term = encode_array(coder, h0)
 
-        f_name, f_term = FoldComposition.build("trop_rnn", "trop_step", init_term)
+        f_name, f_term = FoldComposition("trop_rnn", "trop_step", init_term).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -476,7 +476,7 @@ class TestRNN:
 
         h0_real = np.array([1.0, 1.0, 1.0])
         init_real = encode_array(coder, h0_real)
-        r_name, r_term = FoldComposition.build("poly_real", "poly_real_step", init_real)
+        r_name, r_term = FoldComposition("poly_real", "poly_real_step", init_real).to_lambda()
 
         # Tropical fold: h_t = h_{t-1} + x_t
         eq_trop = Equation("poly_trop_step", "i,i->i", hidden_trop, hidden_trop, tropical_sr)
@@ -484,7 +484,7 @@ class TestRNN:
 
         h0_trop = np.array([0.0, 0.0, 0.0])
         init_trop = encode_array(coder, h0_trop)
-        t_name, t_term = FoldComposition.build("poly_trop", "poly_trop_step", init_trop)
+        t_name, t_term = FoldComposition("poly_trop", "poly_trop_step", init_trop).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={

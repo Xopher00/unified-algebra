@@ -200,11 +200,11 @@ class TestShortestPath:
         x_enc = enc(coder, x0)
 
         # Pre-bind W into each hop so the path only takes x as input.
-        p_name, p_term = PathComposition.build(
+        p_name, p_term = PathComposition(
             "two_hop_bound",
             ["sp1", "sp2"],
             params={"sp1": [W_enc], "sp2": [W_enc]},
-        )
+        ).to_lambda()
 
         prim_sp1, *_ = eq1.resolve(backend)
         prim_sp2, *_ = eq2.resolve(backend)
@@ -253,11 +253,11 @@ class TestShortestPath:
         W_enc = enc(coder, W_real)
         x_enc = enc(coder, x_real)
 
-        p_name, p_term = PathComposition.build(
+        p_name, p_term = PathComposition(
             "real_two_hop",
             ["real1", "real2"],
             params={"real1": [W_enc], "real2": [W_enc]},
-        )
+        ).to_lambda()
 
         prim_real1, *_ = eq1.resolve(backend)
         prim_real2, *_ = eq2.resolve(backend)

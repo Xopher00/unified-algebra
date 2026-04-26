@@ -388,12 +388,12 @@ class TestBatchedPath:
     """Sequential composition of batched equations."""
 
     def test_batched_path_structure(self, real_sr, backend):
-        """PathComposition.build() on batched equations builds the same lambda structure as unbatched."""
+        """PathComposition on batched equations builds the same lambda structure as unbatched."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq1 = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
         eq2 = Equation("tanh_b", None, hidden_b, hidden_b, nonlinearity="tanh")
-        p = PathComposition.build("b_pipe", ["relu_b", "tanh_b"])
-        # PathComposition.build() returns a Hydra Term (lambda)
+        p = PathComposition("b_pipe", ["relu_b", "tanh_b"]).to_lambda()
+        # PathComposition().to_lambda() returns a (Name, Term) tuple
         assert p is not None
 
     def test_batched_path_end_to_end(self, cx, real_sr, backend, coder):

@@ -103,13 +103,13 @@ class TestFoldStructure:
 
     def test_fold_returns_name_and_lambda(self, hidden, coder):
         init = encode_array(coder, np.zeros(3))
-        name, term = FoldComposition.build("rnn", "step", init)
+        name, term = FoldComposition("rnn", "step", init).to_lambda()
         assert name == Name("ua.fold.rnn")
         assert isinstance(term.value, core.Lambda)
 
     def test_fold_name_prefix(self, hidden, coder):
         init = encode_array(coder, np.zeros(3))
-        name, _ = FoldComposition.build("test", "step", init)
+        name, _ = FoldComposition("test", "step", init).to_lambda()
         assert name.value == "ua.fold.test"
 
 
@@ -146,7 +146,7 @@ class TestFoldReduce:
 
         step(state, element) = state * element  (einsum "i,i->i")
         init = [1, 1, 1]
-        FoldComposition.build([x1, x2, x3]) = x1 * x2 * x3 (elementwise)
+        FoldComposition([x1, x2, x3]) = x1 * x2 * x3 (elementwise)
         """
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
         prim_step, *_ = eq_step.resolve(backend)
@@ -154,7 +154,7 @@ class TestFoldReduce:
         init = np.ones(3)
         init_term = encode_array(coder, init)
 
-        f_name, f_term = FoldComposition.build("prod", "step", init_term)
+        f_name, f_term = FoldComposition("prod", "step", init_term).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -193,7 +193,7 @@ class TestFoldReduce:
 
         init = np.ones(2)
         init_term = encode_array(coder, init)
-        f_name, f_term = FoldComposition.build("single", "step", init_term)
+        f_name, f_term = FoldComposition("single", "step", init_term).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -221,7 +221,7 @@ class TestFoldReduce:
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
-        f_name, f_term = FoldComposition.build("tied", "step", init_term)
+        f_name, f_term = FoldComposition("tied", "step", init_term).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step},
@@ -249,7 +249,7 @@ class TestFoldReduce:
 class TestUnfoldStructure:
 
     def test_unfold_returns_name_and_lambda(self, hidden):
-        name, term = UnfoldComposition.build("stream", "step", 3)
+        name, term = UnfoldComposition("stream", "step", 3).to_lambda()
         assert name == Name("ua.unfold.stream")
         assert isinstance(term.value, core.Lambda)
 
@@ -294,7 +294,7 @@ class TestUnfoldReduce:
         prim_step, *_ = eq_step.resolve(backend)
 
         unfold_prim = unfold_n_primitive
-        u_name, u_term = UnfoldComposition.build("stream", "step", 3)
+        u_name, u_term = UnfoldComposition("stream", "step", 3).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_prim.name: unfold_prim},
@@ -336,7 +336,7 @@ class TestUnfoldReduce:
         prim_step, *_ = eq_step.resolve(backend)
 
         unfold_prim = unfold_n_primitive
-        u_name, u_term = UnfoldComposition.build("one", "step", 1)
+        u_name, u_term = UnfoldComposition("one", "step", 1).to_lambda()
 
         graph = make_graph_with_stdlib(
             primitives={prim_step.name: prim_step, unfold_prim.name: unfold_prim},

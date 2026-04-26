@@ -7,6 +7,7 @@ the (Name, Term) pairs to bind into the graph.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 from hydra.dsl.python import FrozenDict
@@ -22,14 +23,24 @@ from unialg.assembly._primitives import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Spec dataclasses
-# ---------------------------------------------------------------------------
-
 @dataclass
 class Spec:
     """Base for all composition specs."""
     name: str
+    COMPOSITION = None
+    _COMPOSE_FIELDS = ()
+
+    @classmethod
+    def from_parsed(cls, decl, get_sort, **kw):
+        name = decl[1]
+        sig = decl[2]
+        sorts = (get_sort(sig[0]), get_sort(sig[1])) if isinstance(sig, tuple) else (get_sort(sig),)
+        sort_fields = [f.name for f in dataclasses.fields(cls) if f.name.endswith('_sort')]
+        return cls(name=name, **dict(zip(sort_fields, sorts)), **cls._parse_rest(decl[3:], **kw))
+
+    @classmethod
+    def _parse_rest(cls, rest, **kw):
+        return {}
 
     def sort_terms(self) -> list:
         return [getattr(self, a) for a in ("domain_sort", "codomain_sort", "state_sort")
@@ -54,22 +65,31 @@ class Spec:
         return []
 
     def _compose(self) -> list:
-        raise NotImplementedError
+        return [self.COMPOSITION(self.name, *[getattr(self, f) for f in self._COMPOSE_FIELDS])]
 
     @staticmethod
     def _require_eq(eq_by_name: dict, name: str, label: str) -> None:
         if name not in eq_by_name:
-            raise ValueError(f"{label} equation '{name}' not found")
+            raise ValueError(f"{label} op '{name}' not found")
 
     @staticmethod
     def _eq_sort_type(eq_by_name: dict, eq_name: str, field: str):
-        """Return the Hydra Type for an equation's domain ('d') or codomain ('c')."""
         v = eq_by_name[eq_name]
         return (v.domain_sort if field == "d" else v.codomain_sort).type_
 
     @staticmethod
-    def _sort_type(sort_term):
-        return sort_term.type_
+    def _boundary(eq_by_name, domain_sort, codomain_sort, domain_eqs, codomain_eq=None):
+        cs = []
+        if domain_sort is not None:
+            ds = domain_sort.type_
+            for eq in domain_eqs:
+                cs.append(TypeConstraint(
+                    Spec._eq_sort_type(eq_by_name, eq, "d"), ds, f"'{eq}' domain mismatch"))
+        if codomain_sort is not None and codomain_eq is not None:
+            cs.append(TypeConstraint(
+                Spec._eq_sort_type(eq_by_name, codomain_eq, "c"), codomain_sort.type_,
+                f"'{codomain_eq}' codomain mismatch"))
+        return cs
 
     @staticmethod
     def _endomorphism(eq_by_name: dict, eq_name: str, sort_type, label: str) -> list:
@@ -91,11 +111,21 @@ class Spec:
                            f"{label} fwd.codomain != bwd.domain"),
         ]
 
+    @staticmethod
+    def _decompose_lenses(names, get_lens):
+        fwd, bwd, has_res = [], [], False
+        for ln in names:
+            lv = get_lens(ln)
+            fwd.append(lv.forward); bwd.append(lv.backward)
+            if lv.residual_sort is not None: has_res = True
+        return fwd, bwd, has_res
+
 
 @dataclass
 class PathSpec(Spec):
     """Sequential path composition."""
     COMPOSITION = PathComposition
+    _COMPOSE_FIELDS = ('eq_names', 'params', 'residual', 'residual_semiring')
     eq_names: list[str]
     domain_sort: object
     codomain_sort: object
@@ -103,23 +133,24 @@ class PathSpec(Spec):
     residual: bool = False
     residual_semiring: str | None = None
 
+    @classmethod
+    def _parse_rest(cls, rest, expand_ref=None, **_):
+        eq_names = [expand_ref(en) for en in rest[0]]
+        attrs = rest[1]
+        residual = attrs.get('residual', False)
+        return dict(eq_names=eq_names, residual=residual,
+                    residual_semiring=attrs.get('algebra') if residual else None)
+
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
-        cs = []
-        if self.domain_sort is not None:
-            cs.append(TypeConstraint(
-                self._eq_sort_type(eq_by_name, self.eq_names[0], "d"),
-                self._sort_type(self.domain_sort),
-                f"Path domain != '{self.eq_names[0]}' domain"))
+        for n in self.eq_names:
+            self._require_eq(eq_by_name, n, f"Seq '{self.name}'")
+        cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
+                            [self.eq_names[0]], self.eq_names[-1])
         for a, b in zip(self.eq_names, self.eq_names[1:]):
             cs.append(TypeConstraint(
                 self._eq_sort_type(eq_by_name, a, "c"),
                 self._eq_sort_type(eq_by_name, b, "d"),
                 f"'{a}' codomain != '{b}' domain"))
-        if self.codomain_sort is not None:
-            cs.append(TypeConstraint(
-                self._eq_sort_type(eq_by_name, self.eq_names[-1], "c"),
-                self._sort_type(self.codomain_sort),
-                f"Path codomain != '{self.eq_names[-1]}' codomain"))
         return cs
 
     def _primitives(self, **kwargs) -> list[tuple]:
@@ -133,83 +164,77 @@ class PathSpec(Spec):
         prim, fn = residual_add_primitive(sr_name, resolved_semirings[sr_name], kwargs["coder"])
         return [(prim, fn)]
 
-    def _compose(self) -> list:
-        return [self.COMPOSITION(self.name, self.eq_names, self.params,
-                     residual=self.residual, residual_semiring=self.residual_semiring)]
-
 
 @dataclass
 class FanSpec(Spec):
     """Parallel fan composition."""
     COMPOSITION = FanComposition
+    _COMPOSE_FIELDS = ('branch_names', 'merge_name')
     branch_names: list[str]
     merge_name: str
     domain_sort: object
     codomain_sort: object
 
+    @classmethod
+    def _parse_rest(cls, rest, expand_ref=None, **_):
+        branches = [expand_ref(bn) for bn in rest[0]]
+        return dict(branch_names=branches, merge_name=rest[1])
+
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
-        cs = []
-        md = self._sort_type(eq_by_name[self.merge_name].domain_sort)
-        if self.domain_sort is not None:
-            for b in self.branch_names:
-                cs.append(TypeConstraint(
-                    self._eq_sort_type(eq_by_name, b, "d"),
-                    self._sort_type(self.domain_sort),
-                    f"Fan branch '{b}' domain mismatch"))
+        for n in self.branch_names + [self.merge_name]:
+            self._require_eq(eq_by_name, n, f"Branch '{self.name}'")
+        cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
+                            self.branch_names, self.merge_name)
+        md = self._eq_sort_type(eq_by_name, self.merge_name, "d")
         for b in self.branch_names:
             cs.append(TypeConstraint(
-                self._eq_sort_type(eq_by_name, b, "c"),
-                md,
-                f"Fan branch '{b}' codomain != merge domain"))
-        if self.codomain_sort is not None:
-            cs.append(TypeConstraint(
-                self._eq_sort_type(eq_by_name, self.merge_name, "c"),
-                self._sort_type(self.codomain_sort),
-                f"Fan merge codomain mismatch"))
+                self._eq_sort_type(eq_by_name, b, "c"), md,
+                f"Branch '{b}' codomain != merge domain"))
         return cs
-
-    def _compose(self) -> list:
-        return [self.COMPOSITION(self.name, self.branch_names, self.merge_name)]
 
 
 @dataclass
 class FoldSpec(Spec):
     """Fold (catamorphism)."""
     COMPOSITION = FoldComposition
+    _COMPOSE_FIELDS = ('step_name', 'init_term')
     step_name: str
     init_term: object  # core.Term
     domain_sort: object
     state_sort: object
 
+    @classmethod
+    def _parse_rest(cls, rest, **_):
+        return dict(step_name=rest[0]['step'], init_term=None)
+
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
-        self._require_eq(eq_by_name, self.step_name, "Fold step")
+        self._require_eq(eq_by_name, self.step_name, "Scan step")
         return [TypeConstraint(
             self._eq_sort_type(eq_by_name, self.step_name, "c"),
-            self._sort_type(self.state_sort),
-            f"Fold step codomain != state sort")]
-
-    def _compose(self) -> list:
-        return [self.COMPOSITION(self.name, self.step_name, self.init_term)]
+            self.state_sort.type_,
+            f"Scan step codomain != state sort")]
 
 
 @dataclass
 class UnfoldSpec(Spec):
     """Unfold (anamorphism)."""
     COMPOSITION = UnfoldComposition
+    _COMPOSE_FIELDS = ('step_name', 'n_steps')
     step_name: str
     n_steps: int
     domain_sort: object
     state_sort: object
 
+    @classmethod
+    def _parse_rest(cls, rest, **_):
+        return dict(step_name=rest[0]['step'], n_steps=int(rest[0]['steps']))
+
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
-        self._require_eq(eq_by_name, self.step_name, "Unfold step")
-        return self._endomorphism(eq_by_name, self.step_name, self._sort_type(self.domain_sort), "Unfold step")
+        self._require_eq(eq_by_name, self.step_name, "Unroll step")
+        return self._endomorphism(eq_by_name, self.step_name, self.domain_sort.type_, "Unroll step")
 
     def _primitives(self, **kwargs) -> list[tuple]:
         return [(unfold_n_primitive, None)]
-
-    def _compose(self) -> list:
-        return [self.COMPOSITION(self.name, self.step_name, self.n_steps)]
 
 
 @dataclass
@@ -218,21 +243,18 @@ class LensPathSpec(PathSpec):
     bwd_eq_names: list[str] = field(default_factory=list)
     has_residual: bool = False
 
+    @classmethod
+    def _parse_rest(cls, rest, get_lens=None, **_):
+        fwd, bwd, has_res = Spec._decompose_lenses(rest[0], get_lens)
+        return dict(eq_names=fwd, bwd_eq_names=bwd, has_residual=has_res)
+
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         for n in self.eq_names + self.bwd_eq_names:
-            self._require_eq(eq_by_name, n, f"LensPath '{self.name}'")
-
-        # Residual skips chain checks (intermediate sorts are ProductSorts)
+            self._require_eq(eq_by_name, n, f"LensSeq '{self.name}'")
         if self.has_residual:
-            cs = []
-            if self.domain_sort is not None and self.eq_names:
-                cs.append(TypeConstraint(
-                    self._eq_sort_type(eq_by_name, self.eq_names[0], "d"),
-                    self._sort_type(self.domain_sort),
-                    f"LensPath '{self.name}' domain mismatch"))
+            cs = self._boundary(eq_by_name, self.domain_sort, None, [self.eq_names[0]])
         else:
             cs = super().constraints(eq_by_name)
-
         for fwd_name, bwd_name in zip(self.eq_names, self.bwd_eq_names):
             cs.extend(self._bidi(eq_by_name, fwd_name, bwd_name, f"'{fwd_name}'"))
         return cs
@@ -253,13 +275,20 @@ class LensFanSpec(FanSpec):
     bwd_branch_names: list[str] = field(default_factory=list)
     merge_bwd_name: str = ""
 
+    @classmethod
+    def _parse_rest(cls, rest, get_lens=None, **_):
+        fwd, bwd, _ = Spec._decompose_lenses(rest[0], get_lens)
+        mlv = get_lens(rest[1])
+        return dict(branch_names=fwd, merge_name=mlv.forward,
+                    bwd_branch_names=bwd, merge_bwd_name=mlv.backward)
+
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         for n in self.branch_names + self.bwd_branch_names + [self.merge_name, self.merge_bwd_name]:
-            self._require_eq(eq_by_name, n, f"LensFan '{self.name}'")
+            self._require_eq(eq_by_name, n, f"LensBranch '{self.name}'")
         cs = super().constraints(eq_by_name)
         for fwd_name, bwd_name in zip(self.branch_names, self.bwd_branch_names):
-            cs.extend(self._bidi(eq_by_name, fwd_name, bwd_name, f"LensFan '{self.name}' branch '{fwd_name}'"))
-        cs.extend(self._bidi(eq_by_name, self.merge_name, self.merge_bwd_name, f"LensFan '{self.name}' merge"))
+            cs.extend(self._bidi(eq_by_name, fwd_name, bwd_name, f"LensBranch '{self.name}' branch '{fwd_name}'"))
+        cs.extend(self._bidi(eq_by_name, self.merge_name, self.merge_bwd_name, f"LensBranch '{self.name}' merge"))
         return cs
 
     def _compose(self) -> list:
@@ -271,16 +300,24 @@ class LensFanSpec(FanSpec):
 class FixpointSpec(Spec):
     """Fixpoint iteration."""
     COMPOSITION = FixpointComposition
+    _COMPOSE_FIELDS = ('step_name', 'predicate_name', 'epsilon', 'max_iter')
     step_name: str
     predicate_name: str
     epsilon: float
     max_iter: int
     domain_sort: object  # core.Term
 
+    @classmethod
+    def _parse_rest(cls, rest, **_):
+        attrs = rest[0]
+        return dict(step_name=attrs.get('step'), predicate_name=attrs.get('predicate'),
+                    epsilon=float(attrs.get('epsilon', 1e-6)),
+                    max_iter=int(attrs.get('max_iter', 100)))
+
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         self._require_eq(eq_by_name, self.step_name, "Fixpoint step")
         self._require_eq(eq_by_name, self.predicate_name, "Fixpoint predicate")
-        ds = self._sort_type(self.domain_sort)
+        ds = self.domain_sort.type_
         pred_cod = self._eq_sort_type(eq_by_name, self.predicate_name, "c")
         if pred_cod == ds:
             raise TypeError(
@@ -295,6 +332,3 @@ class FixpointSpec(Spec):
 
     def _primitives(self, **kwargs) -> list[tuple]:
         return [(fixpoint_primitive(self.epsilon, self.max_iter), None)]
-
-    def _compose(self) -> list:
-        return [self.COMPOSITION(self.name, self.step_name, self.predicate_name, self.epsilon, self.max_iter)]

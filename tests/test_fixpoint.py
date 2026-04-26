@@ -147,14 +147,14 @@ class TestFixpointValidation:
         """validate_fixpoint raises ValueError when predicate equation is not found."""
         step_eq = Equation("ms_step", None, hidden, hidden, nonlinearity="relu")
         eq_by_name = {"ms_step": step_eq}
-        with pytest.raises(ValueError, match="predicate equation 'missing_pred' not found"):
+        with pytest.raises(ValueError, match="op 'missing_pred' not found"):
             FixpointSpec("_", "ms_step", "missing_pred", 0.0, 0, hidden).validate(eq_by_name, _schema(eq_by_name))
 
     def test_validate_fixpoint_raises_for_missing_step(self, hidden):
         """validate_fixpoint raises ValueError when step equation is not found."""
         pred_eq = Equation("ms_pred", None, hidden, hidden, nonlinearity="abs")
         eq_by_name = {"ms_pred": pred_eq}
-        with pytest.raises(ValueError, match="step equation 'missing_step' not found"):
+        with pytest.raises(ValueError, match="op 'missing_step' not found"):
             FixpointSpec("_", "missing_step", "ms_pred", 0.0, 0, hidden).validate(eq_by_name, _schema(eq_by_name))
 
 

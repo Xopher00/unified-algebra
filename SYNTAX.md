@@ -1,7 +1,7 @@
 # Unified Algebra DSL — Syntax Reference
 
 This document is the authoritative lexicon for the `.ua` DSL.
-It is derived from `src/unified_algebra/parser.py` and must be kept in sync with it.
+It is derived from `src/unialg/parser/_grammar.py` and must be kept in sync with it.
 
 ---
 
@@ -14,7 +14,7 @@ It is derived from `src/unified_algebra/parser.py` and must be kept in sync with
 
 ```
 # this is a comment
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)  # inline comment
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)  # inline comment
 ```
 
 ---
@@ -48,16 +48,19 @@ Integer or decimal. Special values `inf` and `-inf` are supported.
 
 | Token | Role |
 |-------|------|
-| `>>`  | Sequential composition (path chain, lens_path chain) |
+| `>>`  | Sequential composition (`seq` chain, `lens_seq` chain) |
 | `->`  | Sort signature separator (`dom -> cod`) |
 | `<->` | Bidirectional sort signature (`dom <-> cod`, lenses only) |
 | `:`   | Type annotation — separates a declaration name from its signature |
 | `=`   | Assignment — separates a name or key from its value |
+| `~`   | Template marker — prefix on `op` name; marks the op as a template for parametric instantiation |
+| `+`   | Residual marker — suffix on `seq` name; adds a skip connection via the semiring's plus |
+| `\|`  | Branch separator — inline branch list in `branch` and `lens_branch` declarations |
 | `(`   | Open argument list |
 | `)`   | Close argument list |
-| `[`   | Open branch list |
-| `]`   | Close branch list |
-| `,`   | Separator in argument lists and branch lists |
+| `[`   | Open template instantiation or subscript |
+| `]`   | Close template instantiation or subscript |
+| `,`   | Separator in argument lists |
 
 ---
 
@@ -68,12 +71,12 @@ Attribute blocks are indented with at least one space or tab.
 
 ---
 
-### `semiring`
+### `algebra`
 
 Declares a semiring with named binary operations and identity elements.
 
 ```
-semiring <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>)
+algebra <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>)
 ```
 
 The backend must provide functions named by `plus` and `times`.
@@ -81,193 +84,201 @@ The backend must provide functions named by `plus` and `times`.
 
 **Examples:**
 ```
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-semiring tropical(plus=minimum, times=add, zero=inf, one=0.0)
-semiring fuzzy(plus=maximum, times=minimum, zero=0.0, one=1.0)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
+algebra fuzzy(plus=maximum, times=minimum, zero=0.0, one=1.0)
 ```
 
 ---
 
-### `sort`
+### `spec`
 
-Declares a named tensor type associated with a semiring.
+Declares a named tensor type associated with an algebra.
 
 ```
-sort <name>(<semiring-name>)
-sort <name>(<semiring-name>, batched)
+spec <name>(<algebra-name>)
+spec <name>(<algebra-name>, batched)
 ```
 
 `batched` adds a leading independent batch dimension at resolution time.
 
 **Examples:**
 ```
-sort hidden(real)
-sort output(real)
-sort hidden_batched(real, batched)
+spec hidden(real)
+spec output(real)
+spec hidden_batched(real, batched)
 ```
 
 ---
 
-### `equation`
+### `op`
 
 Declares a morphism: a typed tensor operation.
 
 ```
-equation <name> : <dom> -> <cod>
+op <name> : <dom> -> <cod>
   einsum = "<subscript>"
-  semiring = <semiring-name>
+  algebra = <algebra-name>
 ```
 
-For nonlinear (pointwise) equations, use `nonlinearity` instead of `einsum`:
+For nonlinear (pointwise) ops, use `nonlinearity` instead of `einsum`:
 
 ```
-equation <name> : <dom> -> <cod>
+op <name> : <dom> -> <cod>
   nonlinearity = <ident>
 ```
 
 Attributes are indented key-value pairs. `einsum` and `nonlinearity` are mutually exclusive.
-`semiring` is required for einsum equations; omit it for nonlinearities.
+`algebra` is required for einsum ops; omit it for nonlinearities.
 
 | Attribute | Type | Meaning |
 |---|---|---|
 | `einsum` | string | Einsum subscript string |
-| `semiring` | ident | Semiring name (required for einsum equations) |
+| `algebra` | ident | Algebra name (required for einsum ops) |
 | `nonlinearity` | ident | Pointwise operation name |
-| `template` | boolean | If `true`, this equation is a template for parametric instantiation |
 
 **Examples:**
 ```
-equation linear : hidden -> hidden
+op linear : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
-equation softmax : hidden -> output
+op softmax : hidden -> output
   nonlinearity = softmax
 ```
 
-#### Template equations
+#### Template ops
 
-An equation declared with `template = true` is a **template**: it is not registered as a concrete equation itself, but can be instantiated with a prefix to produce distinct concrete equations with separate weight keys in the Hydra graph.
+An op declared with the `~` prefix is a **template**: it is not registered as a concrete op itself, but can be instantiated with a prefix to produce distinct concrete ops with separate weight keys in the Hydra graph.
 
 **Declaration:**
 ```
-equation proj : hidden -> hidden
+op ~proj : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
-  template = true
+  algebra = real
 ```
 
-**Instantiation** — use `name[prefix]` in a `path` chain or `fan` branch list:
+**Instantiation** — use `name[prefix]` in a `seq` chain or `branch` inline list:
 ```
-path qk : hidden -> hidden = proj[q] >> proj[k]
+seq qk : hidden -> hidden = proj[q] >> proj[k]
 
-fan kv : hidden -> hidden
-  branches = [proj[q], proj[k], proj[v]]
+branch kv : hidden -> hidden = proj[q] | proj[k] | proj[v]
   merge = add_merge
 ```
 
-Each `proj[q]`, `proj[k]`, `proj[v]` expands to concrete equations `q_proj`, `k_proj`, `v_proj` respectively, sharing the same einsum/sorts/semiring but with distinct names (= distinct weight tensors at runtime).
+Each `proj[q]`, `proj[k]`, `proj[v]` expands to concrete ops `q_proj`, `k_proj`, `v_proj` respectively, sharing the same einsum/specs/algebra but with distinct names (= distinct weight tensors at runtime).
 
 Rules:
-- Template refs may appear anywhere plain equation names appear in `path` `>>` chains and `fan` `branches = [...]` lists.
-- Using the same template ref twice in the same program (e.g. `proj[q] >> proj[q]`) creates exactly one concrete equation — not a duplicate.
+- Template refs may appear anywhere plain op names appear in `seq` `>>` chains and `branch` `|` inline lists.
+- Using the same template ref twice in the same program (e.g. `proj[q] >> proj[q]`) creates exactly one concrete op — not a duplicate.
 - Referencing an undeclared template name raises `ValueError`.
-- Template equations do not appear in `spec.equations`; only their concrete instantiations do.
+- Template ops do not appear in `spec.ops`; only their concrete instantiations do.
 
 ---
 
-### `path`
+### `seq`
 
-Declares a sequential composition of equations, applied left-to-right.
+Declares a sequential composition of ops, applied left-to-right.
 
 ```
-path <name> : <dom> -> <cod> = <eq1> >> <eq2> >> ... >> <eqN>
+seq <name> : <dom> -> <cod> = <op1> >> <op2> >> ... >> <opN>
 ```
 
-`eq1` receives the input; `eqN` produces the output.
-All equation names must be declared before the path. Template refs (`name[prefix]`) may appear in the chain alongside plain equation names.
+`op1` receives the input; `opN` produces the output.
+All op names must be declared before the `seq`. Template refs (`name[prefix]`) may appear in the chain alongside plain op names.
 
-An optional indented attribute block may follow the path chain:
+An optional indented attribute block may follow the chain:
 
-| Attribute   | Type    | Meaning |
-|-------------|---------|---------|
-| `residual`  | boolean | If `true`, adds the original input back via the semiring's plus: `output = path(x) ⊕ x` |
-| `semiring`  | ident   | Name of the semiring whose `plus` operation performs the skip connection. Required when `residual = true`. |
+| Attribute  | Type  | Meaning |
+|------------|-------|---------|
+| `algebra`  | ident | Name of the algebra whose `plus` operation performs the skip connection. Required when `+` suffix is used. |
+
+#### Residual `seq`
+
+Appending `+` to the `seq` name adds a skip connection: `output = seq(x) ⊕ x` using the algebra's plus.
+
+```
+seq <name>+ : <dom> -> <cod> = <op1> >> <op2> >> ... >> <opN>
+  algebra = <algebra-name>
+```
 
 **Examples:**
 ```
-path layer : hidden -> hidden = linear >> relu
-path ffn : hidden -> hidden = linear1 >> relu1 >> linear2 >> relu2 >> linear3
+seq layer : hidden -> hidden = linear >> relu
+seq ffn : hidden -> hidden = linear1 >> relu1 >> linear2 >> relu2 >> linear3
 
 # Residual / skip connection
-path resblock : hidden -> hidden = linear >> relu
-  residual = true
-  semiring = real
+seq resblock+ : hidden -> hidden = linear >> relu
+  algebra = real
 ```
 
 ---
 
-### `fan`
+### `branch`
 
 Declares a parallel composition: branches applied to the same input, then merged.
+Branches are listed inline, separated by `|`.
 
 ```
-fan <name> : <dom> -> <cod>
-  branches = [<eq1>, <eq2>, ..., <eqN>]
-  merge = <merge-eq>
+branch <name> : <dom> -> <cod> = <op1> | <op2> | ... | <opN>
+  merge = <merge-op>
 ```
 
-All branch equations receive the same input. The merge equation receives a list of branch outputs. Template refs (`name[prefix]`) may appear in the branch list alongside plain equation names.
+All branch ops receive the same input. The merge op receives a list of branch outputs. Template refs (`name[prefix]`) may appear in the branch list alongside plain op names.
 
 **Example:**
 ```
-fan attention : hidden -> hidden
-  branches = [query, key, value]
+branch attention : hidden -> hidden = query | key | value
   merge = softmax_combine
 ```
 
 ---
 
-### `fold`
+### `scan`
 
-Declares a catamorphism (fold / left-recursive accumulation).
+Declares a catamorphism (scan / left-recursive accumulation).
 
 ```
-fold <name> : <dom> -> <state>
-  step = <eq-name>
+scan <name> : <dom> -> <state>
+  step = <op-name>
 ```
 
-The step equation is the recurrent cell, applied at each element.
+The step op is the recurrent cell, applied at each element.
 
 **Example:**
 ```
-fold rnn : hidden -> hidden
+scan rnn : hidden -> hidden
   step = layer
 ```
 
 ---
 
-### `unfold`
+### `unroll`
 
-Declares an anamorphism (unfold / iterated state transition).
+Declares an anamorphism (unroll / iterated state transition).
 
 ```
-unfold <name> : <dom> -> <state>
-  step = <eq-name>
-  n_steps = <integer>
+unroll <name> : <dom> -> <state>
+  step = <op-name>
+  steps = <integer>
 ```
 
-The step equation is applied `n_steps` times starting from an initial state.
+The step op is applied `steps` times starting from an initial state.
 Produces a list of intermediate states.
+
+| Attribute | Type    | Default | Meaning |
+|-----------|---------|---------|---------|
+| `step`    | ident   | —       | State transition op |
+| `steps`   | integer | —       | Number of unroll steps |
 
 **Example:**
 ```
-unfold stream : hidden -> hidden
+unroll stream : hidden -> hidden
   step = transition
-  n_steps = 10
+  steps = 10
 ```
 
 ---
@@ -278,18 +289,18 @@ Declares a fixpoint iteration (converge-to-epsilon).
 
 ```
 fixpoint <name> : <sort>
-  step = <eq-name>
-  predicate = <eq-name>
+  step = <op-name>
+  predicate = <op-name>
   epsilon = <number>
   max_iter = <integer>
 ```
 
-The step equation is iterated until the predicate returns a value ≤ epsilon,
+The step op is iterated until the predicate returns a value ≤ epsilon,
 or max_iter is reached. The signature is a single sort (state → state).
 
 | Attribute   | Type   | Default | Meaning |
 |-------------|--------|---------|---------|
-| `step`      | ident  | —       | State transition equation |
+| `step`      | ident  | —       | State transition op |
 | `predicate` | ident  | —       | Convergence check: state → float |
 | `epsilon`   | number | 1e-6    | Convergence threshold |
 | `max_iter`  | number | 100     | Maximum iterations |
@@ -307,12 +318,12 @@ fixpoint converge : hidden
 
 ### `lens`
 
-Declares a bidirectional morphism pairing a forward and backward equation.
+Declares a bidirectional morphism pairing a forward and backward op.
 
 ```
 lens <name> : <dom> <-> <cod>
-  fwd = <eq-name>
-  bwd = <eq-name>
+  fwd = <op-name>
+  bwd = <op-name>
 ```
 
 Sort constraints: `fwd.domain == bwd.codomain`, `fwd.codomain == bwd.domain`.
@@ -326,46 +337,44 @@ lens backprop : hidden <-> hidden
 
 ---
 
-### `lens_path`
+### `lens_seq`
 
 Declares a sequential composition of lenses, forming a bidirectional path.
 
 ```
-lens_path <name> : <dom> <-> <cod> = <lens1> >> <lens2> >> ... >> <lensN>
+lens_seq <name> : <dom> <-> <cod> = <lens1> >> <lens2> >> ... >> <lensN>
 ```
 
-All lens names must be declared before the `lens_path`.
+All lens names must be declared before the `lens_seq`.
 
 **Example:**
 ```
-lens_path deep_backprop : hidden <-> hidden = backprop1 >> backprop2
+lens_seq deep_backprop : hidden <-> hidden = backprop1 >> backprop2
 ```
 
 ---
 
-### `lens_fan`
+### `lens_branch`
 
-Declares a parallel composition of lenses, forming a bidirectional fan.
+Declares a parallel composition of lenses, forming a bidirectional branch.
+Branches are listed inline, separated by `|`.
 
 ```
-lens_fan <name> : <dom> <-> <cod>
-  branches = [<lens1>, <lens2>, ..., <lensN>]
+lens_branch <name> : <dom> <-> <cod> = <lens1> | <lens2> | ... | <lensN>
   merge = <merge-lens>
 ```
 
-`branches` lists lens names applied in parallel to the same input.
-`merge` names a lens whose forward equation merges branch forward-outputs and whose backward equation merges branch backward-outputs.
+`merge` names a lens whose forward op merges branch forward-outputs and whose backward op merges branch backward-outputs.
 
-All lens names must be declared before the `lens_fan`.
+All lens names must be declared before the `lens_branch`.
 
 The assembled result is two bound terms:
-- `ua.fan.<name>.fwd` — forward fan: branch forwards + merge forward
-- `ua.fan.<name>.bwd` — backward fan: branch backwards + merge backward
+- `ua.branch.<name>.fwd` — forward branch: branch forwards + merge forward
+- `ua.branch.<name>.bwd` — backward branch: branch backwards + merge backward
 
 **Example:**
 ```
-lens_fan attention : hidden <-> hidden
-  branches = [backprop1, backprop2]
+lens_branch attention : hidden <-> hidden = backprop1 | backprop2
   merge = merge_lens
 ```
 
@@ -375,13 +384,13 @@ lens_fan attention : hidden <-> hidden
 
 The parser resolves names in dependency order:
 
-1. `semiring` — no dependencies
-2. `sort` — depends on semirings by name
-3. `equation` — depends on sorts and semirings by name
-4. `path`, `fan`, `fold`, `unfold`, `fixpoint` — depend on equations by name
-5. `lens` — depends on equations by name
-6. `lens_path` — depends on lenses by name
-7. `lens_fan` — depends on lenses by name
+1. `algebra` — no dependencies
+2. `spec` — depends on algebras by name
+3. `op` — depends on specs and algebras by name
+4. `seq`, `branch`, `scan`, `unroll`, `fixpoint` — depend on ops by name
+5. `lens` — depends on ops by name
+6. `lens_seq` — depends on lenses by name
+7. `lens_branch` — depends on lenses by name
 
 Forward references are not supported. Declare dependencies before use.
 
@@ -390,48 +399,81 @@ Forward references are not supported. Declare dependencies before use.
 ## Full Example
 
 ```
-# Semiring
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-semiring tropical(plus=minimum, times=add, zero=inf, one=0.0)
+# Algebra
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
 
-# Sorts
-sort hidden(real)
-sort output(real)
+# Specs
+spec hidden(real)
+spec output(real)
 
-# Equations
-equation linear : hidden -> hidden
+# Ops
+op linear : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
-equation linear_bwd : hidden -> hidden
+op linear_bwd : hidden -> hidden
   einsum = "ji,i->j"
-  semiring = real
+  algebra = real
 
-# Path
-path ffn : hidden -> hidden = linear >> relu
+# Template op
+op ~proj : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+
+# Seq
+seq ffn : hidden -> hidden = linear >> relu
+
+# Residual seq
+seq resblock+ : hidden -> hidden = linear >> relu
+  algebra = real
+
+# Branch with template instantiation
+branch attention : hidden -> hidden = proj[q] | proj[k] | proj[v]
+  merge = softmax_combine
+
+# Scan (catamorphism)
+scan rnn : hidden -> hidden
+  step = layer
+
+# Unroll (anamorphism)
+unroll stream : hidden -> hidden
+  step = transition
+  steps = 10
+
+# Fixpoint
+fixpoint converge : hidden
+  step = step_eq
+  predicate = residual_eq
+  epsilon = 0.001
+  max_iter = 100
 
 # Lens
 lens backprop : hidden <-> hidden
   fwd = linear
   bwd = linear_bwd
 
-# Lens path
-lens_path deep_backprop : hidden <-> hidden = backprop >> backprop
+# Lens seq
+lens_seq deep_backprop : hidden <-> hidden = backprop >> backprop
+
+# Lens branch
+lens_branch bidi : hidden <-> hidden = backprop1 | backprop2
+  merge = merge_lens
 ```
 
 ---
 
 ## Maintenance Protocol
 
-**This file must stay in sync with `src/unified_algebra/parser.py`.**
+**This file must stay in sync with `src/unialg/parser/_grammar.py`.**
 
 Rules:
-1. Any change to `parser.py` that adds, removes, or renames a keyword, operator, attribute, or declaration form **must** include a corresponding update to this file in the same commit.
+1. Any change to `_grammar.py` that adds, removes, or renames a keyword, operator, attribute, or declaration form **must** include a corresponding update to this file in the same commit.
 2. Any change to `SYNTAX.md` that adds a new construct **must** be backed by a corresponding parser implementation and tests before merging.
-3. When in doubt: `parser.py` is ground truth for what parses; `SYNTAX.md` is ground truth for what is intended to parse. Divergence is a bug.
+3. When in doubt: `_grammar.py` is ground truth for what parses; `SYNTAX.md` is ground truth for what is intended to parse. Divergence is a bug.
 
 The canonical test suite for parser/syntax alignment is `tests/test_parser.py`.
 Run it after any parser change: `uv run --python 3.12 --extra dev python -m pytest tests/test_parser.py -v`.

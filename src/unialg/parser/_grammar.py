@@ -5,6 +5,8 @@ raw declaration tuples.  No semantic resolution — that lives in _resolver.py.
 """
 from __future__ import annotations
 
+from functools import reduce
+
 
 def _build_parser():
     """Build the full .ua program parser.  Returns the top-level Parser[list[tuple]]."""
@@ -39,12 +41,6 @@ def _build_parser():
            P.bind(_newline, lambda _:
            P.pure(None))))
 
-    # Blank/comment lines — must match lines that are ONLY whitespace/comment.
-    # Three variants:
-    #   1. pure newline (empty line)
-    #   2. '#' comment at column 0 + newline
-    #   3. spaces/tabs + optional '#' comment + newline
-    # Using alt ensures each variant backtracks cleanly.
     _hash_comment_nl = P.bind(P.char(ord('#')), lambda _:
                        P.bind(P.many(_not_nl), lambda _:
                        P.bind(_newline, lambda _: P.pure(None))))
@@ -99,19 +95,7 @@ def _build_parser():
     _neg_inf = P.bind(P.string('-inf'), lambda _: P.pure(float('-inf')))
     number_lit = _tok(P.alt(_neg_inf, P.alt(_inf, _plain_num)))
 
-    # -------------------------------------------------------------------
-    # Indented attribute block
-    #
-    # Parses lines of the form:
-    #   <indent> <key> = <value> <eol>
-    # where value is either a string literal or an identifier.
-    #
-    # Key insight for hydra.parsers alt/many: the attr parser must fail
-    # *without* consuming input when there is no indent.  P.some(ws_char)
-    # satisfies this — it fails immediately if the first char is not a
-    # space/tab.
-    # -------------------------------------------------------------------
-
+    # Attr parser must fail without consuming when no indent (P.some guarantees this)
     _indent = P.bind(P.some(P.satisfy(lambda c: chr(c) in ' \t')), lambda _: P.pure(None))
     _comma = sym(',')
 
@@ -120,43 +104,15 @@ def _build_parser():
     _false = P.bind(P.string('false'), lambda _: P.pure(False))
     _bool_lit = _tok(P.alt(_false, _true))
 
-    def _indented_kv():
-        """Parse one indented key=value line, returning (key, value).
+    _any_value = P.alt(string_lit, P.alt(_bool_lit, P.alt(number_lit, ident)))
 
-        Value may be a string literal, boolean, number, or identifier.
-        """
+    def _indented_kv():
         return P.bind(_indent, lambda _:
                P.bind(ident, lambda k:
                P.bind(sym('='), lambda _:
-               P.alt(
-                   P.bind(string_lit, lambda v:
-                          P.bind(_eol, lambda _:
-                          P.pure((k, v)))),
-               P.alt(
-                   P.bind(_bool_lit, lambda v:
-                          P.bind(_eol, lambda _:
-                          P.pure((k, v)))),
-               P.alt(
-                   P.bind(number_lit, lambda v:
-                          P.bind(_eol, lambda _:
-                          P.pure((k, v)))),
-                   P.bind(ident, lambda v:
-                          P.bind(_eol, lambda _:
-                          P.pure((k, v)))),
-               ))))))
-
-    def _indented_list(key):
-        """Parse one indented key=[a,b,c] line, returning list of idents or template refs."""
-        _ident_list = P.bind(sym('['), lambda _:
-                      P.bind(P.sep_by1(ident_or_tpl, _comma), lambda items:
-                      P.bind(sym(']'), lambda _:
-                      P.pure(list(items)))))
-        return P.bind(_indent, lambda _:
-               P.bind(sym(key), lambda _:
-               P.bind(sym('='), lambda _:
-               P.bind(_ident_list, lambda v:
+               P.bind(_any_value, lambda v:
                P.bind(_eol, lambda _:
-               P.pure(v))))))
+               P.pure((k, v)))))))
 
     # -------------------------------------------------------------------
     # Sort type signatures — factored over the separator
@@ -175,173 +131,120 @@ def _build_parser():
     # Individual declaration parsers
     # -------------------------------------------------------------------
 
-    def _kv_ident(k):
+    def _kv(k, vp):
         return P.bind(sym(k), lambda _:
-               P.bind(sym('='), lambda _:
-               P.bind(ident, lambda v:
-               P.pure(v))))
-
-    def _kv_num(k):
-        return P.bind(sym(k), lambda _:
-               P.bind(sym('='), lambda _:
-               P.bind(number_lit, lambda v:
-               P.pure(v))))
+               P.bind(sym('='), lambda _: vp))
 
     _sr_args = P.bind(sym('('), lambda _:
-               P.bind(_kv_ident('plus'), lambda plus:
+               P.bind(_kv('plus', ident), lambda plus:
                P.bind(_comma, lambda _:
-               P.bind(_kv_ident('times'), lambda times:
+               P.bind(_kv('times', ident), lambda times:
                P.bind(_comma, lambda _:
-               P.bind(_kv_num('zero'), lambda zero:
+               P.bind(_kv('zero', number_lit), lambda zero:
                P.bind(_comma, lambda _:
-               P.bind(_kv_num('one'), lambda one:
+               P.bind(_kv('one', number_lit), lambda one:
                P.bind(sym(')'), lambda _:
                P.pure(dict(plus=plus, times=times, zero=zero, one=one)))))))))))
 
-    # semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-    semiring_decl = P.bind(sym('semiring'), lambda _:
-                    P.bind(ident, lambda name:
-                    P.bind(_sr_args, lambda kw_args:
-                    P.bind(_eol, lambda _:
-                    P.pure(('semiring', name, kw_args))))))
+    algebra_decl = P.bind(sym('algebra'), lambda _:
+                   P.bind(ident, lambda name:
+                   P.bind(_sr_args, lambda kw_args:
+                   P.bind(_eol, lambda _:
+                   P.pure(('algebra', name, kw_args))))))
 
-    # sort hidden(real) | sort hidden(real, batched)
     _batched_flag = P.bind(_comma, lambda _:
                     P.bind(sym('batched'), lambda _:
                     P.pure(True)))
 
-    sort_decl = P.bind(sym('sort'), lambda _:
+    spec_decl = P.bind(sym('spec'), lambda _:
                 P.bind(ident, lambda name:
                 P.bind(sym('('), lambda _:
                 P.bind(ident, lambda sr_name:
                 P.bind(P.optional(_batched_flag), lambda mb:
                 P.bind(sym(')'), lambda _:
                 P.bind(_eol, lambda _:
-                P.pure(('sort', name, sr_name, not isinstance(mb, Nothing) and mb.value is True)))))))))
+                P.pure(('spec', name, sr_name, not isinstance(mb, Nothing) and mb.value is True)))))))))
 
-    # equation linear : hidden -> hidden
-    #   einsum = "ij,j->i"
-    #   semiring = real
-    equation_decl = P.bind(sym('equation'), lambda _:
-                    P.bind(ident, lambda name:
-                    P.bind(sym(':'), lambda _:
-                    P.bind(_sort_sig, lambda sig:
-                    P.bind(_eol, lambda _:
-                    P.bind(P.many(_indented_kv()), lambda kv_list:
-                    P.pure(('equation', name, sig, dict(kv_list)))))))))
+    def _kv_decl(keyword, sig_parser, tag):
+        return P.bind(sym(keyword), lambda _:
+               P.bind(ident, lambda name:
+               P.bind(sym(':'), lambda _:
+               P.bind(sig_parser, lambda sig:
+               P.bind(_eol, lambda _:
+               P.bind(P.many(_indented_kv()), lambda kv_list:
+               P.pure((tag, name, sig, dict(kv_list)))))))))
 
-    # path layer : hidden -> hidden = linear >> bias >> relu
+    op_decl = P.bind(sym('op'), lambda _:
+              P.bind(P.optional(sym('~')), lambda tilde:
+              P.bind(ident, lambda name:
+              P.bind(sym(':'), lambda _:
+              P.bind(_sort_sig, lambda sig:
+              P.bind(_eol, lambda _:
+              P.bind(P.many(_indented_kv()), lambda kv_list:
+              P.pure(('op', name, sig,
+                      {**dict(kv_list),
+                       **({"template": True} if not isinstance(tilde, Nothing) else {})}
+                     )))))))))
+
     def _sep_by_gg(p):
         _gg = sym('>>')
         return P.bind(p, lambda first:
                P.bind(P.many(P.bind(_gg, lambda _: p)), lambda rest:
                P.pure([first] + list(rest))))
 
-    path_decl = P.bind(sym('path'), lambda _:
-                P.bind(ident, lambda name:
-                P.bind(sym(':'), lambda _:
-                P.bind(_sort_sig, lambda sig:
-                P.bind(sym('='), lambda _:
-                P.bind(_sep_by_gg(ident_or_tpl), lambda eq_names:
-                P.bind(_eol, lambda _:
-                P.bind(P.many(_indented_kv()), lambda kv_list:
-                P.pure(('path', name, sig, eq_names, dict(kv_list)))))))))))
+    def _sep_by_pipe(p):
+        _pipe = sym('|')
+        return P.bind(p, lambda first:
+               P.bind(P.many(P.bind(_pipe, lambda _: p)), lambda rest:
+               P.pure([first] + list(rest))))
 
-    # fan split : hidden -> hidden
-    #   branches = [linear, relu_branch]
-    #   merge = add_merge
-    fan_decl = P.bind(sym('fan'), lambda _:
+    seq_decl = P.bind(sym('seq'), lambda _:
                P.bind(ident, lambda name:
+               P.bind(P.optional(P.char(ord('+'))), lambda plus:
                P.bind(sym(':'), lambda _:
                P.bind(_sort_sig, lambda sig:
+               P.bind(sym('='), lambda _:
+               P.bind(_sep_by_gg(ident_or_tpl), lambda eq_names:
                P.bind(_eol, lambda _:
-               P.bind(_indented_list('branches'), lambda branches:
+               P.bind(P.many(_indented_kv()), lambda kv_list:
+               P.pure(('seq', name, sig, eq_names,
+                       {**dict(kv_list),
+                        **({"residual": True} if not isinstance(plus, Nothing) else {})}
+                      )))))))))))
+
+    def _branch_like(keyword, sig_parser, tag):
+        return P.bind(sym(keyword), lambda _:
+               P.bind(ident, lambda name:
+               P.bind(sym(':'), lambda _:
+               P.bind(sig_parser, lambda sig:
+               P.bind(sym('='), lambda _:
+               P.bind(_sep_by_pipe(ident_or_tpl), lambda branches:
+               P.bind(_eol, lambda _:
                P.bind(_indented_kv(), lambda merge_kv:
-               P.pure(('fan', name, sig, branches, merge_kv[1])))))))))
+               P.pure((tag, name, sig, branches, merge_kv[1]))))))))))
 
-    # fold rnn : hidden -> hidden
-    #   step = layer
-    fold_decl = P.bind(sym('fold'), lambda _:
-                P.bind(ident, lambda name:
-                P.bind(sym(':'), lambda _:
-                P.bind(_sort_sig, lambda sig:
-                P.bind(_eol, lambda _:
-                P.bind(_indented_kv(), lambda step_kv:
-                P.pure(('fold', name, sig, step_kv[1]))))))))
+    branch_decl = _branch_like('branch', _sort_sig, 'branch')
+    scan_decl = _kv_decl('scan', _sort_sig, 'scan')
+    unroll_decl = _kv_decl('unroll', _sort_sig, 'unroll')
+    fixpoint_decl = _kv_decl('fixpoint', ident, 'fixpoint')
+    lens_decl = _kv_decl('lens', _lens_sig, 'lens')
 
-    # unfold stream : hidden -> hidden
-    #   step = transition
-    #   n_steps = 10
-    unfold_decl = P.bind(sym('unfold'), lambda _:
-                  P.bind(ident, lambda name:
-                  P.bind(sym(':'), lambda _:
-                  P.bind(_sort_sig, lambda sig:
-                  P.bind(_eol, lambda _:
-                  P.bind(_indented_kv(), lambda step_kv:
-                  P.bind(_indented_kv(), lambda nsteps_kv:
-                  P.pure(('unfold', name, sig, step_kv[1], int(nsteps_kv[1]))))))))))
-
-    # fixpoint converge : hidden
-    #   step = step_eq
-    #   predicate = residual_eq
-    #   epsilon = 0.001
-    #   max_iter = 100
-    fixpoint_decl = P.bind(sym('fixpoint'), lambda _:
-                    P.bind(ident, lambda name:
-                    P.bind(sym(':'), lambda _:
-                    P.bind(ident, lambda sort_name:
-                    P.bind(_eol, lambda _:
-                    P.bind(P.many(_indented_kv()), lambda kv_list:
-                    P.pure(('fixpoint', name, sort_name, dict(kv_list)))))))))
-
-    # lens backprop : hidden <-> hidden
-    #   fwd = linear
-    #   bwd = linear_bwd
-    lens_decl = P.bind(sym('lens'), lambda _:
-                P.bind(ident, lambda name:
-                P.bind(sym(':'), lambda _:
-                P.bind(_lens_sig, lambda sig:
-                P.bind(_eol, lambda _:
-                P.bind(_indented_kv(), lambda fwd_kv:
-                P.bind(_indented_kv(), lambda bwd_kv:
-                P.pure(('lens', name, sig, fwd_kv[1], bwd_kv[1])))))))))
-
-    # lens_path pipe : hidden <-> hidden = backprop >> backprop2
-    lens_path_decl = P.bind(sym('lens_path'), lambda _:
-                     P.bind(ident, lambda name:
-                     P.bind(sym(':'), lambda _:
-                     P.bind(_lens_sig, lambda sig:
-                     P.bind(sym('='), lambda _:
-                     P.bind(_sep_by_gg(ident), lambda lens_names:
-                     P.bind(_eol, lambda _:
-                     P.pure(('lens_path', name, sig, lens_names)))))))))
-
-    # lens_fan attention : hidden <-> hidden
-    #   branches = [backprop1, backprop2]
-    #   merge = merge_lens
-    lens_fan_decl = P.bind(sym('lens_fan'), lambda _:
+    lens_seq_decl = P.bind(sym('lens_seq'), lambda _:
                     P.bind(ident, lambda name:
                     P.bind(sym(':'), lambda _:
                     P.bind(_lens_sig, lambda sig:
+                    P.bind(sym('='), lambda _:
+                    P.bind(_sep_by_gg(ident), lambda lens_names:
                     P.bind(_eol, lambda _:
-                    P.bind(_indented_list('branches'), lambda branches:
-                    P.bind(_indented_kv(), lambda merge_kv:
-                    P.pure(('lens_fan', name, sig, branches, merge_kv[1])))))))))
+                    P.pure(('lens_seq', name, sig, lens_names)))))))))
 
-    # -------------------------------------------------------------------
-    # Any declaration (order matters for alt: longer keywords before shorter)
-    # -------------------------------------------------------------------
-    decl = P.alt(semiring_decl,
-           P.alt(sort_decl,
-           P.alt(equation_decl,
-           P.alt(path_decl,
-           P.alt(fan_decl,
-           P.alt(fold_decl,
-           P.alt(unfold_decl,
-           P.alt(fixpoint_decl,
-           P.alt(lens_fan_decl,      # must come before lens_path and lens
-           P.alt(lens_path_decl,     # must come before lens_decl
-                 lens_decl))))))))))
+    lens_branch_decl = _branch_like('lens_branch', _lens_sig, 'lens_branch')
+
+    decl = reduce(P.alt, [
+        algebra_decl, spec_decl, op_decl, seq_decl,
+        branch_decl, scan_decl, unroll_decl, fixpoint_decl,
+        lens_branch_decl, lens_seq_decl, lens_decl,
+    ])
 
     # -------------------------------------------------------------------
     # Full program: blank lines + declarations

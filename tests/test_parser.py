@@ -22,21 +22,21 @@ class TestParseUASpec:
 
     def test_semiring_populated(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation linear : hidden -> hidden
+op linear : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 """
         spec = parse_ua_spec(text)
         assert 'real' in spec.semirings
 
     def test_sort_populated(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
-sort visible(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+spec visible(real)
 """
         spec = parse_ua_spec(text)
         assert 'hidden' in spec.sorts
@@ -44,14 +44,14 @@ sort visible(real)
 
     def test_equation_in_list(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation linear : hidden -> hidden
+op linear : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 """
         spec = parse_ua_spec(text)
@@ -59,16 +59,16 @@ equation relu : hidden -> hidden
 
     def test_returns_uaspec_instance(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 """
         spec = parse_ua_spec(text)
         assert isinstance(spec, UASpec)
 
     def test_empty_specs_by_default(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 """
         spec = parse_ua_spec(text)
         assert spec.specs == []
@@ -83,10 +83,10 @@ class TestParseUA:
 
     def test_returns_callable_program(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 """
         prog = parse_ua(text, NumpyBackend())
@@ -96,12 +96,12 @@ equation relu : hidden -> hidden
 
     def test_linear_equation_result(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation linear : hidden -> hidden
+op linear : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 """
         prog = parse_ua(text, NumpyBackend())
         W = np.array([[1.0, 2.0], [3.0, 4.0]])
@@ -111,14 +111,14 @@ equation linear : hidden -> hidden
 
     def test_entry_points_include_equations(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation linear : hidden -> hidden
+op linear : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 """
         prog = parse_ua(text, NumpyBackend())
@@ -135,17 +135,17 @@ class TestPathDeclaration:
 
     def test_path_spec_created(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation linear : hidden -> hidden
+op linear : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
-path layer : hidden -> hidden = linear >> relu
+seq layer : hidden -> hidden = linear >> relu
 """
         spec = parse_ua_spec(text)
         assert len(spec.specs) == 1
@@ -155,53 +155,53 @@ path layer : hidden -> hidden = linear >> relu
 
     def test_path_entry_point_exists(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation linear : hidden -> hidden
+op linear : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
-path layer : hidden -> hidden = linear >> relu
+seq layer : hidden -> hidden = linear >> relu
 """
         prog = parse_ua(text, NumpyBackend())
         assert 'layer' in prog.entry_points()
 
     def test_three_step_path(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation a : hidden -> hidden
+op a : hidden -> hidden
   nonlinearity = relu
 
-equation b : hidden -> hidden
+op b : hidden -> hidden
   nonlinearity = tanh
 
-equation c : hidden -> hidden
+op c : hidden -> hidden
   nonlinearity = sigmoid
 
-path abc : hidden -> hidden = a >> b >> c
+seq abc : hidden -> hidden = a >> b >> c
 """
         spec = parse_ua_spec(text)
         assert spec.specs[0].eq_names == ['a', 'b', 'c']
 
     def test_path_numpy_oracle(self):
-        """path relu >> tanh should match numpy oracle."""
+        """seq relu >> tanh should match numpy oracle."""
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
-equation tanh_eq : hidden -> hidden
+op tanh_eq : hidden -> hidden
   nonlinearity = tanh
 
-path rt : hidden -> hidden = relu >> tanh_eq
+seq rt : hidden -> hidden = relu >> tanh_eq
 """
         prog = parse_ua(text, NumpyBackend())
         x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
@@ -218,8 +218,8 @@ class TestTropicalSemiring:
 
     def test_tropical_semiring_parsed(self):
         text = """
-semiring tropical(plus=minimum, times=add, zero=inf, one=0.0)
-sort node(tropical)
+algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
+spec node(tropical)
 """
         spec = parse_ua_spec(text)
         assert 'tropical' in spec.semirings
@@ -227,12 +227,12 @@ sort node(tropical)
     def test_bellman_ford_one_hop(self):
         """Tropical einsum ij,j->i implements min_j(W_ij + x_j)."""
         text = """
-semiring tropical(plus=minimum, times=add, zero=inf, one=0.0)
-sort node(tropical)
+algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
+spec node(tropical)
 
-equation sp : node -> node
+op sp : node -> node
   einsum = "ij,j->i"
-  semiring = tropical
+  algebra = tropical
 """
         prog = parse_ua(text, NumpyBackend())
         inf = float('inf')
@@ -244,10 +244,10 @@ equation sp : node -> node
         np.testing.assert_allclose(out, np.array([inf, 2.0, 5.0]))
 
     def test_tropical_negative_inf_in_literal(self):
-        """Parser handles -inf in semiring declaration."""
+        """Parser handles -inf in algebra declaration."""
         text = """
-semiring max_plus(plus=maximum, times=add, zero=-inf, one=0.0)
-sort node(max_plus)
+algebra max_plus(plus=maximum, times=add, zero=-inf, one=0.0)
+spec node(max_plus)
 """
         spec = parse_ua_spec(text)
         assert 'max_plus' in spec.semirings
@@ -261,21 +261,20 @@ class TestFanDeclaration:
 
     def test_fan_spec_type(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation branch1 : hidden -> hidden
+op branch1 : hidden -> hidden
   nonlinearity = relu
 
-equation branch2 : hidden -> hidden
+op branch2 : hidden -> hidden
   nonlinearity = tanh
 
-equation add_merge : hidden -> hidden
+op add_merge : hidden -> hidden
   einsum = "i,i->i"
-  semiring = real
+  algebra = real
 
-fan split : hidden -> hidden
-  branches = [branch1, branch2]
+branch split : hidden -> hidden = branch1 | branch2
   merge = add_merge
 """
         spec = parse_ua_spec(text)
@@ -284,24 +283,23 @@ fan split : hidden -> hidden
 
     def test_fan_spec_branch_names(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation a : hidden -> hidden
+op a : hidden -> hidden
   nonlinearity = relu
 
-equation b : hidden -> hidden
+op b : hidden -> hidden
   nonlinearity = tanh
 
-equation c : hidden -> hidden
+op c : hidden -> hidden
   nonlinearity = sigmoid
 
-equation add_merge : hidden -> hidden
+op add_merge : hidden -> hidden
   einsum = "i,i->i"
-  semiring = real
+  algebra = real
 
-fan parallel : hidden -> hidden
-  branches = [a, b, c]
+branch parallel : hidden -> hidden = a | b | c
   merge = add_merge
 """
         spec = parse_ua_spec(text)
@@ -311,21 +309,20 @@ fan parallel : hidden -> hidden
 
     def test_fan_entry_point_exists(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation branch1 : hidden -> hidden
+op branch1 : hidden -> hidden
   nonlinearity = relu
 
-equation branch2 : hidden -> hidden
+op branch2 : hidden -> hidden
   nonlinearity = tanh
 
-equation add_merge : hidden -> hidden
+op add_merge : hidden -> hidden
   einsum = "i,i->i"
-  semiring = real
+  algebra = real
 
-fan split : hidden -> hidden
-  branches = [branch1, branch2]
+branch split : hidden -> hidden = branch1 | branch2
   merge = add_merge
 """
         prog = parse_ua(text, NumpyBackend())
@@ -340,13 +337,13 @@ class TestFoldDeclaration:
 
     def test_fold_spec_type(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation step : hidden -> hidden
+op step : hidden -> hidden
   nonlinearity = relu
 
-fold rnn : hidden -> hidden
+scan rnn : hidden -> hidden
   step = step
 """
         spec = parse_ua_spec(text)
@@ -355,13 +352,13 @@ fold rnn : hidden -> hidden
 
     def test_fold_spec_step_name(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation my_step : hidden -> hidden
+op my_step : hidden -> hidden
   nonlinearity = tanh
 
-fold rnn : hidden -> hidden
+scan rnn : hidden -> hidden
   step = my_step
 """
         spec = parse_ua_spec(text)
@@ -378,15 +375,15 @@ class TestUnfoldDeclaration:
 
     def test_unfold_spec_type(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation transition : hidden -> hidden
+op transition : hidden -> hidden
   nonlinearity = tanh
 
-unfold stream : hidden -> hidden
+unroll stream : hidden -> hidden
   step = transition
-  n_steps = 10
+  steps = 10
 """
         spec = parse_ua_spec(text)
         assert len(spec.specs) == 1
@@ -394,15 +391,15 @@ unfold stream : hidden -> hidden
 
     def test_unfold_spec_fields(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation my_step : hidden -> hidden
+op my_step : hidden -> hidden
   nonlinearity = relu
 
-unfold gen : hidden -> hidden
+unroll gen : hidden -> hidden
   step = my_step
-  n_steps = 5
+  steps = 5
 """
         spec = parse_ua_spec(text)
         us = spec.specs[0]
@@ -419,16 +416,16 @@ class TestLensDeclaration:
 
     def test_lens_in_lenses_list(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation fwd : hidden -> hidden
+op fwd : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 
-equation bwd : hidden -> hidden
+op bwd : hidden -> hidden
   einsum = "ji,j->i"
-  semiring = real
+  algebra = real
 
 lens backprop : hidden <-> hidden
   fwd = fwd
@@ -439,19 +436,19 @@ lens backprop : hidden <-> hidden
 
     def test_multiple_lenses(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation a_fwd : hidden -> hidden
+op a_fwd : hidden -> hidden
   nonlinearity = relu
 
-equation a_bwd : hidden -> hidden
+op a_bwd : hidden -> hidden
   nonlinearity = relu
 
-equation b_fwd : hidden -> hidden
+op b_fwd : hidden -> hidden
   nonlinearity = tanh
 
-equation b_bwd : hidden -> hidden
+op b_bwd : hidden -> hidden
   nonlinearity = tanh
 
 lens lens_a : hidden <-> hidden
@@ -474,21 +471,21 @@ class TestUnknownSortError:
 
     def test_unknown_sort_in_equation(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation bad : unknown -> hidden
+op bad : unknown -> hidden
   nonlinearity = relu
 """
-        with pytest.raises(ValueError, match="Unknown sort 'unknown'"):
+        with pytest.raises(ValueError, match="Unknown spec 'unknown'"):
             parse_ua_spec(text)
 
     def test_error_message_lists_known_sorts(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort visible(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec visible(real)
 
-equation bad : missing_sort -> visible
+op bad : missing_sort -> visible
   nonlinearity = relu
 """
         with pytest.raises(ValueError, match="visible"):
@@ -496,19 +493,19 @@ equation bad : missing_sort -> visible
 
     def test_unknown_equation_in_path(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-path bad_path : hidden -> hidden = nonexistent_eq
+seq bad_path : hidden -> hidden = nonexistent_eq
 """
-        with pytest.raises(ValueError, match="Unknown equation 'nonexistent_eq'"):
-            parse_ua_spec(text)
+        with pytest.raises(ValueError, match="op 'nonexistent_eq' not found"):
+            parse_ua(text, NumpyBackend())
 
     def test_unknown_semiring_in_sort(self):
         text = """
-sort hidden(nonexistent_semiring)
+spec hidden(nonexistent_semiring)
 """
-        with pytest.raises(ValueError, match="Unknown semiring 'nonexistent_semiring'"):
+        with pytest.raises(ValueError, match="Unknown algebra 'nonexistent_semiring'"):
             parse_ua_spec(text)
 
 
@@ -520,26 +517,26 @@ class TestSyntaxErrors:
 
     def test_missing_closing_paren(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0
 """
         with pytest.raises(SyntaxError):
             parse_ua_spec(text)
 
     def test_unrecognised_keyword_at_top_level(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 unknown_keyword foo
 """
         with pytest.raises(SyntaxError):
             parse_ua_spec(text)
 
     def test_missing_arrow_in_equation(self):
-        """equation without -> in signature should raise SyntaxError."""
+        """op without -> in signature should raise SyntaxError."""
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
-equation bad : hidden hidden
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+op bad : hidden hidden
   nonlinearity = relu
 """
         with pytest.raises(SyntaxError):
@@ -554,17 +551,17 @@ class TestComments:
 
     def test_leading_comment_ignored(self):
         text = """# top-level comment
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 # another comment
-sort hidden(real)
+spec hidden(real)
 """
         spec = parse_ua_spec(text)
         assert 'real' in spec.semirings
         assert 'hidden' in spec.sorts
 
     def test_inline_comment_ignored(self):
-        text = """semiring real(plus=add, times=multiply, zero=0.0, one=1.0) # this is the real semiring
-sort hidden(real) # hidden state sort
+        text = """algebra real(plus=add, times=multiply, zero=0.0, one=1.0) # this is the real semiring
+spec hidden(real) # hidden state sort
 """
         spec = parse_ua_spec(text)
         assert 'real' in spec.semirings
@@ -572,13 +569,13 @@ sort hidden(real) # hidden state sort
 
     def test_blank_lines_between_declarations(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 
 
-sort hidden(real)
+spec hidden(real)
 
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
 """
@@ -604,13 +601,13 @@ class TestFixpointDeclaration:
 
     def test_fixpoint_spec_type(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation step_eq : hidden -> hidden
+op step_eq : hidden -> hidden
   nonlinearity = tanh
 
-equation pred_eq : hidden -> hidden
+op pred_eq : hidden -> hidden
   nonlinearity = sigmoid
 
 fixpoint converge : hidden
@@ -625,13 +622,13 @@ fixpoint converge : hidden
 
     def test_fixpoint_spec_fields(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation step_eq : hidden -> hidden
+op step_eq : hidden -> hidden
   nonlinearity = tanh
 
-equation pred_eq : hidden -> hidden
+op pred_eq : hidden -> hidden
   nonlinearity = sigmoid
 
 fixpoint converge : hidden
@@ -656,12 +653,12 @@ fixpoint converge : hidden
 class TestIntegration:
 
     def test_two_semirings_two_sorts(self):
-        """Parser handles multiple semirings and sorts in one file."""
+        """Parser handles multiple algebras and specs in one file."""
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-semiring tropical(plus=minimum, times=add, zero=inf, one=0.0)
-sort hidden(real)
-sort node(tropical)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
+spec hidden(real)
+spec node(tropical)
 """
         spec = parse_ua_spec(text)
         assert len(spec.semirings) == 2
@@ -669,8 +666,8 @@ sort node(tropical)
 
     def test_batched_sort(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden_batched(real, batched)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden_batched(real, batched)
 """
         spec = parse_ua_spec(text)
         assert 'hidden_batched' in spec.sorts
@@ -679,10 +676,10 @@ sort hidden_batched(real, batched)
 
     def test_equation_with_nonlinearity_only(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation sigmoid_eq : hidden -> hidden
+op sigmoid_eq : hidden -> hidden
   nonlinearity = sigmoid
 """
         prog = parse_ua(text, NumpyBackend())
@@ -692,27 +689,26 @@ equation sigmoid_eq : hidden -> hidden
         np.testing.assert_allclose(out, expected, rtol=1e-6)
 
     def test_fan_runs_correctly(self):
-        """Fan: relu and tanh branches, Hadamard-product merge.
+        """Branch: relu and tanh branches, Hadamard-product merge.
 
-        "i,i->i" with real semiring (times=multiply) computes relu(x) * tanh(x).
+        "i,i->i" with real algebra (times=multiply) computes relu(x) * tanh(x).
         No contracted indices — pure elementwise product of branch outputs.
         """
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation branch_relu : hidden -> hidden
+op branch_relu : hidden -> hidden
   nonlinearity = relu
 
-equation branch_tanh : hidden -> hidden
+op branch_tanh : hidden -> hidden
   nonlinearity = tanh
 
-equation hadamard_merge : hidden -> hidden
+op hadamard_merge : hidden -> hidden
   einsum = "i,i->i"
-  semiring = real
+  algebra = real
 
-fan dual : hidden -> hidden
-  branches = [branch_relu, branch_tanh]
+branch dual : hidden -> hidden = branch_relu | branch_tanh
   merge = hadamard_merge
 """
         prog = parse_ua(text, NumpyBackend())
@@ -731,19 +727,18 @@ class TestResidualPath:
 
     def test_residual_path_spec(self):
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation linear : hidden -> hidden
+op linear : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
+  algebra = real
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
-path layer : hidden -> hidden = linear >> relu
-  residual = true
-  semiring = real
+seq layer+ : hidden -> hidden = linear >> relu
+  algebra = real
 """
         spec = parse_ua_spec(text)
         ps = spec.specs[0]
@@ -752,17 +747,16 @@ path layer : hidden -> hidden = linear >> relu
         assert ps.residual_semiring == 'real'
 
     def test_residual_path_numpy_oracle(self):
-        """residual path: output = relu(x) + x"""
+        """residual seq: output = relu(x) + x"""
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
-path skip : hidden -> hidden = relu
-  residual = true
-  semiring = real
+seq skip+ : hidden -> hidden = relu
+  algebra = real
 """
         prog = parse_ua(text, NumpyBackend())
         x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
@@ -771,15 +765,15 @@ path skip : hidden -> hidden = relu
         np.testing.assert_allclose(out, expected, rtol=1e-6)
 
     def test_path_without_residual_unchanged(self):
-        """Non-residual paths still work (backward compat)."""
+        """Non-residual seqs still work."""
         text = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
-path simple : hidden -> hidden = relu
+seq simple : hidden -> hidden = relu
 """
         spec = parse_ua_spec(text)
         ps = spec.specs[0]
@@ -791,28 +785,28 @@ path simple : hidden -> hidden = relu
 # ---------------------------------------------------------------------------
 
 _LENS_FAN_BASE = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 
-equation fwd1 : hidden -> hidden
+op fwd1 : hidden -> hidden
   nonlinearity = relu
 
-equation bwd1 : hidden -> hidden
+op bwd1 : hidden -> hidden
   nonlinearity = relu
 
-equation fwd2 : hidden -> hidden
+op fwd2 : hidden -> hidden
   nonlinearity = tanh
 
-equation bwd2 : hidden -> hidden
+op bwd2 : hidden -> hidden
   nonlinearity = tanh
 
-equation merge_fwd : hidden -> hidden
+op merge_fwd : hidden -> hidden
   einsum = "i,i->i"
-  semiring = real
+  algebra = real
 
-equation merge_bwd : hidden -> hidden
+op merge_bwd : hidden -> hidden
   einsum = "i,i->i"
-  semiring = real
+  algebra = real
 
 lens backprop1 : hidden <-> hidden
   fwd = fwd1
@@ -832,8 +826,7 @@ class TestLensFanDeclaration:
 
     def test_lens_fan_parse(self):
         text = _LENS_FAN_BASE + """
-lens_fan attention : hidden <-> hidden
-  branches = [backprop1, backprop2]
+lens_branch attention : hidden <-> hidden = backprop1 | backprop2
   merge = merge_lens
 """
         spec = parse_ua_spec(text)
@@ -848,8 +841,7 @@ lens_fan attention : hidden <-> hidden
 
     def test_lens_fan_unknown_lens_error(self):
         text = _LENS_FAN_BASE + """
-lens_fan attention : hidden <-> hidden
-  branches = [backprop1, nonexistent_lens]
+lens_branch attention : hidden <-> hidden = backprop1 | nonexistent_lens
   merge = merge_lens
 """
         with pytest.raises(ValueError, match="Unknown lens 'nonexistent_lens'"):
@@ -857,11 +849,10 @@ lens_fan attention : hidden <-> hidden
 
     def test_lens_fan_unknown_merge_error(self):
         text = _LENS_FAN_BASE + """
-lens_fan attention : hidden <-> hidden
-  branches = [backprop1, backprop2]
+lens_branch attention : hidden <-> hidden = backprop1 | backprop2
   merge = nonexistent_merge
 """
-        with pytest.raises(ValueError, match="Unknown merge lens 'nonexistent_merge'"):
+        with pytest.raises(ValueError, match="Unknown lens 'nonexistent_merge'"):
             parse_ua_spec(text)
 
 
@@ -870,34 +861,32 @@ lens_fan attention : hidden <-> hidden
 # ---------------------------------------------------------------------------
 
 _TEMPLATE_BASE = """
-semiring real(plus=add, times=multiply, zero=0.0, one=1.0)
-sort hidden(real)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
 """
 
 _PROJ_TEMPLATE = _TEMPLATE_BASE + """
-equation proj : hidden -> hidden
+op ~proj : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
-  template = true
+  algebra = real
 """
 
 
 class TestTemplateEquations:
 
     def test_template_equation_not_in_equations(self):
-        """An equation with template=true must NOT appear in spec.equations."""
+        """An op with ~ prefix must NOT appear in spec.equations."""
         spec = parse_ua_spec(_PROJ_TEMPLATE)
         assert len(spec.equations) == 0
 
     def test_template_expansion_in_fan(self):
-        """Fan with proj[q], proj[k], proj[v] should expand to 3 concrete equations."""
+        """Branch with proj[q], proj[k], proj[v] should expand to 3 concrete equations."""
         text = _PROJ_TEMPLATE + """
-equation merge : hidden -> hidden
+op merge : hidden -> hidden
   einsum = "i,i->i"
-  semiring = real
+  algebra = real
 
-fan kv : hidden -> hidden
-  branches = [proj[q], proj[k], proj[v]]
+branch kv : hidden -> hidden = proj[q] | proj[k] | proj[v]
   merge = merge
 """
         spec = parse_ua_spec(text)
@@ -909,9 +898,9 @@ fan kv : hidden -> hidden
         assert fan_spec.branch_names == ['q_proj', 'k_proj', 'v_proj']
 
     def test_template_expansion_in_path(self):
-        """Path with proj[q] >> proj[k] should expand to two concrete equations."""
+        """Seq with proj[q] >> proj[k] should expand to two concrete equations."""
         text = _PROJ_TEMPLATE + """
-path qk : hidden -> hidden = proj[q] >> proj[k]
+seq qk : hidden -> hidden = proj[q] >> proj[k]
 """
         spec = parse_ua_spec(text)
         eq_names_in_spec = [eq.name for eq in spec.equations]
@@ -921,9 +910,9 @@ path qk : hidden -> hidden = proj[q] >> proj[k]
         assert path_spec.eq_names == ['q_proj', 'k_proj']
 
     def test_template_reuse_same_prefix(self):
-        """Using proj[q] twice in the same path must produce exactly ONE q_proj equation."""
+        """Using proj[q] twice in the same seq must produce exactly ONE q_proj equation."""
         text = _PROJ_TEMPLATE + """
-path qq : hidden -> hidden = proj[q] >> proj[q]
+seq qq : hidden -> hidden = proj[q] >> proj[q]
 """
         spec = parse_ua_spec(text)
         eq_names_in_spec = [eq.name for eq in spec.equations]
@@ -933,23 +922,22 @@ path qq : hidden -> hidden = proj[q] >> proj[q]
     def test_template_unknown_raises(self):
         """Referencing an undeclared template name should raise ValueError."""
         text = _TEMPLATE_BASE + """
-path bad : hidden -> hidden = unknown[x]
+seq bad : hidden -> hidden = unknown[x]
 """
         with pytest.raises(ValueError, match="Unknown template 'unknown'"):
             parse_ua_spec(text)
 
     def test_template_mixed_refs(self):
-        """Mix of plain idents and template refs in a path should both resolve."""
+        """Mix of plain idents and template refs in a seq should both resolve."""
         text = _TEMPLATE_BASE + """
-equation proj : hidden -> hidden
+op ~proj : hidden -> hidden
   einsum = "ij,j->i"
-  semiring = real
-  template = true
+  algebra = real
 
-equation relu : hidden -> hidden
+op relu : hidden -> hidden
   nonlinearity = relu
 
-path qr : hidden -> hidden = proj[q] >> relu
+seq qr : hidden -> hidden = proj[q] >> relu
 """
         spec = parse_ua_spec(text)
         eq_names_in_spec = [eq.name for eq in spec.equations]

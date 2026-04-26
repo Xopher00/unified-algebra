@@ -1,6 +1,6 @@
 """Name resolution pass for parsed .ua declarations.
 
-Resolves semiring/sort/equation references, expands template morphisms,
+Resolves algebra/spec/op references, expands template morphisms,
 and builds spec objects.  Pure function: raw tuples in, UASpec out.
 """
 from __future__ import annotations
@@ -38,12 +38,12 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             )
         return d[name]
 
-    def _get_sr(name):   return _lookup(name, semirings, 'semiring')
-    def _get_sort(name): return _lookup(name, sorts, 'sort')
-    def _get_eq(name):   return _lookup(name, equations_by_name, 'equation')
+    def _get_sr(name):   return _lookup(name, semirings, 'algebra')
+    def _get_sort(name): return _lookup(name, sorts, 'spec')
+    def _get_eq(name):   return _lookup(name, equations_by_name, 'op')
+    def _get_lens(name): return _lookup(name, lenses_by_name, 'lens')
 
     def _expand_template_ref(ref):
-        """Expand a template ref ('_tpl', name, prefix) into a concrete equation name."""
         if isinstance(ref, str):
             return ref
         _, tpl_name, prefix = ref
@@ -56,34 +56,39 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                 )
             einsum, dom_sort, cod_sort, sr_term, nl = templates_by_name[tpl_name]
             eq_term = alg.Equation(concrete_name, einsum, dom_sort, cod_sort,
-                                  sr_term,
-                                  nonlinearity=nl)
+                                  sr_term, nonlinearity=nl)
             equations_by_name[concrete_name] = eq_term
             equations_list.append(eq_term)
         return concrete_name
 
+    _SPEC_CLASSES = {
+        'seq': sp.PathSpec, 'branch': sp.FanSpec, 'scan': sp.FoldSpec,
+        'unroll': sp.UnfoldSpec, 'fixpoint': sp.FixpointSpec,
+        'lens_seq': sp.LensPathSpec, 'lens_branch': sp.LensFanSpec,
+    }
+
     for decl in raw_decls:
         kind = decl[0]
 
-        if kind == 'semiring':
+        if kind == 'algebra':
             _, name, kw_args = decl
             sr_term = alg.Semiring(name, plus=kw_args['plus'], times=kw_args['times'],
                                    zero=kw_args['zero'], one=kw_args['one'])
             semirings[name] = sr_term
 
-        elif kind == 'sort':
+        elif kind == 'spec':
             _, name, sr_name, batched = decl
             sr_term = _get_sr(sr_name)
             sort_term = alg.Sort(name, sr_term, batched=batched)
             sorts[name] = sort_term
 
-        elif kind == 'equation':
+        elif kind == 'op':
             _, name, (dom_name, cod_name), attr_dict = decl
             dom_sort = _get_sort(dom_name)
             cod_sort = _get_sort(cod_name)
             einsum = attr_dict.get('einsum', None) or None
             nl = attr_dict.get('nonlinearity', None) or None
-            sr_name = attr_dict.get('semiring', None)
+            sr_name = attr_dict.get('algebra', None)
             sr_term = _get_sr(sr_name) if sr_name else None
             is_template = attr_dict.get('template', False)
 
@@ -96,145 +101,15 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                 equations_by_name[name] = eq_term
                 equations_list.append(eq_term)
 
-        elif kind == 'path':
-            _, name, (dom_name, cod_name), eq_names_raw, attr_dict = decl
-            eq_names = [_expand_template_ref(en) for en in eq_names_raw]
-            dom_sort = _get_sort(dom_name)
-            cod_sort = _get_sort(cod_name)
-            for en in eq_names:
-                _get_eq(en)
-            residual = attr_dict.get('residual', False)
-            residual_sr = attr_dict.get('semiring', None) if residual else None
-            specs.append(sp.PathSpec(
-                name=name,
-                eq_names=eq_names,
-                domain_sort=dom_sort,
-                codomain_sort=cod_sort,
-                residual=residual,
-                residual_semiring=residual_sr,
-            ))
-
-        elif kind == 'fan':
-            _, name, (dom_name, cod_name), branches_raw, merge = decl
-            branches = [_expand_template_ref(bn) for bn in branches_raw]
-            dom_sort = _get_sort(dom_name)
-            cod_sort = _get_sort(cod_name)
-            for bn in branches:
-                _get_eq(bn)
-            _get_eq(merge)
-            specs.append(sp.FanSpec(
-                name=name,
-                branch_names=branches,
-                merge_name=merge,
-                domain_sort=dom_sort,
-                codomain_sort=cod_sort,
-            ))
-
-        elif kind == 'fold':
-            _, name, (dom_name, state_name), step = decl
-            dom_sort = _get_sort(dom_name)
-            state_sort = _get_sort(state_name)
-            _get_eq(step)
-            specs.append(sp.FoldSpec(
-                name=name,
-                step_name=step,
-                init_term=None,
-                domain_sort=dom_sort,
-                state_sort=state_sort,
-            ))
-
-        elif kind == 'unfold':
-            _, name, (dom_name, state_name), step, n_steps = decl
-            dom_sort = _get_sort(dom_name)
-            state_sort = _get_sort(state_name)
-            _get_eq(step)
-            specs.append(sp.UnfoldSpec(
-                name=name,
-                step_name=step,
-                n_steps=n_steps,
-                domain_sort=dom_sort,
-                state_sort=state_sort,
-            ))
-
-        elif kind == 'fixpoint':
-            _, name, sort_name, attr_dict = decl
-            dom_sort = _get_sort(sort_name)
-            step = attr_dict.get('step')
-            predicate = attr_dict.get('predicate')
-            epsilon = float(attr_dict.get('epsilon', 1e-6))
-            max_iter = int(attr_dict.get('max_iter', 100))
-            if step:
-                _get_eq(step)
-            if predicate:
-                _get_eq(predicate)
-            specs.append(sp.FixpointSpec(
-                name=name,
-                step_name=step,
-                predicate_name=predicate,
-                epsilon=epsilon,
-                max_iter=max_iter,
-                domain_sort=dom_sort,
-            ))
-
         elif kind == 'lens':
-            _, name, (_, _), fwd, bwd = decl
-            _get_eq(fwd)
-            _get_eq(bwd)
-            lens_term = alg.Lens(name, fwd, bwd)
+            _, name, (_, _), attrs = decl
+            lens_term = alg.Lens(name, attrs['fwd'], attrs['bwd'])
             lenses.append(lens_term)
             lenses_by_name[name] = lens_term
 
-        elif kind == 'lens_path':
-            _, name, (dom_name, cod_name), lens_names = decl
-            dom_sort = _get_sort(dom_name)
-            cod_sort = _get_sort(cod_name)
-            fwd_names, bwd_names, has_residual = [], [], False
-            for ln in lens_names:
-                if ln not in lenses_by_name:
-                    raise ValueError(
-                        f"Unknown lens {ln!r} — declared lenses: {list(lenses_by_name)}"
-                    )
-                lv = lenses_by_name[ln]
-                fwd_names.append(lv.forward)
-                bwd_names.append(lv.backward)
-                if lv.residual_sort is not None:
-                    has_residual = True
-            specs.append(sp.LensPathSpec(
-                name=name,
-                eq_names=fwd_names,
-                domain_sort=dom_sort,
-                codomain_sort=cod_sort,
-                bwd_eq_names=bwd_names,
-                has_residual=has_residual,
-            ))
-
-        elif kind == 'lens_fan':
-            _, name, (dom_name, cod_name), lens_names, merge_lens = decl
-            dom_sort = _get_sort(dom_name)
-            cod_sort = _get_sort(cod_name)
-            fwd_branches, bwd_branches = [], []
-            for ln in lens_names:
-                if ln not in lenses_by_name:
-                    raise ValueError(
-                        f"Unknown lens {ln!r} — declared lenses: {list(lenses_by_name)}"
-                    )
-                lv = lenses_by_name[ln]
-                fwd_branches.append(lv.forward)
-                bwd_branches.append(lv.backward)
-            if merge_lens not in lenses_by_name:
-                raise ValueError(
-                    f"Unknown merge lens {merge_lens!r} — declared lenses: {list(lenses_by_name)}"
-                )
-            mlv = lenses_by_name[merge_lens]
-            specs.append(sp.LensFanSpec(
-                name=name,
-                branch_names=fwd_branches,
-                merge_name=mlv.forward,
-                domain_sort=dom_sort,
-                codomain_sort=cod_sort,
-                bwd_branch_names=bwd_branches,
-                merge_bwd_name=mlv.backward,
-            ))
+        elif kind in _SPEC_CLASSES:
+            specs.append(_SPEC_CLASSES[kind].from_parsed(
+                decl, _get_sort, expand_ref=_expand_template_ref, get_lens=_get_lens))
 
     return UASpec(
         semirings=semirings,

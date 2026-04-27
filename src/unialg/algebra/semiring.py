@@ -10,6 +10,7 @@ Hydra's type system.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -108,6 +109,11 @@ class Semiring(_RecordView):
         zero, one = self.zero, self.one
 
         def _check(lhs, rhs, axiom: str, a, b, c):
+            if math.isnan(lhs) or math.isnan(rhs):
+                raise ValueError(
+                    f"Semiring '{self.name}': {axiom} produces NaN at (a,b,c)=({a},{b},{c}): "
+                    f"lhs={lhs}, rhs={rhs}"
+                )
             if lhs == rhs:  # exact equality (handles ±inf == ±inf without nan blow-up)
                 return
             if abs(lhs - rhs) > atol:

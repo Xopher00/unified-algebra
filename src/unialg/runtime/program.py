@@ -68,7 +68,10 @@ _ENTRY_PREFIXES = (
 def _short_name(full: str) -> str | None:
     for prefix in _ENTRY_PREFIXES:
         if full.startswith(prefix):
-            return full[len(prefix):]
+            short = full[len(prefix):]
+            if short.endswith(".__merge__"):
+                return None
+            return short
     return None
 
 

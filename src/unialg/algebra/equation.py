@@ -186,13 +186,14 @@ class Equation(_RecordView):
         prim = self._make_prim(ctx.prim_name, hydra_compute, coders, ctx.out_coder)
         return prim, native_fn, ctx.sr, ctx.in_coder
 
-    def resolve_as_merge(self, backend: "Backend") -> tuple[Primitive, Callable, object, object]:
+    def resolve_as_merge(self, backend: "Backend", prim_name_override=None) -> tuple[Primitive, Callable, object, object]:
         ctx = self.compile(backend)
+        pn = prim_name_override if prim_name_override is not None else ctx.prim_name
         if ctx.has_einsum:
             def compute_merge(tensors):
                 return contract_merge(ctx.compiled, tensors, ctx.sr, backend, ctx.nl_fn, ctx.n_inputs, self.name)
             compute_merge.n_inputs = ctx.n_inputs
-            prim = self._make_prim(ctx.prim_name, compute_merge, [list_coder(ctx.in_coder)], ctx.out_coder)
+            prim = self._make_prim(pn, compute_merge, [list_coder(ctx.in_coder)], ctx.out_coder)
             return prim, compute_merge, ctx.sr, ctx.in_coder
         elif ctx.has_nl:
             def compute_nl(tensors):
@@ -201,7 +202,7 @@ class Equation(_RecordView):
                     result = result + t
                 return ctx.nl_fn(result)
             compute_nl.n_inputs = 1
-            prim = self._make_prim(ctx.prim_name, compute_nl, [list_coder(ctx.in_coder)], ctx.out_coder)
+            prim = self._make_prim(pn, compute_nl, [list_coder(ctx.in_coder)], ctx.out_coder)
             return prim, compute_nl, ctx.sr, ctx.in_coder
         else:
             raise ValueError(f"List-merge equation '{self.name}' has neither einsum nor nonlinearity")

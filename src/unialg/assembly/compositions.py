@@ -12,10 +12,19 @@ from hydra.dsl.python import Right
 from unialg.terms import _RecordView
 
 _EQ_PREFIX = "ua.equation."
+_MERGE_SUFFIX = ".__merge__"
 
 
 def _eq_var(name: str) -> TTerm:
     return var(f"{_EQ_PREFIX}{name}")
+
+
+def _merge_eq_var(name: str) -> TTerm:
+    return var(f"{_EQ_PREFIX}{name}{_MERGE_SUFFIX}")
+
+
+def _merge_eq_key(name: str) -> core.Name:
+    return core.Name(f"{_EQ_PREFIX}{name}{_MERGE_SUFFIX}")
 
 
 def _bind(kind, name, var_name, body):
@@ -43,6 +52,7 @@ class Composition(_RecordView):
 
 class PathComposition(Composition):
     _type_name = core.Name("ua.composition.Path")
+    _params = None
 
     name              = _RecordView.Scalar(str)
     eq_names          = _RecordView.ScalarList(key="eqNames")
@@ -136,26 +146,27 @@ class FanComposition(Composition):
         super().__init__(name=name, branches=branches, merge_names=merge_names)
 
     def to_lambda(self):
-        body = _eq_var(self.merge_names[0]) @ list_([_eq_var(b) @ var("x") for b in self.branches])
+        body = _merge_eq_var(self.merge_names[0]) @ list_([_eq_var(b) @ var("x") for b in self.branches])
         if len(self.merge_names) > 1:
             for mn in self.merge_names[1:]:
-                body = _eq_var(mn) @ list_([body])
+                body = _merge_eq_var(mn) @ list_([body])
         return _bind("fan", self.name, "x", body)
 
     def resolve_and_compile(self, native_fns, coder, backend):
-        _eq = lambda name: native_fns.get(core.Name(f"{_EQ_PREFIX}{name}"))
-        branch_fns = [_eq(b) for b in self.branches]
+        _branch_eq = lambda name: native_fns.get(core.Name(f"{_EQ_PREFIX}{name}"))
+        _merge_eq = lambda name: native_fns.get(_merge_eq_key(name))
+        branch_fns = [_branch_eq(b) for b in self.branches]
         if not all(branch_fns):
             return None
         names = self.merge_names
         if len(names) == 1:
-            merge_fn = _eq(names[0])
+            merge_fn = _merge_eq(names[0])
             if merge_fn is None:
                 return None
             return backend.compile(lambda x: merge_fn([fn(x) for fn in branch_fns]))
         steps = []
         for mn in names:
-            fn = _eq(mn)
+            fn = _merge_eq(mn)
             if fn is not None:
                 steps.append((fn, getattr(fn, 'n_inputs', 2)))
             else:
@@ -203,9 +214,24 @@ class FoldComposition(Composition):
         step_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.step_name}"))
         if step_fn is None:
             return None
-        match coder.encode(None, None, self.init_term):
-            case Right(value=init): pass
-            case _: return None
+        is_scalar = False
+        try:
+            match coder.encode(None, None, self.init_term):
+                case Right(value=init): pass
+                case _: return None
+        except Exception:
+            match self.init_term.value:
+                case core.LiteralFloat(value=v): init = v; is_scalar = True
+                case core.LiteralInteger(value=v): init = int(v); is_scalar = True
+                case _: return None
+        if is_scalar:
+            _init = init
+            def _compiled_scalar(seq):
+                seq_list = list(seq)
+                if not seq_list:
+                    raise ValueError("fold: cannot fold empty sequence with scalar init")
+                return reduce(step_fn, seq_list, seq_list[0] * 0 + _init)
+            return backend.compile(_compiled_scalar)
         return backend.compile(lambda seq: reduce(step_fn, seq, init))
 
 

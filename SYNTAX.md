@@ -49,6 +49,7 @@ Integer or decimal. Special values `inf` and `-inf` are supported.
 | Token | Role |
 |-------|------|
 | `>>`  | Sequential composition (`seq` chain, `lens_seq` chain) |
+| `~>`  | Merge chain — sequences merge steps in `branch` declarations (stack-machine semantics) |
 | `->`  | Sort signature separator (`dom -> cod`) |
 | `<->` | Bidirectional sort signature (`dom <-> cod`, lenses only) |
 | `:`   | Type annotation — separates a declaration name from its signature |
@@ -68,6 +69,23 @@ Integer or decimal. Special values `inf` and `-inf` are supported.
 
 Declarations are separated by newlines (blank lines and comments allowed between them).
 Attribute blocks are indented with at least one space or tab.
+
+---
+
+### `import`
+
+Specifies the backend for the program. Must appear before any other declaration. Available backends: `numpy`, `jax`, `pytorch`, `cupy`.
+
+```
+import <backend-name>
+```
+
+When `import` is present, `parse_ua(text)` can be called without a backend argument. A backend passed explicitly to `parse_ua(text, backend)` overrides the import.
+
+**Example:**
+```
+import numpy
+```
 
 ---
 
@@ -188,7 +206,7 @@ seq <name> : <dom> -> <cod> = <op1> >> <op2> >> ... >> <opN>
 ```
 
 `op1` receives the input; `opN` produces the output.
-All op names must be declared before the `seq`. Template refs (`name[prefix]`) may appear in the chain alongside plain op names.
+Names in the chain can be op names, template refs (`name[prefix]`), or composition names (`branch`, `seq`, etc.). All referenced names must be declared before the `seq`.
 
 An optional indented attribute block may follow the chain:
 
@@ -213,6 +231,9 @@ seq ffn : hidden -> hidden = linear1 >> relu1 >> linear2 >> relu2 >> linear3
 # Residual / skip connection
 seq resblock+ : hidden -> hidden = linear >> relu
   algebra = real
+
+# Composing compositions: seq referencing a branch
+seq block : hidden -> hidden = attn_head >> ffn
 ```
 
 ---
@@ -229,11 +250,33 @@ branch <name> : <dom> -> <cod> = <op1> | <op2> | ... | <opN>
 
 All branch ops receive the same input. The merge op receives a list of branch outputs. Template refs (`name[prefix]`) may appear in the branch list alongside plain op names.
 
-**Example:**
+#### Merge chains
+
+Multiple merge steps can be chained with `~>` to interleave contractions and nonlinearities:
+
 ```
-branch attention : hidden -> hidden = query | key | value
-  merge = softmax_combine
+branch <name> : <dom> -> <cod> = <op1> | <op2> | ... | <opN>
+  merge = <step1> ~> <step2> ~> ... ~> <stepK>
 ```
+
+Each step is either a declared `op` name or a bare nonlinearity name (resolved via the backend). Steps execute as a stack machine over the branch outputs:
+- Branch outputs form the initial stack (leftmost = top)
+- Each step consumes N elements from the top (N = einsum operand count for ops, 1 for nonlinearities)
+- Each step produces 1 output, pushed to top; remaining elements carry through
+- The chain must reduce the stack to exactly 1 element
+
+`~>` vs `>>`: `>>` is point-to-point piping (single tensor in/out). `~>` is stack-machine sequencing over multiple tensors, where unconsumed tensors carry through to later steps.
+
+**Examples:**
+```
+branch pair : hidden -> hidden = relu | tanh_act
+  merge = hadamard
+
+branch head : hidden -> hidden = proj[q] | proj[k] | proj[v]
+  merge = score ~> softmax ~> mix
+```
+
+In the second example, `softmax` is a bare nonlinearity name — no `op` declaration needed. Stack trace: `[Q,K,V] → score(Q,K) → [scores,V] → softmax(scores) → [probs,V] → mix(probs,V) → [output]`.
 
 ---
 

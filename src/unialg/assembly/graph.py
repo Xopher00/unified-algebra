@@ -90,7 +90,7 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
     schema: dict = {}
     for eq in eq_by_name.values():
         eq.register_sorts(schema)
-        prim, native_fn, sr, eq_coder = eq.resolve_as_merge(backend) if eq.name in merge_names else eq.resolve(backend)
+        prim, native_fn, sr, eq_coder = eq.resolve(backend)
         sr_name = eq.semiring_name
         if sr_name and sr is not None:
             resolved_semirings.setdefault(sr_name, sr)
@@ -98,6 +98,11 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
             coder = eq_coder
         primitives[prim.name] = prim
         native_fns[prim.name] = native_fn
+        if eq.name in merge_names:
+            merge_key = core.Name(f"ua.equation.{eq.name}.__merge__")
+            merge_prim, merge_fn, _, _ = eq.resolve_as_merge(backend, prim_name_override=merge_key)
+            primitives[merge_prim.name] = merge_prim
+            native_fns[merge_prim.name] = merge_fn
 
     return eq_by_name, primitives, native_fns, resolved_semirings, coder, schema
 

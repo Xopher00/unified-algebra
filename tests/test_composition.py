@@ -130,6 +130,14 @@ class TestPathStructure:
         assert isinstance(func, core.TermVariable)
         assert func.value.value == "ua.equation.b"
 
+    def test_from_term_has_params_default(self):
+        """PathComposition.from_term() must not crash on _params access."""
+        pc = PathComposition("act", ["relu"])
+        pc2 = PathComposition.from_term(pc._term)
+        assert pc2._params is None
+        name, term = pc2.to_lambda()
+        assert name.value == "ua.path.act"
+
 
 # ---------------------------------------------------------------------------
 # Path: validation
@@ -397,8 +405,9 @@ class TestFanReduce:
         for eq in [eq_relu, eq_tanh]:
             p, *_ = eq.resolve(backend)
             prims[p.name] = p
-        # Merge is resolved as list-merge (prim1 over list<tensor>)
-        merge_prim, *_ = eq_merge.resolve_as_merge(backend)
+        # Merge is resolved as list-merge under __merge__ key
+        merge_key = core.Name("ua.equation.merge.__merge__")
+        merge_prim, *_ = eq_merge.resolve_as_merge(backend, prim_name_override=merge_key)
         prims[merge_prim.name] = merge_prim
 
         f_name, f_term = FanComposition("res", ["relu", "tanh"], "merge").to_lambda()
@@ -426,8 +435,9 @@ class TestFanReduce:
         prims = {}
         p, *_ = eq_relu.resolve(backend)
         prims[p.name] = p
-        # Merge is resolved as list-merge (unary: 1-element list passthrough)
-        p, *_ = eq_ident.resolve_as_merge(backend)
+        # Merge is resolved as list-merge under __merge__ key
+        merge_key = core.Name("ua.equation.ident.__merge__")
+        p, *_ = eq_ident.resolve_as_merge(backend, prim_name_override=merge_key)
         prims[p.name] = p
 
         f_name, f_term = FanComposition("single", ["relu"], "ident").to_lambda()
@@ -558,8 +568,9 @@ class TestNesting:
         for eq in [eq_relu, eq_tanh, eq_sig]:
             p, *_ = eq.resolve(backend)
             prims[p.name] = p
-        # Merge resolved as list-merge for fan compatibility
-        p, *_ = eq_merge.resolve_as_merge(backend)
+        # Merge resolved as list-merge under __merge__ key
+        merge_key = core.Name("ua.equation.merge.__merge__")
+        p, *_ = eq_merge.resolve_as_merge(backend, prim_name_override=merge_key)
         prims[p.name] = p
 
         f_name, f_term = FanComposition("split", ["relu", "tanh"], "merge").to_lambda()
@@ -663,8 +674,9 @@ class TestThreeBranchFan:
         for eq in [eq_relu, eq_tanh, eq_sig]:
             p, *_ = eq.resolve(backend)
             prims[p.name] = p
-        # Merge resolved as list-merge
-        p, *_ = eq_merge3.resolve_as_merge(backend)
+        # Merge resolved as list-merge under __merge__ key
+        merge_key = core.Name("ua.equation.merge3.__merge__")
+        p, *_ = eq_merge3.resolve_as_merge(backend, prim_name_override=merge_key)
         prims[p.name] = p
 
         f_name, f_term = FanComposition(

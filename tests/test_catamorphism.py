@@ -428,3 +428,43 @@ class TestAssembleWithRecursion:
             cx, graph, apply(var("ua.fold.prod"), seq)
         ))
         np.testing.assert_allclose(fold_out, v1 * v2)
+
+
+class TestFoldFromParser:
+
+    def test_fold_default_init(self):
+        """scan with no init= uses 0.0 default."""
+        from unialg import parse_ua, NumpyBackend
+        prog = parse_ua('''
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op step : hidden -> hidden
+  einsum = "i,i->i"
+  algebra = real
+
+scan acc : hidden -> hidden
+  step = step
+''', NumpyBackend())
+        x = np.array([[2.0, 3.0], [4.0, 5.0]])
+        result = prog('acc', x)
+        np.testing.assert_allclose(result, np.zeros(2))
+
+    def test_fold_explicit_init(self):
+        """scan with init=1.0 starts accumulation from 1."""
+        from unialg import parse_ua, NumpyBackend
+        prog = parse_ua('''
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op step : hidden -> hidden
+  einsum = "i,i->i"
+  algebra = real
+
+scan prod : hidden -> hidden
+  step = step
+  init = 1.0
+''', NumpyBackend())
+        x = np.array([[2.0, 3.0], [4.0, 5.0]])
+        result = prog('prod', x)
+        np.testing.assert_allclose(result, np.array([8.0, 15.0]))

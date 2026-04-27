@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 
+import hydra.core as core
 from hydra.dsl.python import FrozenDict
 from hydra.typing import TypeConstraint
 
@@ -210,7 +211,10 @@ class FoldSpec(Spec):
 
     @classmethod
     def _parse_rest(cls, rest, **_):
-        return dict(step_name=rest[0]['step'], init_term=None)
+        attrs = rest[0]
+        init_val = float(attrs.get('init', 0.0))
+        init_term = core.TermLiteral(value=core.LiteralFloat(value=init_val))
+        return dict(step_name=attrs['step'], init_term=init_term)
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         self._require_eq(eq_by_name, self.step_name, "Scan step")

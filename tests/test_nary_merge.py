@@ -566,3 +566,54 @@ seq chain : hidden -> hidden = relu
 """
         with pytest.raises(ValueError, match="No backend specified"):
             parse_ua(text)
+
+
+class TestMergeAndPathCoexistence:
+    """Regression: equation used in both fan merge and seq path must work.
+
+    Before the fix, equations in merge_names were globally resolved with
+    the merge calling convention (expects list), breaking their use in paths
+    (expects positional args).
+    """
+
+    _PROG = """\
+import numpy
+
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op proj : hidden -> hidden
+  nonlinearity = abs
+
+op hadamard : hidden -> hidden
+  einsum = "i,i->i"
+  algebra = real
+
+branch head : hidden -> hidden = proj | proj
+  merge = hadamard
+
+seq chain : hidden -> hidden = proj >> proj
+"""
+
+    def test_fan_merge_works(self):
+        """hadamard in merge: merge([abs(x), abs(x)]) = abs(x) * abs(x)."""
+        prog = parse_ua(self._PROG, NumpyBackend())
+        x = np.array([1.0, -2.0, 3.0])
+        result = prog('head', x)
+        ax = np.abs(x)
+        np.testing.assert_allclose(result, ax * ax)
+
+    def test_path_not_using_merge_equation_works(self):
+        """Path with non-merge equations still compiles after merge registration."""
+        prog = parse_ua(self._PROG, NumpyBackend())
+        x = np.array([1.0, -2.0, 3.0])
+        result = prog('chain', x)
+        np.testing.assert_allclose(result, np.abs(np.abs(x)))
+
+    def test_merge_equation_callable_standalone(self):
+        """hadamard as a standalone equation still works via standard convention."""
+        prog = parse_ua(self._PROG, NumpyBackend())
+        a = np.array([2.0, 3.0])
+        b = np.array([4.0, 5.0])
+        result = prog('hadamard', a, b)
+        np.testing.assert_allclose(result, a * b)

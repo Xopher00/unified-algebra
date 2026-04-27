@@ -1,17 +1,10 @@
-"""Composition spec types for assemble_graph.
-
-Each spec carries its own validation logic via constraints() and sort_terms(),
-and its own build() method which registers any required primitives and returns
-the (Name, Term) pairs to bind into the graph.
-"""
+"""Composition specs: validation, primitive registration, and Hydra term construction."""
 
 from __future__ import annotations
 
-import dataclasses
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 import hydra.core as core
-from hydra.dsl.python import FrozenDict
 from hydra.typing import TypeConstraint
 
 from unialg.terms import unify_or_raise
@@ -36,7 +29,7 @@ class Spec:
         name = decl[1]
         sig = decl[2]
         sorts = (get_sort(sig[0]), get_sort(sig[1])) if isinstance(sig, tuple) else (get_sort(sig),)
-        sort_fields = [f.name for f in dataclasses.fields(cls) if f.name.endswith('_sort')]
+        sort_fields = [f.name for f in fields(cls) if f.name.endswith('_sort')]
         return cls(name=name, **dict(zip(sort_fields, sorts)), **cls._parse_rest(decl[3:], **kw))
 
     @classmethod
@@ -124,7 +117,6 @@ class Spec:
 
 @dataclass
 class PathSpec(Spec):
-    """Sequential path composition."""
     COMPOSITION = PathComposition
     _COMPOSE_FIELDS = ('eq_names', 'params', 'residual', 'residual_semiring')
     eq_names: list[str]
@@ -133,9 +125,14 @@ class PathSpec(Spec):
     params: dict[str, list] | None = None
     residual: bool = False
     residual_semiring: str | None = None
+    bwd_eq_names: list[str] = field(default_factory=list)
+    has_residual: bool = False
 
     @classmethod
-    def _parse_rest(cls, rest, expand_ref=None, **_):
+    def _parse_rest(cls, rest, expand_ref=None, get_lens=None, **_):
+        if get_lens is not None:
+            fwd, bwd, has_res = Spec._decompose_lenses(rest[0], get_lens)
+            return dict(eq_names=fwd, bwd_eq_names=bwd, has_residual=has_res)
         eq_names = [expand_ref(en) for en in rest[0]]
         attrs = rest[1]
         residual = attrs.get('residual', False)
@@ -143,71 +140,110 @@ class PathSpec(Spec):
                     residual_semiring=attrs.get('algebra') if residual else None)
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
-        for n in self.eq_names:
+        all_names = self.eq_names + self.bwd_eq_names
+        for n in all_names:
             self._require_eq(eq_by_name, n, f"Seq '{self.name}'")
-        cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
-                            [self.eq_names[0]], self.eq_names[-1])
-        for a, b in zip(self.eq_names, self.eq_names[1:]):
-            cs.append(TypeConstraint(
-                self._eq_sort_type(eq_by_name, a, "c"),
-                self._eq_sort_type(eq_by_name, b, "d"),
-                f"'{a}' codomain != '{b}' domain"))
+        if self.bwd_eq_names and self.has_residual:
+            cs = self._boundary(eq_by_name, self.domain_sort, None, [self.eq_names[0]])
+        else:
+            cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
+                                [self.eq_names[0]], self.eq_names[-1])
+            for a, b in zip(self.eq_names, self.eq_names[1:]):
+                cs.append(TypeConstraint(
+                    self._eq_sort_type(eq_by_name, a, "c"),
+                    self._eq_sort_type(eq_by_name, b, "d"),
+                    f"'{a}' codomain != '{b}' domain"))
+        for fwd, bwd in zip(self.eq_names, self.bwd_eq_names):
+            cs.extend(self._bidi(eq_by_name, fwd, bwd, f"'{fwd}'"))
         return cs
 
     def _primitives(self, **kwargs) -> list[tuple]:
-        if not self.residual:
-            return []
-        sr_name = self.residual_semiring or "default"
-        resolved_semirings = kwargs.get("resolved_semirings", {})
-        if sr_name not in resolved_semirings:
-            raise ValueError(
-                f"Residual path references semiring '{sr_name}' but it was not resolved")
-        prim, fn = residual_add_primitive(sr_name, resolved_semirings[sr_name], kwargs["coder"])
-        return [(prim, fn)]
+        prims = []
+        if self.residual:
+            sr_name = self.residual_semiring or "default"
+            resolved_semirings = kwargs.get("resolved_semirings", {})
+            if sr_name not in resolved_semirings:
+                raise ValueError(
+                    f"Residual path references semiring '{sr_name}' but it was not resolved")
+            prim, fn = residual_add_primitive(sr_name, resolved_semirings[sr_name], kwargs["coder"])
+            prims.append((prim, fn))
+        if self.bwd_eq_names and self.has_residual:
+            prims.extend([(lens_fwd_primitive, None), (lens_bwd_primitive, None)])
+        return prims
+
+    def _compose(self) -> list:
+        if not self.bwd_eq_names:
+            return super()._compose()
+        fwd, bwd = PathComposition.build_lens(
+            self.name, self.eq_names, self.bwd_eq_names, self.params, self.has_residual)
+        return [fwd, bwd]
 
 
 @dataclass
 class FanSpec(Spec):
-    """Parallel fan composition."""
     COMPOSITION = FanComposition
     _COMPOSE_FIELDS = ('branch_names', 'merge_names')
     branch_names: list[str]
     merge_names: list[str]
     domain_sort: object
     codomain_sort: object
+    bwd_branch_names: list[str] = field(default_factory=list)
+    merge_bwd_name: str = ""
 
     @classmethod
-    def _parse_rest(cls, rest, expand_ref=None, **_):
+    def _parse_rest(cls, rest, expand_ref=None, get_lens=None, **_):
+        if get_lens is not None:
+            fwd, bwd, _ = Spec._decompose_lenses(rest[0], get_lens)
+            mlv = get_lens(rest[1][0])
+            return dict(branch_names=fwd, merge_names=[mlv.forward],
+                        bwd_branch_names=bwd, merge_bwd_name=mlv.backward)
         branches = [expand_ref(bn) for bn in rest[0]]
         return dict(branch_names=branches, merge_names=rest[1])
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
+        all_names = self.branch_names + self.bwd_branch_names
+        if self.merge_bwd_name:
+            all_names += [self.merge_names[0], self.merge_bwd_name]
         declared = [n for n in self.merge_names if n in eq_by_name]
-        for n in self.branch_names:
+        for n in all_names:
             self._require_eq(eq_by_name, n, f"Branch '{self.name}'")
         if not declared:
-            return self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
-                                  self.branch_names)
-        first_merge = declared[0]
-        cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
-                            self.branch_names, first_merge)
-        md = self._eq_sort_type(eq_by_name, first_merge, "d")
-        for b in self.branch_names:
-            cs.append(TypeConstraint(
-                self._eq_sort_type(eq_by_name, b, "c"), md,
-                f"Branch '{b}' codomain != merge domain"))
+            cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
+                                self.branch_names)
+        else:
+            first_merge = declared[0]
+            cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
+                                self.branch_names, first_merge)
+            md = self._eq_sort_type(eq_by_name, first_merge, "d")
+            for b in self.branch_names:
+                cs.append(TypeConstraint(
+                    self._eq_sort_type(eq_by_name, b, "c"), md,
+                    f"Branch '{b}' codomain != merge domain"))
+        for fwd, bwd in zip(self.branch_names, self.bwd_branch_names):
+            cs.extend(self._bidi(eq_by_name, fwd, bwd,
+                                 f"LensBranch '{self.name}' branch '{fwd}'"))
+        if self.merge_bwd_name:
+            cs.extend(self._bidi(eq_by_name, self.merge_names[0], self.merge_bwd_name,
+                                 f"LensBranch '{self.name}' merge"))
         return cs
+
+    def _compose(self) -> list:
+        if not self.bwd_branch_names:
+            return super()._compose()
+        fwd, bwd = FanComposition.build_lens(
+            self.name, self.branch_names, self.bwd_branch_names,
+            self.merge_names[0], self.merge_bwd_name)
+        return [fwd, bwd]
 
 
 @dataclass
 class FoldSpec(Spec):
-    """Fold (catamorphism)."""
     COMPOSITION = FoldComposition
     _COMPOSE_FIELDS = ('step_name', 'init_term')
     step_name: str
-    init_term: object  # core.Term
-    domain_sort: object
-    state_sort: object
+    init_term: object = None
+    domain_sort: object = None
+    state_sort: object = None
 
     @classmethod
     def _parse_rest(cls, rest, **_):
@@ -226,13 +262,12 @@ class FoldSpec(Spec):
 
 @dataclass
 class UnfoldSpec(Spec):
-    """Unfold (anamorphism)."""
     COMPOSITION = UnfoldComposition
     _COMPOSE_FIELDS = ('step_name', 'n_steps')
     step_name: str
     n_steps: int
-    domain_sort: object
-    state_sort: object
+    domain_sort: object = None
+    state_sort: object = None
 
     @classmethod
     def _parse_rest(cls, rest, **_):
@@ -247,78 +282,14 @@ class UnfoldSpec(Spec):
 
 
 @dataclass
-class LensPathSpec(PathSpec):
-    """Bidirectional lens path. eq_names = forward chain; bwd_eq_names = backward chain."""
-    bwd_eq_names: list[str] = field(default_factory=list)
-    has_residual: bool = False
-
-    @classmethod
-    def _parse_rest(cls, rest, get_lens=None, **_):
-        fwd, bwd, has_res = Spec._decompose_lenses(rest[0], get_lens)
-        return dict(eq_names=fwd, bwd_eq_names=bwd, has_residual=has_res)
-
-    def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
-        for n in self.eq_names + self.bwd_eq_names:
-            self._require_eq(eq_by_name, n, f"LensSeq '{self.name}'")
-        if self.has_residual:
-            cs = self._boundary(eq_by_name, self.domain_sort, None, [self.eq_names[0]])
-        else:
-            cs = super().constraints(eq_by_name)
-        for fwd_name, bwd_name in zip(self.eq_names, self.bwd_eq_names):
-            cs.extend(self._bidi(eq_by_name, fwd_name, bwd_name, f"'{fwd_name}'"))
-        return cs
-
-    def _primitives(self, **kwargs) -> list[tuple]:
-        if not self.has_residual:
-            return []
-        return [(lens_fwd_primitive, None), (lens_bwd_primitive, None)]
-
-    def _compose(self) -> list:
-        fwd, bwd = self.COMPOSITION.build_lens(self.name, self.eq_names, self.bwd_eq_names, self.params, self.has_residual)
-        return [fwd, bwd]
-
-
-@dataclass
-class LensFanSpec(FanSpec):
-    """Bidirectional lens fan. branch_names/merge_names = forward; bwd fields = backward."""
-    bwd_branch_names: list[str] = field(default_factory=list)
-    merge_bwd_name: str = ""
-
-    @property
-    def merge_name(self):
-        return self.merge_names[0]
-
-    @classmethod
-    def _parse_rest(cls, rest, get_lens=None, **_):
-        fwd, bwd, _ = Spec._decompose_lenses(rest[0], get_lens)
-        mlv = get_lens(rest[1][0])
-        return dict(branch_names=fwd, merge_names=[mlv.forward],
-                    bwd_branch_names=bwd, merge_bwd_name=mlv.backward)
-
-    def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
-        for n in self.branch_names + self.bwd_branch_names + [self.merge_name, self.merge_bwd_name]:
-            self._require_eq(eq_by_name, n, f"LensBranch '{self.name}'")
-        cs = super().constraints(eq_by_name)
-        for fwd_name, bwd_name in zip(self.branch_names, self.bwd_branch_names):
-            cs.extend(self._bidi(eq_by_name, fwd_name, bwd_name, f"LensBranch '{self.name}' branch '{fwd_name}'"))
-        cs.extend(self._bidi(eq_by_name, self.merge_name, self.merge_bwd_name, f"LensBranch '{self.name}' merge"))
-        return cs
-
-    def _compose(self) -> list:
-        fwd, bwd = self.COMPOSITION.build_lens(self.name, self.branch_names, self.bwd_branch_names, self.merge_name, self.merge_bwd_name)
-        return [fwd, bwd]
-
-
-@dataclass
 class FixpointSpec(Spec):
-    """Fixpoint iteration."""
     COMPOSITION = FixpointComposition
     _COMPOSE_FIELDS = ('step_name', 'predicate_name', 'epsilon', 'max_iter')
     step_name: str
-    predicate_name: str
-    epsilon: float
-    max_iter: int
-    domain_sort: object  # core.Term
+    predicate_name: str = ""
+    epsilon: float = 1e-6
+    max_iter: int = 100
+    domain_sort: object = None
 
     @classmethod
     def _parse_rest(cls, rest, **_):
@@ -345,3 +316,7 @@ class FixpointSpec(Spec):
 
     def _primitives(self, **kwargs) -> list[tuple]:
         return [(fixpoint_primitive(self.epsilon, self.max_iter), None)]
+
+
+LensPathSpec = PathSpec
+LensFanSpec = FanSpec

@@ -19,12 +19,28 @@ def _eq_var(name: str) -> TTerm:
     return var(f"{_EQ_PREFIX}{name}")
 
 
+def _lookup(native_fns, name):
+    return native_fns.get(core.Name(f"{_EQ_PREFIX}{name}"))
+
+
 def _merge_eq_var(name: str) -> TTerm:
     return var(f"{_EQ_PREFIX}{name}{_MERGE_SUFFIX}")
 
 
-def _merge_eq_key(name: str) -> core.Name:
-    return core.Name(f"{_EQ_PREFIX}{name}{_MERGE_SUFFIX}")
+def _merge_lookup(native_fns, name):
+    return native_fns.get(core.Name(f"{_EQ_PREFIX}{name}{_MERGE_SUFFIX}"))
+
+
+def _decode_init(coder, init_term):
+    try:
+        match coder.encode(None, None, init_term):
+            case Right(value=v): return v, False
+            case _: return None, False
+    except Exception:
+        match init_term.value:
+            case core.LiteralFloat(value=v): return v, True
+            case core.LiteralInteger(value=v): return int(v), True
+            case _: return None, False
 
 
 def _bind(kind, name, var_name, body):
@@ -38,23 +54,45 @@ def _bind(kind, name, var_name, body):
 class Composition(_RecordView):
 
     name = _RecordView.Scalar(str)
+    _kind: str
+    _var_name: str
+
+    def _body(self) -> TTerm:
+        raise NotImplementedError
 
     def to_lambda(self):
-        raise NotImplementedError
+        return _bind(self._kind, self.name, self._var_name, self._body())
 
     def resolve_and_compile(self, native_fns, coder, backend) -> Callable | None:
         raise NotImplementedError
 
 
-# ---------------------------------------------------------------------------
-# Path
-# ---------------------------------------------------------------------------
+class StepComposition(Composition):
+
+    step_name = _RecordView.Scalar(str, key="stepName")
+
+    def _prim_var(self): raise NotImplementedError
+    def _extra_term(self): raise NotImplementedError
+
+    def _body(self):
+        return self._prim_var() @ _eq_var(self.step_name) @ self._extra_term() @ var(self._var_name)
+
+    def resolve_and_compile(self, native_fns, coder, backend) -> Callable | None:
+        step_fn = _lookup(native_fns, self.step_name)
+        if step_fn is None:
+            return None
+        return self._compile(step_fn, native_fns, coder, backend)
+
+    def _compile(self, step_fn, native_fns, coder, backend) -> Callable | None:
+        raise NotImplementedError
+
 
 class PathComposition(Composition):
     _type_name = core.Name("ua.composition.Path")
+    _kind = "path"
+    _var_name = "x"
     _params = None
 
-    name              = _RecordView.Scalar(str)
     eq_names          = _RecordView.ScalarList(key="eqNames")
     residual          = _RecordView.Scalar(bool, default=False)
     residual_semiring = _RecordView.Scalar(str, default="", key="residualSemiring")
@@ -66,7 +104,7 @@ class PathComposition(Composition):
         super().__init__(name=name, eq_names=eq_names,
                          residual=residual, residual_semiring=residual_semiring or "")
 
-    def to_lambda(self):
+    def _body(self):
         body: TTerm = var("x")
         for eq_name in self.eq_names:
             fn: TTerm = _eq_var(eq_name)
@@ -77,12 +115,12 @@ class PathComposition(Composition):
         if self.residual:
             sr = self.residual_semiring or "default"
             body = var(f"ua.prim.residual_add.{sr}") @ body @ var("x")
-        return _bind("path", self.name, "x", body)
+        return body
 
     def resolve_and_compile(self, native_fns, coder, backend):
-        fns: list[Callable] = []
+        fns = []
         for eq_name in self.eq_names:
-            fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{eq_name}"))
+            fn = _lookup(native_fns, eq_name)
             if fn is None:
                 return None
             if self._params and eq_name in self._params:
@@ -95,21 +133,17 @@ class PathComposition(Composition):
                         case _: return None
                 fn = partial(fn, *decoded)
             fns.append(fn)
+        plus_fn = None
         if self.residual:
             sr = self.residual_semiring or "default"
             plus_fn = native_fns.get(core.Name(f"ua.prim.residual_add.{sr}"))
             if plus_fn is None:
                 return None
-            def compiled(x):
-                out = x
-                for f in fns:
-                    out = f(out)
-                return plus_fn(out, x)
-        else:
-            def compiled(x):
-                for f in fns:
-                    x = f(x)
-                return x
+        def compiled(x):
+            out = x
+            for f in fns:
+                out = f(out)
+            return plus_fn(out, x) if plus_fn else out
         return backend.compile(compiled)
 
     @staticmethod
@@ -127,14 +161,11 @@ class PathComposition(Composition):
         return fwd, bwd
 
 
-# ---------------------------------------------------------------------------
-# Fan
-# ---------------------------------------------------------------------------
-
 class FanComposition(Composition):
     _type_name = core.Name("ua.composition.Fan")
+    _kind = "fan"
+    _var_name = "x"
 
-    name        = _RecordView.Scalar(str)
     merge_names = _RecordView.ScalarList(key="mergeNames")
     branches    = _RecordView.ScalarList()
 
@@ -145,28 +176,26 @@ class FanComposition(Composition):
             merge_names = [merge_names]
         super().__init__(name=name, branches=branches, merge_names=merge_names)
 
-    def to_lambda(self):
+    def _body(self):
         body = _merge_eq_var(self.merge_names[0]) @ list_([_eq_var(b) @ var("x") for b in self.branches])
         if len(self.merge_names) > 1:
             for mn in self.merge_names[1:]:
                 body = _merge_eq_var(mn) @ list_([body])
-        return _bind("fan", self.name, "x", body)
+        return body
 
     def resolve_and_compile(self, native_fns, coder, backend):
-        _branch_eq = lambda name: native_fns.get(core.Name(f"{_EQ_PREFIX}{name}"))
-        _merge_eq = lambda name: native_fns.get(_merge_eq_key(name))
-        branch_fns = [_branch_eq(b) for b in self.branches]
+        branch_fns = [_lookup(native_fns, b) for b in self.branches]
         if not all(branch_fns):
             return None
         names = self.merge_names
         if len(names) == 1:
-            merge_fn = _merge_eq(names[0])
+            merge_fn = _merge_lookup(native_fns, names[0])
             if merge_fn is None:
                 return None
             return backend.compile(lambda x: merge_fn([fn(x) for fn in branch_fns]))
         steps = []
         for mn in names:
-            fn = _merge_eq(mn)
+            fn = _merge_lookup(native_fns, mn)
             if fn is not None:
                 steps.append((fn, getattr(fn, 'n_inputs', 2)))
             else:
@@ -195,65 +224,41 @@ def _stack_execute(branch_fns, steps, x):
     return stack[0]
 
 
-# ---------------------------------------------------------------------------
-# Fold
-# ---------------------------------------------------------------------------
-
-class FoldComposition(Composition):
+class FoldComposition(StepComposition):
     _type_name = core.Name("ua.composition.Fold")
+    _kind = "fold"
+    _var_name = "seq"
 
-    name      = _RecordView.Scalar(str)
-    step_name = _RecordView.Scalar(str, key="stepName")
     init_term = _RecordView.Term(key="initTerm")
 
-    def to_lambda(self):
-        body = var("hydra.lib.lists.foldl") @ _eq_var(self.step_name) @ TTerm(self.init_term) @ var("seq")
-        return _bind("fold", self.name, "seq", body)
+    def _prim_var(self): return var("hydra.lib.lists.foldl")
+    def _extra_term(self): return TTerm(self.init_term)
 
-    def resolve_and_compile(self, native_fns, coder, backend):
-        step_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.step_name}"))
-        if step_fn is None:
+    def _compile(self, step_fn, native_fns, coder, backend):
+        init, is_scalar = _decode_init(coder, self.init_term)
+        if init is None:
             return None
-        is_scalar = False
-        try:
-            match coder.encode(None, None, self.init_term):
-                case Right(value=init): pass
-                case _: return None
-        except Exception:
-            match self.init_term.value:
-                case core.LiteralFloat(value=v): init = v; is_scalar = True
-                case core.LiteralInteger(value=v): init = int(v); is_scalar = True
-                case _: return None
         if is_scalar:
-            _init = init
-            def _compiled_scalar(seq):
+            def _compiled_scalar(seq, _i=init, _s=step_fn):
                 seq_list = list(seq)
                 if not seq_list:
                     raise ValueError("fold: cannot fold empty sequence with scalar init")
-                return reduce(step_fn, seq_list, seq_list[0] * 0 + _init)
+                return reduce(_s, seq_list, seq_list[0] * 0 + _i)
             return backend.compile(_compiled_scalar)
         return backend.compile(lambda seq: reduce(step_fn, seq, init))
 
 
-# ---------------------------------------------------------------------------
-# Unfold
-# ---------------------------------------------------------------------------
-
-class UnfoldComposition(Composition):
+class UnfoldComposition(StepComposition):
     _type_name = core.Name("ua.composition.Unfold")
+    _kind = "unfold"
+    _var_name = "state"
 
-    name      = _RecordView.Scalar(str)
-    step_name = _RecordView.Scalar(str, key="stepName")
-    n         = _RecordView.Scalar(int, key="nSteps")
+    n = _RecordView.Scalar(int, key="nSteps")
 
-    def to_lambda(self):
-        body = var("ua.prim.unfold_n") @ _eq_var(self.step_name) @ int32(self.n) @ var("state")
-        return _bind("unfold", self.name, "state", body)
+    def _prim_var(self): return var("ua.prim.unfold_n")
+    def _extra_term(self): return int32(self.n)
 
-    def resolve_and_compile(self, native_fns, coder, backend):
-        step_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.step_name}"))
-        if step_fn is None:
-            return None
+    def _compile(self, step_fn, native_fns, coder, backend):
         n = self.n
         def compiled(state):
             outs = []
@@ -263,28 +268,21 @@ class UnfoldComposition(Composition):
         return backend.compile(compiled)
 
 
-# ---------------------------------------------------------------------------
-# Fixpoint
-# ---------------------------------------------------------------------------
-
-class FixpointComposition(Composition):
+class FixpointComposition(StepComposition):
     _type_name = core.Name("ua.composition.Fixpoint")
+    _kind = "fixpoint"
+    _var_name = "state"
 
-    name      = _RecordView.Scalar(str)
-    step_name = _RecordView.Scalar(str, key="stepName")
     pred_name = _RecordView.Scalar(str, key="predName")
     epsilon   = _RecordView.Scalar(float)
     max_iter  = _RecordView.Scalar(int, key="maxIter")
 
-    def to_lambda(self):
-        prim = var(f"ua.prim.fixpoint.{self.epsilon}.{self.max_iter}")
-        body = prim @ _eq_var(self.step_name) @ _eq_var(self.pred_name) @ var("state")
-        return _bind("fixpoint", self.name, "state", body)
+    def _prim_var(self): return var(f"ua.prim.fixpoint.{self.epsilon}.{self.max_iter}")
+    def _extra_term(self): return _eq_var(self.pred_name)
 
-    def resolve_and_compile(self, native_fns, coder, backend):
-        step_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.step_name}"))
-        pred_fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{self.pred_name}"))
-        if step_fn is None or pred_fn is None:
+    def _compile(self, step_fn, native_fns, coder, backend):
+        pred_fn = _lookup(native_fns, self.pred_name)
+        if pred_fn is None:
             return None
         epsilon, max_iter = self.epsilon, self.max_iter
         def cond_fn(c): return (pred_fn(c[0]) > epsilon) & (c[1] < max_iter)

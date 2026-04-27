@@ -832,10 +832,10 @@ lens_branch attention : hidden <-> hidden = backprop1 | backprop2
         spec = parse_ua_spec(text)
         assert len(spec.specs) == 1
         lfs = spec.specs[0]
-        assert isinstance(lfs, LensFanSpec)
+        assert isinstance(lfs, FanSpec)
         assert lfs.name == 'attention'
         assert lfs.branch_names == ['fwd1', 'fwd2']
-        assert lfs.merge_name == 'merge_fwd'
+        assert lfs.merge_names == ['merge_fwd']
         assert lfs.domain_sort is not None
         assert lfs.codomain_sort is not None
 

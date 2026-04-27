@@ -138,9 +138,19 @@ class _RecordView:
         def _encode(self, values):
             return list_([string(v) for v in (values or [])])
 
+    @classmethod
+    def _descriptors(cls):
+        seen = set()
+        result = []
+        for klass in reversed(cls.__mro__):
+            for n, d in vars(klass).items():
+                if isinstance(d, _RecordView.Term) and n not in seen:
+                    seen.add(n)
+                    result.append((n, d))
+        return result
+
     def __init__(self, *args, **kwargs):
-        descriptors = [(n, d) for n, d in vars(type(self)).items()
-                       if isinstance(d, _RecordView.Term)]
+        descriptors = type(self)._descriptors()
         for i, (name, _) in enumerate(descriptors):
             if i < len(args):
                 kwargs[name] = args[i]
@@ -157,9 +167,8 @@ class _RecordView:
     @classmethod
     def _build_record(cls, **values):
         fields = []
-        for name, obj in vars(cls).items():
-            if isinstance(obj, _RecordView.Term):
-                fields.append(core.Name(obj._key) >> obj._encode(values.get(name)))
+        for name, obj in cls._descriptors():
+            fields.append(core.Name(obj._key) >> obj._encode(values.get(name)))
         return record(cls._type_name, fields).value
 
     @classmethod

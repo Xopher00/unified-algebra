@@ -112,8 +112,10 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             lenses_by_name[name] = lens_term
 
         elif kind in _SPEC_CLASSES:
-            specs.append(_SPEC_CLASSES[kind].from_parsed(
-                decl, _get_sort, expand_ref=_expand_template_ref, get_lens=_get_lens))
+            kw = dict(expand_ref=_expand_template_ref)
+            if kind.startswith('lens_'):
+                kw['get_lens'] = _get_lens
+            specs.append(_SPEC_CLASSES[kind].from_parsed(decl, _get_sort, **kw))
 
     return UASpec(
         semirings=semirings,

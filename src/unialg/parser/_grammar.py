@@ -146,6 +146,11 @@ def _build_parser():
                P.bind(sym(')'), lambda _:
                P.pure(dict(plus=plus, times=times, zero=zero, one=one)))))))))))
 
+    import_decl = P.bind(sym('import'), lambda _:
+                  P.bind(ident, lambda name:
+                  P.bind(_eol, lambda _:
+                  P.pure(('import', name)))))
+
     algebra_decl = P.bind(sym('algebra'), lambda _:
                    P.bind(ident, lambda name:
                    P.bind(_sr_args, lambda kw_args:
@@ -186,17 +191,20 @@ def _build_parser():
                        **({"template": True} if not isinstance(tilde, Nothing) else {})}
                      )))))))))
 
-    def _sep_by_gg(p):
-        _gg = sym('>>')
+    def _sep_by(sep_str, p):
+        _sep = sym(sep_str)
         return P.bind(p, lambda first:
-               P.bind(P.many(P.bind(_gg, lambda _: p)), lambda rest:
+               P.bind(P.many(P.bind(_sep, lambda _: p)), lambda rest:
                P.pure([first] + list(rest))))
 
+    def _sep_by_gg(p):
+        return _sep_by('>>', p)
+
     def _sep_by_pipe(p):
-        _pipe = sym('|')
-        return P.bind(p, lambda first:
-               P.bind(P.many(P.bind(_pipe, lambda _: p)), lambda rest:
-               P.pure([first] + list(rest))))
+        return _sep_by('|', p)
+
+    def _sep_by_tilde_arrow(p):
+        return _sep_by('~>', p)
 
     seq_decl = P.bind(sym('seq'), lambda _:
                P.bind(ident, lambda name:
@@ -212,6 +220,14 @@ def _build_parser():
                         **({"residual": True} if not isinstance(plus, Nothing) else {})}
                       )))))))))))
 
+    def _indented_merge():
+        return P.bind(_indent, lambda _:
+               P.bind(sym('merge'), lambda _:
+               P.bind(sym('='), lambda _:
+               P.bind(_sep_by_tilde_arrow(ident), lambda chain:
+               P.bind(_eol, lambda _:
+               P.pure(chain))))))
+
     def _branch_like(keyword, sig_parser, tag):
         return P.bind(sym(keyword), lambda _:
                P.bind(ident, lambda name:
@@ -220,8 +236,8 @@ def _build_parser():
                P.bind(sym('='), lambda _:
                P.bind(_sep_by_pipe(ident_or_tpl), lambda branches:
                P.bind(_eol, lambda _:
-               P.bind(_indented_kv(), lambda merge_kv:
-               P.pure((tag, name, sig, branches, merge_kv[1]))))))))))
+               P.bind(_indented_merge(), lambda merge_chain:
+               P.pure((tag, name, sig, branches, merge_chain))))))))))
 
     branch_decl = _branch_like('branch', _sort_sig, 'branch')
     scan_decl = _kv_decl('scan', _sort_sig, 'scan')
@@ -241,7 +257,7 @@ def _build_parser():
     lens_branch_decl = _branch_like('lens_branch', _lens_sig, 'lens_branch')
 
     decl = reduce(P.alt, [
-        algebra_decl, spec_decl, op_decl, seq_decl,
+        import_decl, algebra_decl, spec_decl, op_decl, seq_decl,
         branch_decl, scan_decl, unroll_decl, fixpoint_decl,
         lens_branch_decl, lens_seq_decl, lens_decl,
     ])

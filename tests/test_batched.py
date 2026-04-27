@@ -451,7 +451,7 @@ class TestBatchedFan:
 
         graph, *_ = assemble_graph(
             [eq_relu, eq_tanh, eq_merge], backend,
-            specs=[FanSpec("b_fan", ["relu_b", "tanh_b"], "merge_b", hidden_b, hidden_b)],
+            specs=[FanSpec("b_fan", ["relu_b", "tanh_b"], ["merge_b"], hidden_b, hidden_b)],
         )
 
         x = np.array([[-1.0, 0.5, 0.0, 2.0],

@@ -107,6 +107,7 @@ def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, 
     compiled_fns = {}
     for spec in specs:
         spec.validate(eq_by_name, schema_types)
+        first_term = None
         for entry in spec.build(primitives, native_fns, coder=coder, **kwargs):
             if isinstance(entry, Composition):
                 name, term = entry.to_lambda()
@@ -114,9 +115,17 @@ def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, 
                 fn = entry.resolve_and_compile(native_fns, coder, backend)
                 if fn is not None:
                     compiled_fns[spec.name] = fn
+                if first_term is None:
+                    first_term = term
             else:
                 name, term = entry
                 bound_terms[name] = term
+        eq_key = core.Name(f"ua.equation.{spec.name}")
+        if first_term is not None:
+            bound_terms[eq_key] = first_term
+        if spec.name in compiled_fns:
+            native_fns[eq_key] = compiled_fns[spec.name]
+        eq_by_name[spec.name] = spec
     return compiled_fns
 
 
@@ -144,7 +153,10 @@ def assemble_graph(
 ) -> tuple[hydra.graph.Graph, dict, dict]:
     """Resolve equations, assemble a Hydra Graph, and compile compositions."""
     all_specs = list(specs or [])
-    merge_names = {spec.merge_name for spec in all_specs if hasattr(spec, 'merge_name')}
+    merge_names = set()
+    for spec in all_specs:
+        if hasattr(spec, 'merge_names'):
+            merge_names.update(spec.merge_names)
 
     eq_by_name, primitives, native_fns, resolved_semirings, coder, schema = \
         _resolve_equations(eq_terms, backend, merge_names, semirings)
@@ -171,8 +183,10 @@ def assemble_graph(
 
     seen_sorts: dict[str, core.Term] = {}
     for eq in eq_by_name.values():
-        for st in (eq.domain_sort, eq.codomain_sort):
-            seen_sorts.setdefault(str(st.type_), st)
+        for attr in ("domain_sort", "codomain_sort", "state_sort"):
+            st = getattr(eq, attr, None)
+            if st is not None:
+                seen_sorts.setdefault(str(st.type_), st)
     graph = build_graph(list(seen_sorts.values()) + list(extra_sorts or []),
                         primitives=primitives, bound_terms=bound_terms)
     return graph, native_fns, compiled_fns

@@ -190,3 +190,57 @@ class TestBlockedContraction:
         expected = semiring_contract(eq, [W, x], real, backend)
         result = semiring_contract(eq, [W, x], real, backend, block_size=None)
         np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+
+class TestAutoBlockSize:
+    """Auto block_size: identical results when available_memory forces blocking."""
+
+    def test_auto_blocks_when_memory_tight(self, backend, real):
+        """With tiny available_memory, auto-blocking kicks in and results match."""
+        eq = compile_einsum("ij,jk->ik")
+        A = np.random.RandomState(0).randn(10, 20).astype(np.float64)
+        B = np.random.RandomState(1).randn(20, 15).astype(np.float64)
+
+        expected = semiring_contract(eq, [A, B], real, backend, block_size=None)
+
+        orig = backend.available_memory
+        backend.available_memory = lambda: 64
+        try:
+            result = semiring_contract(eq, [A, B], real, backend)
+        finally:
+            backend.available_memory = orig
+
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_no_blocking_when_memory_abundant(self, backend, real):
+        """With large available_memory, no blocking occurs (fast path)."""
+        eq = compile_einsum("i,i->i")
+        a = np.array([1.0, 2.0, 3.0])
+        b = np.array([4.0, 5.0, 6.0])
+
+        orig = backend.available_memory
+        backend.available_memory = lambda: 10**12
+        try:
+            result = semiring_contract(eq, [a, b], real, backend)
+        finally:
+            backend.available_memory = orig
+
+        np.testing.assert_allclose(result, a * b)
+
+    def test_auto_block_ternary(self, backend, real):
+        """Auto-blocking works for 3-operand einsums."""
+        eq = compile_einsum("ik,jk,jl->il")
+        A = np.random.RandomState(0).randn(5, 8).astype(np.float64)
+        B = np.random.RandomState(1).randn(6, 8).astype(np.float64)
+        C = np.random.RandomState(2).randn(6, 7).astype(np.float64)
+
+        expected = semiring_contract(eq, [A, B, C], real, backend, block_size=1)
+
+        orig = backend.available_memory
+        backend.available_memory = lambda: 64
+        try:
+            result = semiring_contract(eq, [A, B, C], real, backend)
+        finally:
+            backend.available_memory = orig
+
+        np.testing.assert_allclose(result, expected, rtol=1e-12)

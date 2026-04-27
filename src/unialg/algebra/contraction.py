@@ -130,6 +130,42 @@ def compile_einsum(einsum: str) -> CompiledEinsum:
 # Contraction execution
 # ---------------------------------------------------------------------------
 
+def _auto_block_size(einsum: CompiledEinsum, args, backend: Backend, budget_fraction=0.5):
+    """Compute a block_size that keeps the intermediate tensor under memory budget."""
+    avail = backend.available_memory()
+    if avail is None:
+        return None
+
+    budget = int(avail * budget_fraction)
+    elem_bytes = getattr(args[0], 'itemsize', 8)
+
+    all_target_vars = einsum.output_vars + einsum.reduced_vars
+    target_sizes = einsum.get_sizes(args, all_target_vars)
+    intermediate_elems = 1
+    for s in target_sizes:
+        intermediate_elems *= s
+    intermediate_bytes = intermediate_elems * elem_bytes
+
+    if intermediate_bytes <= budget:
+        return None
+
+    output_sizes = einsum.get_sizes(args, einsum.output_vars)
+    output_elems = 1
+    for s in output_sizes:
+        output_elems *= s
+
+    other_reduced_elems = 1
+    for v in einsum.reduced_vars[1:]:
+        other_reduced_elems *= einsum.get_sizes(args, [v])[0]
+
+    per_slice_elems = output_elems * other_reduced_elems
+    per_slice_bytes = per_slice_elems * elem_bytes
+    if per_slice_bytes == 0:
+        return None
+
+    return max(1, budget // per_slice_bytes)
+
+
 def semiring_contract(
     einsum: CompiledEinsum,
     args,
@@ -144,18 +180,22 @@ def semiring_contract(
         args: input tensors
         sr: resolved semiring (callbacks already resolved)
         backend: provides structural tensor ops (expand_dims, transpose)
-        block_size: when set, the first reduced variable is sliced into chunks
-            of at most this many elements, and partial results are accumulated
-            with ⊕_elementwise.  None (the default) uses the existing single-
-            pass code path.  The result is numerically identical to the
-            unblocked version because ⊕ is associative.
+        block_size: explicit override for block size. When None (default),
+            the block size is computed automatically based on available memory.
+            The result is numerically identical to the unblocked version
+            because the semiring's plus is associative.
     """
     einsum.validate(args)
 
     reduced_vars = einsum.reduced_vars
 
-    # Fast path: no blocking requested, or no reduction dimensions at all.
-    if block_size is None or not reduced_vars:
+    if not reduced_vars:
+        return _contract_full(einsum, args, sr, backend)
+
+    if block_size is None:
+        block_size = _auto_block_size(einsum, args, backend)
+
+    if block_size is None:
         return _contract_full(einsum, args, sr, backend)
 
     # Determine the size of the first reduced variable so we can decide
@@ -255,15 +295,19 @@ def contract_and_apply(compiled, tensor_args, sr, backend, nl_fn=None, params=()
 
 
 def contract_merge(compiled, tensors, sr, backend, nl_fn=None, n_inputs=2, name=""):
-    """Reduce a list of tensors via contraction. N-ary when arity matches, binary fold otherwise."""
+    """Reduce a list of tensors via contraction. N-ary when arity matches, binary fold for arity 2."""
     if n_inputs == 1:
         if len(tensors) != 1:
             raise ValueError(f"Unary merge '{name}' expects 1-element list, got {len(tensors)}")
         result = semiring_contract(compiled, [tensors[0]], sr, backend)
     elif n_inputs == len(tensors):
         result = semiring_contract(compiled, tensors, sr, backend)
-    else:
+    elif n_inputs == 2:
         result = tensors[0]
         for t in tensors[1:]:
             result = semiring_contract(compiled, [result, t], sr, backend)
+    else:
+        raise ValueError(
+            f"Merge '{name}' has {n_inputs}-operand einsum but received "
+            f"{len(tensors)} tensors — binary fold only works for 2-operand einsums")
     return nl_fn(result) if nl_fn else result

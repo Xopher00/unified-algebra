@@ -144,6 +144,197 @@ branch pair : hidden -> hidden = relu | tanh_act
         _assert_close(prog('pair', x), expected)
 
 
+class TestMergeChain:
+
+    def test_merge_chain_two_contractions(self, backend):
+        """3-branch with score ~> softmax ~> mix: bare nonlinearity between contractions."""
+        text = _REAL + """\
+op relu : hidden -> hidden
+  nonlinearity = relu
+op tanh_act : hidden -> hidden
+  nonlinearity = tanh
+op abs_act : hidden -> hidden
+  nonlinearity = abs
+
+op score : hidden -> hidden
+  einsum = "ik,jk->ij"
+  algebra = real
+
+op mix : hidden -> hidden
+  einsum = "ij,jk->ik"
+  algebra = real
+
+branch head : hidden -> hidden = relu | tanh_act | abs_act
+  merge = score ~> softmax ~> mix
+"""
+        prog = parse_ua(text, backend)
+        x = np.array([[1.0, -1.0], [0.5, 2.0], [0.0, -0.5]])
+        a = np.maximum(0, x)
+        b = np.tanh(x)
+        c = np.abs(x)
+        scores = np.einsum("ik,jk->ij", a, b)
+        probs = np.exp(scores - scores.max(axis=-1, keepdims=True))
+        probs = probs / probs.sum(axis=-1, keepdims=True)
+        expected = np.einsum("ij,jk->ik", probs, c)
+        _assert_close(prog('head', x), expected)
+
+    def test_merge_chain_single_step_unchanged(self, backend):
+        """Single-op merge (no ~>) still uses fold semantics — regression test."""
+        text = _REAL + """\
+op relu : hidden -> hidden
+  nonlinearity = relu
+op tanh_act : hidden -> hidden
+  nonlinearity = tanh
+
+op hadamard : hidden -> hidden
+  einsum = "i,i->i"
+  algebra = real
+
+branch pair : hidden -> hidden = relu | tanh_act
+  merge = hadamard
+"""
+        prog = parse_ua(text, backend)
+        x = np.array([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0])
+        expected = np.maximum(0, x) * np.tanh(x)
+        _assert_close(prog('pair', x), expected)
+
+    def test_merge_chain_consecutive_nonlinearities(self, backend):
+        """Two bare nonlinearities in a row: score ~> relu ~> abs ~> mix."""
+        text = _REAL + """\
+op id1 : hidden -> hidden
+  nonlinearity = abs
+op id2 : hidden -> hidden
+  nonlinearity = abs
+op id3 : hidden -> hidden
+  nonlinearity = abs
+
+op score : hidden -> hidden
+  einsum = "ik,jk->ij"
+  algebra = real
+
+op mix : hidden -> hidden
+  einsum = "ij,jk->ik"
+  algebra = real
+
+branch head : hidden -> hidden = id1 | id2 | id3
+  merge = score ~> relu ~> abs ~> mix
+"""
+        prog = parse_ua(text, backend)
+        x = np.array([[1.0, -1.0], [0.5, 2.0], [0.0, -0.5]])
+        a = np.abs(x)
+        b = np.abs(x)
+        c = np.abs(x)
+        scores = np.einsum("ik,jk->ij", a, b)
+        after_relu = np.maximum(0, scores)
+        after_abs = np.abs(after_relu)
+        expected = np.einsum("ij,jk->ik", after_abs, c)
+        _assert_close(prog('head', x), expected)
+
+    def test_merge_chain_tropical(self, backend):
+        """Merge chain with tropical algebra: min-plus contractions."""
+        text = _TROPICAL + """\
+op id1 : node -> node
+  nonlinearity = abs
+op id2 : node -> node
+  nonlinearity = abs
+op id3 : node -> node
+  nonlinearity = abs
+
+op score : node -> node
+  einsum = "i,i->i"
+  algebra = tropical
+
+op mix : node -> node
+  einsum = "i,i->i"
+  algebra = tropical
+
+branch head : node -> node = id1 | id2 | id3
+  merge = score ~> abs ~> mix
+"""
+        prog = parse_ua(text, backend)
+        x = np.array([1.0, -1.0, 0.5, 2.0])
+        a = np.abs(x)
+        b = np.abs(x)
+        c = np.abs(x)
+        scores = a + b  # tropical times = add
+        after_abs = np.abs(scores)
+        expected = after_abs + c  # tropical times = add
+        _assert_close(prog('head', x), expected)
+
+
+class TestScaledDotProductAttention:
+    """Attention pattern as a 3-branch merge chain.
+
+    Branch ops are nonlinearities (standing in for projections, which need
+    parameterized weights). The merge chain is the key part: two contractions
+    with softmax between them.
+
+    Stack: [Q,K,V] -> score(Q,K) -> [S,V] -> softmax(S) -> [P,V] -> mix(P,V) -> [out]
+    """
+
+    _ATTN_PROG = _REAL + """\
+op ~act : hidden -> hidden
+  nonlinearity = abs
+
+op score : hidden -> hidden
+  einsum = "ik,jk->ij"
+  algebra = real
+
+op mix : hidden -> hidden
+  einsum = "ij,jk->ik"
+  algebra = real
+
+branch head : hidden -> hidden = act[q] | act[k] | act[v]
+  merge = score ~> softmax ~> mix
+"""
+
+    def test_attention_parses(self, backend):
+        prog = parse_ua(self._ATTN_PROG, backend)
+        assert 'head' in prog.entry_points()
+
+    def test_attention_matches_numpy(self, backend):
+        prog = parse_ua(self._ATTN_PROG, backend)
+        x = np.array([[1.0, -1.0], [0.5, 2.0], [0.0, -0.5]], dtype=np.float32)
+        result = prog('head', x)
+
+        q = k = v = np.abs(x)
+        scores = np.einsum("ik,jk->ij", q, k)
+        probs = np.exp(scores - scores.max(axis=-1, keepdims=True))
+        probs = probs / probs.sum(axis=-1, keepdims=True)
+        expected = np.einsum("ij,jk->ik", probs, v)
+
+        _assert_close(result, expected, rtol=1e-5)
+
+    def test_attention_with_extra_nonlinearity(self, backend):
+        """Extended chain: score ~> softmax ~> abs ~> mix."""
+        text = _REAL + """\
+op ~act : hidden -> hidden
+  nonlinearity = abs
+
+op score : hidden -> hidden
+  einsum = "ik,jk->ij"
+  algebra = real
+
+op mix : hidden -> hidden
+  einsum = "ij,jk->ik"
+  algebra = real
+
+branch head : hidden -> hidden = act[q] | act[k] | act[v]
+  merge = score ~> softmax ~> abs ~> mix
+"""
+        prog = parse_ua(text, backend)
+        x = np.array([[1.0, -1.0], [0.5, 2.0], [0.0, -0.5]], dtype=np.float32)
+
+        q = k = v = np.abs(x)
+        scores = np.einsum("ik,jk->ij", q, k)
+        probs = np.exp(scores - scores.max(axis=-1, keepdims=True))
+        probs = probs / probs.sum(axis=-1, keepdims=True)
+        after_abs = np.abs(probs)
+        expected = np.einsum("ij,jk->ik", after_abs, v)
+
+        _assert_close(prog('head', x), expected, rtol=1e-5)
+
+
 class TestSeqAndResidual:
 
     def test_seq_composition(self, backend):
@@ -174,3 +365,204 @@ seq skip+ : hidden -> hidden = relu >> tanh_act
         x = np.array([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0])
         expected = np.tanh(np.maximum(0.0, x)) + x
         _assert_close(prog('skip', x), expected)
+
+
+class TestCrossCompositionReferences:
+
+    def test_seq_referencing_branch(self, backend):
+        """A seq can reference a branch by name."""
+        text = _REAL + """\
+op relu : hidden -> hidden
+  nonlinearity = relu
+op tanh_act : hidden -> hidden
+  nonlinearity = tanh
+
+op hadamard : hidden -> hidden
+  einsum = "i,i->i"
+  algebra = real
+
+branch fan : hidden -> hidden = relu | tanh_act
+  merge = hadamard
+
+op abs_act : hidden -> hidden
+  nonlinearity = abs
+
+seq pipe : hidden -> hidden = fan >> abs_act
+"""
+        prog = parse_ua(text, backend)
+        x = np.array([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0])
+        fan_out = np.maximum(0, x) * np.tanh(x)
+        expected = np.abs(fan_out)
+        _assert_close(prog('pipe', x), expected)
+
+    def test_seq_referencing_seq(self, backend):
+        """A seq can reference another seq by name."""
+        text = _REAL + """\
+op relu : hidden -> hidden
+  nonlinearity = relu
+op tanh_act : hidden -> hidden
+  nonlinearity = tanh
+op abs_act : hidden -> hidden
+  nonlinearity = abs
+
+seq inner : hidden -> hidden = relu >> tanh_act
+seq outer : hidden -> hidden = inner >> abs_act
+"""
+        prog = parse_ua(text, backend)
+        x = np.array([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0])
+        expected = np.abs(np.tanh(np.maximum(0.0, x)))
+        _assert_close(prog('outer', x), expected)
+
+    def test_transformer_block(self, backend):
+        """Full transformer block: attention head + FFN, both with residuals."""
+        text = _REAL + """\
+op ~act : hidden -> hidden
+  nonlinearity = abs
+
+op score : hidden -> hidden
+  einsum = "ik,jk->ij"
+  algebra = real
+
+op mix : hidden -> hidden
+  einsum = "ij,jk->ik"
+  algebra = real
+
+branch attn : hidden -> hidden = act[q] | act[k] | act[v]
+  merge = score ~> softmax ~> mix
+
+seq attn_block+ : hidden -> hidden = attn
+  algebra = real
+
+op relu : hidden -> hidden
+  nonlinearity = relu
+op tanh_act : hidden -> hidden
+  nonlinearity = tanh
+
+seq ffn : hidden -> hidden = relu >> tanh_act
+
+seq ffn_block+ : hidden -> hidden = ffn
+  algebra = real
+
+seq transformer : hidden -> hidden = attn_block >> ffn_block
+"""
+        prog = parse_ua(text, backend)
+        x = np.array([[1.0, -1.0], [0.5, 2.0], [0.0, -0.5]], dtype=np.float32)
+
+        q = k = v = np.abs(x)
+        scores = np.einsum("ik,jk->ij", q, k)
+        probs = np.exp(scores - scores.max(axis=-1, keepdims=True))
+        probs = probs / probs.sum(axis=-1, keepdims=True)
+        attn_out = np.einsum("ij,jk->ik", probs, v)
+        attn_residual = attn_out + x
+
+        ffn_out = np.tanh(np.maximum(0, attn_residual))
+        ffn_residual = ffn_out + attn_residual
+
+        _assert_close(prog('transformer', x), ffn_residual, rtol=1e-5)
+
+    def test_unrolled_transformer_stack(self, backend):
+        """Unroll a transformer block N times: a stacked transformer."""
+        text = _REAL + """\
+op ~act : hidden -> hidden
+  nonlinearity = abs
+
+op score : hidden -> hidden
+  einsum = "ik,jk->ij"
+  algebra = real
+
+op mix : hidden -> hidden
+  einsum = "ij,jk->ik"
+  algebra = real
+
+branch attn : hidden -> hidden = act[q] | act[k] | act[v]
+  merge = score ~> softmax ~> mix
+
+seq attn_block+ : hidden -> hidden = attn
+  algebra = real
+
+op relu : hidden -> hidden
+  nonlinearity = relu
+op tanh_act : hidden -> hidden
+  nonlinearity = tanh
+
+seq ffn : hidden -> hidden = relu >> tanh_act
+
+seq ffn_block+ : hidden -> hidden = ffn
+  algebra = real
+
+seq layer : hidden -> hidden = attn_block >> ffn_block
+
+unroll stack : hidden -> hidden
+  step = layer
+  steps = 3
+"""
+        prog = parse_ua(text, backend)
+        x = np.array([[1.0, -1.0], [0.5, 2.0], [0.0, -0.5]], dtype=np.float32)
+
+        def one_layer(inp):
+            q = k = v = np.abs(inp)
+            scores = np.einsum("ik,jk->ij", q, k)
+            probs = np.exp(scores - scores.max(axis=-1, keepdims=True))
+            probs = probs / probs.sum(axis=-1, keepdims=True)
+            attn_out = np.einsum("ij,jk->ik", probs, v) + inp
+            return np.tanh(np.maximum(0, attn_out)) + attn_out
+
+        state = x
+        for _ in range(3):
+            state = one_layer(state)
+
+        result = prog('stack', x)
+        _assert_close(result[-1], state, rtol=1e-4)
+
+
+class TestImportBackend:
+
+    def test_import_numpy(self):
+        """import numpy in .ua source sets the backend automatically."""
+        text = """\
+import numpy
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op relu : hidden -> hidden
+  nonlinearity = relu
+
+op tanh_act : hidden -> hidden
+  nonlinearity = tanh
+
+seq chain : hidden -> hidden = relu >> tanh_act
+"""
+        prog = parse_ua(text)
+        x = np.array([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0])
+        expected = np.tanh(np.maximum(0.0, x))
+        _assert_close(prog('chain', x), expected)
+
+    def test_backend_kwarg_overrides_import(self):
+        """Explicit backend kwarg takes precedence over import."""
+        text = """\
+import numpy
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op relu : hidden -> hidden
+  nonlinearity = relu
+
+seq chain : hidden -> hidden = relu
+"""
+        prog = parse_ua(text, NumpyBackend())
+        x = np.array([-1.0, 0.0, 1.0])
+        _assert_close(prog('chain', x), np.maximum(0, x))
+
+    def test_no_backend_raises(self):
+        """parse_ua with no backend and no import raises ValueError."""
+        text = """\
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op relu : hidden -> hidden
+  nonlinearity = relu
+
+seq chain : hidden -> hidden = relu
+"""
+        with pytest.raises(ValueError, match="No backend specified"):
+            parse_ua(text)

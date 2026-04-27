@@ -22,6 +22,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     4. compositions (depend on equations and lenses by name)
     """
 
+    backend_name: str | None = None
     semirings: dict[str, Any] = {}
     sorts: dict[str, Any] = {}
     equations_by_name: dict[str, Any] = {}
@@ -70,7 +71,10 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     for decl in raw_decls:
         kind = decl[0]
 
-        if kind == 'algebra':
+        if kind == 'import':
+            backend_name = decl[1]
+
+        elif kind == 'algebra':
             _, name, kw_args = decl
             sr_term = alg.Semiring(name, plus=kw_args['plus'], times=kw_args['times'],
                                    zero=kw_args['zero'], one=kw_args['one'])
@@ -117,4 +121,5 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         equations=equations_list,
         specs=specs,
         lenses=lenses,
+        backend_name=backend_name,
     )

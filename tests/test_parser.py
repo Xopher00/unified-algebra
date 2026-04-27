@@ -305,7 +305,7 @@ branch parallel : hidden -> hidden = a | b | c
         spec = parse_ua_spec(text)
         fan_spec = spec.specs[0]
         assert fan_spec.branch_names == ['a', 'b', 'c']
-        assert fan_spec.merge_name == 'add_merge'
+        assert fan_spec.merge_names == ['add_merge']
 
     def test_fan_entry_point_exists(self):
         text = """

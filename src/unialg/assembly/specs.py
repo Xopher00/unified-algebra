@@ -169,23 +169,28 @@ class PathSpec(Spec):
 class FanSpec(Spec):
     """Parallel fan composition."""
     COMPOSITION = FanComposition
-    _COMPOSE_FIELDS = ('branch_names', 'merge_name')
+    _COMPOSE_FIELDS = ('branch_names', 'merge_names')
     branch_names: list[str]
-    merge_name: str
+    merge_names: list[str]
     domain_sort: object
     codomain_sort: object
 
     @classmethod
     def _parse_rest(cls, rest, expand_ref=None, **_):
         branches = [expand_ref(bn) for bn in rest[0]]
-        return dict(branch_names=branches, merge_name=rest[1])
+        return dict(branch_names=branches, merge_names=rest[1])
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
-        for n in self.branch_names + [self.merge_name]:
+        declared = [n for n in self.merge_names if n in eq_by_name]
+        for n in self.branch_names:
             self._require_eq(eq_by_name, n, f"Branch '{self.name}'")
+        if not declared:
+            return self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
+                                  self.branch_names)
+        first_merge = declared[0]
         cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
-                            self.branch_names, self.merge_name)
-        md = self._eq_sort_type(eq_by_name, self.merge_name, "d")
+                            self.branch_names, first_merge)
+        md = self._eq_sort_type(eq_by_name, first_merge, "d")
         for b in self.branch_names:
             cs.append(TypeConstraint(
                 self._eq_sort_type(eq_by_name, b, "c"), md,
@@ -271,15 +276,19 @@ class LensPathSpec(PathSpec):
 
 @dataclass
 class LensFanSpec(FanSpec):
-    """Bidirectional lens fan. branch_names/merge_name = forward; bwd fields = backward."""
+    """Bidirectional lens fan. branch_names/merge_names = forward; bwd fields = backward."""
     bwd_branch_names: list[str] = field(default_factory=list)
     merge_bwd_name: str = ""
+
+    @property
+    def merge_name(self):
+        return self.merge_names[0]
 
     @classmethod
     def _parse_rest(cls, rest, get_lens=None, **_):
         fwd, bwd, _ = Spec._decompose_lenses(rest[0], get_lens)
-        mlv = get_lens(rest[1])
-        return dict(branch_names=fwd, merge_name=mlv.forward,
+        mlv = get_lens(rest[1][0])
+        return dict(branch_names=fwd, merge_names=[mlv.forward],
                     bwd_branch_names=bwd, merge_bwd_name=mlv.backward)
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:

@@ -88,7 +88,7 @@ class TestListFanArity:
 
         graph, *_ = assemble_graph(
             [eq_relu, eq_tanh, eq_sig, eq_ident, eq_merge], backend,
-            specs=[FanSpec("quad", ["relu", "tanh", "sigmoid", "ident"], "merge4", hidden, hidden)],
+            specs=[FanSpec("quad", ["relu", "tanh", "sigmoid", "ident"], ["merge4"], hidden, hidden)],
         )
 
         x = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
@@ -115,7 +115,7 @@ class TestListFanArity:
 
         graph, *_ = assemble_graph(
             eqs + [eq_merge], backend,
-            specs=[FanSpec("mha", [f"head{i}" for i in range(8)], "merge8", hidden, hidden)],
+            specs=[FanSpec("mha", [f"head{i}" for i in range(8)], ["merge8"], hidden, hidden)],
         )
 
         x = np.array([0.5, 1.0, -1.0, 2.0])
@@ -136,7 +136,7 @@ class TestListFanArity:
 
         graph, *_ = assemble_graph(
             [eq_relu, eq_merge], backend,
-            specs=[FanSpec("single", ["relu"], "merge1", hidden, hidden)],
+            specs=[FanSpec("single", ["relu"], ["merge1"], hidden, hidden)],
         )
 
         x = np.array([-1.0, 0.0, 1.0])

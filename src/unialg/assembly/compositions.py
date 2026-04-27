@@ -124,34 +124,64 @@ class PathComposition(Composition):
 class FanComposition(Composition):
     _type_name = core.Name("ua.composition.Fan")
 
-    name       = _RecordView.Scalar(str)
-    merge_name = _RecordView.Scalar(str, key="mergeName")
-    branches   = _RecordView.ScalarList()
+    name        = _RecordView.Scalar(str)
+    merge_names = _RecordView.ScalarList(key="mergeNames")
+    branches    = _RecordView.ScalarList()
 
-    def __init__(self, name, branches, merge_name):
+    def __init__(self, name, branches, merge_names):
         if not branches:
             raise ValueError(f"Fan '{name}' must have at least one branch")
-        super().__init__(name=name, branches=branches, merge_name=merge_name)
+        if isinstance(merge_names, str):
+            merge_names = [merge_names]
+        super().__init__(name=name, branches=branches, merge_names=merge_names)
 
     def to_lambda(self):
-        body = _eq_var(self.merge_name) @ list_([_eq_var(b) @ var("x") for b in self.branches])
+        body = _eq_var(self.merge_names[0]) @ list_([_eq_var(b) @ var("x") for b in self.branches])
+        if len(self.merge_names) > 1:
+            for mn in self.merge_names[1:]:
+                body = _eq_var(mn) @ list_([body])
         return _bind("fan", self.name, "x", body)
 
     def resolve_and_compile(self, native_fns, coder, backend):
         _eq = lambda name: native_fns.get(core.Name(f"{_EQ_PREFIX}{name}"))
-        merge_fn = _eq(self.merge_name)
         branch_fns = [_eq(b) for b in self.branches]
-        if merge_fn is None or not all(branch_fns):
+        if not all(branch_fns):
             return None
-        return backend.compile(lambda x: merge_fn([fn(x) for fn in branch_fns]))
+        names = self.merge_names
+        if len(names) == 1:
+            merge_fn = _eq(names[0])
+            if merge_fn is None:
+                return None
+            return backend.compile(lambda x: merge_fn([fn(x) for fn in branch_fns]))
+        steps = []
+        for mn in names:
+            fn = _eq(mn)
+            if fn is not None:
+                steps.append((fn, getattr(fn, 'n_inputs', 2)))
+            else:
+                nl = backend.unary(mn)
+                steps.append((lambda t, _nl=nl: _nl(t), 1))
+        return backend.compile(lambda x: _stack_execute(branch_fns, steps, x))
 
     @staticmethod
     def build_lens(name, fwd_branches, bwd_branches, merge_fwd, merge_bwd):
         if not fwd_branches:
             raise ValueError(f"lens_fan '{name}' must have at least one branch lens")
-        fwd = FanComposition(f"{name}.fwd", fwd_branches, merge_fwd).to_lambda()
-        bwd = FanComposition(f"{name}.bwd", bwd_branches, merge_bwd).to_lambda()
+        fwd = FanComposition(f"{name}.fwd", fwd_branches, [merge_fwd]).to_lambda()
+        bwd = FanComposition(f"{name}.bwd", bwd_branches, [merge_bwd]).to_lambda()
         return fwd, bwd
+
+
+def _stack_execute(branch_fns, steps, x):
+    stack = [fn(x) for fn in branch_fns]
+    for step_fn, n_inputs in steps:
+        consumed = stack[:n_inputs]
+        remaining = stack[n_inputs:]
+        result = step_fn(consumed) if n_inputs > 1 else step_fn(consumed[0])
+        stack = [result] + remaining
+    if len(stack) != 1:
+        raise ValueError(f"Merge chain incomplete: {len(stack)} elements remain on stack")
+    return stack[0]
 
 
 # ---------------------------------------------------------------------------

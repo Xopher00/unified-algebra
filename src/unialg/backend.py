@@ -104,6 +104,18 @@ class Backend(ABC):
     def constant(self, name: str) -> object:
         return self.constants[name]
 
+    def available_memory(self) -> int | None:
+        """Available memory in bytes. Returns None if unknown."""
+        try:
+            import psutil
+            return psutil.virtual_memory().available
+        except ImportError:
+            try:
+                import os
+                return os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_AVPHYS_PAGES')
+            except (AttributeError, ValueError):
+                return None
+
 
 # ---------------------------------------------------------------------------
 # Intermediate: backends with a numpy-compatible API (numpy, cupy, jax)
@@ -210,6 +222,14 @@ class CupyBackend(NumpyApiBackend):
     def compile(self, fn):
         return fn  # CuPy kernels are JIT-compiled per-op
 
+    def available_memory(self) -> int | None:
+        try:
+            import cupy
+            free, _ = cupy.cuda.Device().mem_info
+            return free
+        except Exception:
+            return super().available_memory()
+
 
 class JaxBackend(NumpyApiBackend):
     NAME = "jax"
@@ -246,6 +266,16 @@ class JaxBackend(NumpyApiBackend):
 
     def while_loop(self, cond_fn, body_fn, init_val):
         return self._lib.lax.while_loop(cond_fn, body_fn, init_val)
+
+    def available_memory(self) -> int | None:
+        try:
+            import jax
+            stats = jax.devices()[0].memory_stats()
+            if stats:
+                return stats.get('bytes_limit', 0) - stats.get('bytes_in_use', 0)
+        except Exception:
+            pass
+        return super().available_memory()
 
 
 class PytorchBackend(Backend):
@@ -299,3 +329,12 @@ class PytorchBackend(Backend):
 
     def compile(self, fn):
         return self._lib.compile(fn)
+
+    def available_memory(self) -> int | None:
+        try:
+            if self._lib.cuda.is_available():
+                free, _ = self._lib.cuda.mem_get_info()
+                return free
+        except Exception:
+            pass
+        return super().available_memory()

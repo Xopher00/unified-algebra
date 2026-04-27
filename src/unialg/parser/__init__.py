@@ -17,6 +17,7 @@ class UASpec:
     equations: list[Any] = field(default_factory=list)
     specs: list[Any] = field(default_factory=list)
     lenses: list[Any] = field(default_factory=list)
+    backend_name: str | None = None
 
 
 def parse_ua_spec(text: str) -> UASpec:
@@ -46,11 +47,38 @@ def parse_ua_spec(text: str) -> UASpec:
     return _resolve_spec(raw_decls)
 
 
-def parse_ua(text: str, backend) -> "Program":
-    """Parse and compile .ua source text to a Program."""
+_BACKEND_MAP = {
+    'numpy': 'NumpyBackend',
+    'jax': 'JaxBackend',
+    'pytorch': 'PytorchBackend',
+    'cupy': 'CupyBackend',
+}
+
+
+def _resolve_backend(name: str):
+    cls_name = _BACKEND_MAP.get(name)
+    if cls_name is None:
+        raise ValueError(
+            f"Unknown backend {name!r} — available: {list(_BACKEND_MAP)}")
+    import unialg.backend as be
+    return getattr(be, cls_name)()
+
+
+def parse_ua(text: str, backend=None) -> "Program":
+    """Parse and compile .ua source text to a Program.
+
+    If backend is None, uses the backend specified by ``import <name>``
+    in the .ua source. A backend kwarg overrides the .ua import.
+    """
     from unialg.runtime import compile_program
 
     spec = parse_ua_spec(text)
+
+    if backend is None:
+        if spec.backend_name is None:
+            raise ValueError(
+                "No backend specified — pass backend= or add 'import <backend>' to .ua source")
+        backend = _resolve_backend(spec.backend_name)
 
     return compile_program(
         spec.equations,

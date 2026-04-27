@@ -1,6 +1,6 @@
-"""GNN architecture tests: message passing, layer composition, multi-hop propagation.
+"""Message-passing architecture tests: aggregation, layer composition, multi-hop propagation.
 
-Graph Neural Networks expressed as semiring-parameterised morphisms.
+Neighbourhood aggregation expressed as semiring-parameterised morphisms.
 
 Under the real semiring (⊕ = add, ⊗ = multiply), the equation "ij,j->i" computes:
 
@@ -13,14 +13,14 @@ Under the tropical semiring (⊕ = min, ⊗ = add), the same equation computes:
 
     y_i = min_j(A_ij + x_j)
 
-which is one Bellman-Ford relaxation — multi-hop tropical GNN = Bellman-Ford.
+which is one Bellman-Ford relaxation — multi-hop tropical message passing = Bellman-Ford.
 
 Architecture coverage:
-  - Single-step message passing (TestGNNMessagePassing)
-  - Full GNN layer: aggregate → linear → relu (TestGNNLayer)
-  - Two GNN layers chained (TestGNNTwoLayer)
-  - K-hop propagation via repeated path steps (TestGNNKHops)
-  - Tropical GNN: Bellman-Ford as message passing (TestGNNTropicalSemiring)
+  - Single-step message passing (TestMessagePassing)
+  - Full aggregation layer: aggregate → linear → relu (TestAggregateLayer)
+  - Two aggregation layers chained (TestTwoLayerPipeline)
+  - K-hop propagation via repeated path steps (TestMultiHopPropagation)
+  - Tropical message passing: Bellman-Ford as message passing (TestTropicalSemiring)
 """
 
 import numpy as np
@@ -97,14 +97,14 @@ A3 = np.array([
 
 
 # ---------------------------------------------------------------------------
-# TestGNNMessagePassing
+# TestMessagePassing
 # ---------------------------------------------------------------------------
 
-class TestGNNMessagePassing:
+class TestMessagePassing:
     """Single aggregation step: y = A @ x."""
 
     def test_output_matches_matmul(self, node_sort, real_sr, backend, coder):
-        """GNN aggregation 'ij,j->i' with A produces A @ x."""
+        """Message passing aggregation 'ij,j->i' with A produces A @ x."""
         eq = Equation("gnn_agg_basic", "ij,j->i", node_sort, node_sort, real_sr)
         x = np.array([1.0, 2.0, 3.0])
 
@@ -150,11 +150,11 @@ class TestGNNMessagePassing:
 
 
 # ---------------------------------------------------------------------------
-# TestGNNLayer
+# TestAggregateLayer
 # ---------------------------------------------------------------------------
 
-class TestGNNLayer:
-    """Full GNN layer: aggregate (A) → linear transform (W) → relu.
+class TestAggregateLayer:
+    """Full aggregation layer: aggregate (A) → linear transform (W) → relu.
 
     4-node graph with raw adjacency A (4×4) and learnable weight matrix W (4×4).
     Oracle: relu(W @ (A @ x))
@@ -197,7 +197,7 @@ class TestGNNLayer:
         )
 
     def test_layer_output_correct(self, node_sort, real_sr, backend, coder):
-        """GNN layer produces relu(W @ (A @ x))."""
+        """Aggregation layer produces relu(W @ (A @ x))."""
         x = np.array([1.0, 0.0, -1.0, 0.5])
         prog = self.build_layer_program(node_sort, real_sr, backend, coder)
         out = prog("gnn_layer", x)
@@ -210,7 +210,7 @@ class TestGNNLayer:
         assert "gnn_layer" in prog.entry_points()
 
     def test_layer_bound_term_in_graph(self, node_sort, real_sr, backend, coder):
-        """PathSpec creates a bound_term for the composed layer."""
+        """PathSpec creates a bound_term for the composed aggregation layer."""
         prog = self.build_layer_program(node_sort, real_sr, backend, coder)
         assert Name("ua.path.gnn_layer") in prog.graph.primitives
 
@@ -226,11 +226,11 @@ class TestGNNLayer:
 
 
 # ---------------------------------------------------------------------------
-# TestGNNTwoLayer
+# TestTwoLayerPipeline
 # ---------------------------------------------------------------------------
 
-class TestGNNTwoLayer:
-    """Two GNN layers chained: agg1 → lin1 → relu1 → agg2 → lin2 → relu2.
+class TestTwoLayerPipeline:
+    """Two aggregation layers chained: agg1 → lin1 → relu1 → agg2 → lin2 → relu2.
 
     Both aggregations use the same adjacency A; each linear layer has its own W.
     Oracle: relu(W2 @ (A @ relu(W1 @ (A @ x))))
@@ -290,7 +290,7 @@ class TestGNNTwoLayer:
         )
 
     def test_two_layer_output_correct(self, node_sort, real_sr, backend, coder):
-        """Two-layer GNN produces relu(W2 @ (A @ relu(W1 @ (A @ x))))."""
+        """Two-layer pipeline produces relu(W2 @ (A @ relu(W1 @ (A @ x))))."""
         x = np.array([1.0, -0.5, 0.5, 2.0])
         prog = self.build_two_layer_program(node_sort, real_sr, backend, coder)
         out = prog("gnn_two_layer", x)
@@ -318,10 +318,10 @@ class TestGNNTwoLayer:
 
 
 # ---------------------------------------------------------------------------
-# TestGNNKHops
+# TestMultiHopPropagation
 # ---------------------------------------------------------------------------
 
-class TestGNNKHops:
+class TestMultiHopPropagation:
     """K-hop message propagation via a repeated aggregation PathSpec.
 
     Aggregation equation "ij,j->i" with A repeated K times gives A^K @ x
@@ -389,11 +389,11 @@ class TestGNNKHops:
 
 
 # ---------------------------------------------------------------------------
-# TestGNNTropicalSemiring
+# TestTropicalSemiring
 # ---------------------------------------------------------------------------
 
-class TestGNNTropicalSemiring:
-    """Tropical GNN: Bellman-Ford as semiring-parameterised message passing.
+class TestTropicalSemiring:
+    """Tropical message passing: Bellman-Ford as semiring-parameterised aggregation.
 
     Under (min, add), "ij,j->i" computes:
         y_i = min_j(W_ij + x_j)
@@ -491,7 +491,7 @@ class TestGNNTropicalSemiring:
         node_sort_real = Sort("node_gnn_trop_vs_real", real_sr)
         w_enc = encode_array(coder, self.W_trop)
 
-        # Tropical equation
+        # Tropical aggregation equation
         eq_trop = Equation("gnn_tvr_trop", "ij,j->i",
                            node_sort_trop, node_sort_trop, tropical_sr)
         prog_trop = compile_program(
@@ -501,7 +501,7 @@ class TestGNNTropicalSemiring:
                             params={"gnn_tvr_trop": [w_enc]})],
         )
 
-        # Real equation (matrix-multiply semantics)
+        # Real aggregation equation (matrix-multiply semantics)
         x_real = np.array([1.0, 1.0, 1.0])
         eq_real = Equation("gnn_tvr_real", "ij,j->i",
                            node_sort_real, node_sort_real, real_sr)

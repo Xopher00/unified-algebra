@@ -1,4 +1,4 @@
-"""Attention architecture tests.
+"""Merge-chain pattern tests.
 
 Tests scaled dot-product attention pattern expressed as a 3-branch merge chain,
 and cross-composition references (seq referencing branch, seq referencing seq,

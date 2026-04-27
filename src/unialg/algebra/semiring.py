@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class Semiring(_RecordView):
-    """A semiring: declaration, field access, validation, and resolution.
+    """A semiring: declaration, field access, law checking, and resolution.
 
     The underlying Hydra record term is the source of truth. Use .term to
     retrieve it for Hydra interop.
@@ -68,19 +68,19 @@ class Semiring(_RecordView):
         residual_elementwise: object | None = None
         contraction_fn: object | None = None
 
-    def _validation_samples(self, n: int = 5, seed: int = 42) -> list:
+    def _law_check_samples(self, n: int = 5, seed: int = 42) -> list:
         """Draw n triplets uniformly from [bottom, top]."""
         import random
         rng = random.Random(seed)
         return [tuple(rng.uniform(self.bottom, self.top) for _ in range(3)) for _ in range(n)]
 
     def resolve(self, backend: "Backend", *, samples=None) -> "Semiring.Resolved":
-        """Resolve this semiring against a backend, validating laws first.
+        """Resolve this semiring against a backend, checking laws first.
 
-        Samples for law validation are drawn uniformly from [bottom, top]
+        Samples for law checking are drawn uniformly from [bottom, top]
         unless overridden via `samples`.
         """
-        self.validate_laws(backend, samples or self._validation_samples())
+        self.check_laws(backend, samples or self._law_check_samples())
         residual_name = self.residual
         contraction_fn = None
         if self.contraction:
@@ -103,7 +103,7 @@ class Semiring(_RecordView):
             contraction_fn=contraction_fn,
         )
 
-    def validate_laws(self, backend: "Backend", samples, atol: float = 1e-9) -> None:
+    def check_laws(self, backend: "Backend", samples, atol: float = 1e-9) -> None:
         """Verify ⊕ and ⊗ form a valid semiring on Python-scalar samples.
 
         Pulls only the elementwise ops from `backend` and evaluates the 7 axioms:

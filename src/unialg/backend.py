@@ -165,7 +165,7 @@ class NumpyApiBackend(Backend):
         self._argmax = np_api.argmax
 
     def _build_activations(self, np_api) -> dict[str, Callable]:
-        """Default: scipy-style. Override for backends with their own activation lib."""
+        """Default: scipy-style. Override for backends with their own unary op set."""
         import importlib
         scipy = importlib.import_module(self.SCIPY_PACKAGE)
         return {

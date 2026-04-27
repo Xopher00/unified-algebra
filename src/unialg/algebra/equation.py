@@ -21,9 +21,9 @@ from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_
 from hydra.graph import Primitive
 
 from unialg.terms import _RecordView
-from unialg.algebra.sort import sort_wrap
-from unialg.algebra.semiring import Semiring
-from unialg.algebra.contraction import compile_einsum, contract_and_apply, contract_merge
+from .sort import sort_wrap
+from .semiring import Semiring
+from .contraction import compile_einsum, contract_and_apply, contract_merge
 
 if TYPE_CHECKING:
     from unialg.backend import Backend

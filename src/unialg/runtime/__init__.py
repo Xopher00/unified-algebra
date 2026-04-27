@@ -1,1 +1,3 @@
-from unialg.runtime.program import Program, compile_program, type_check_term
+from .program import Program, compile_program
+
+__all__ = ["Program", "compile_program"]

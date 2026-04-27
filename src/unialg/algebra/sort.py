@@ -17,9 +17,8 @@ import hydra.core as core
 import hydra.graph
 from hydra.dsl.python import Nothing
 
-from unialg.terms import _RecordView
-from unialg.algebra.semiring import Semiring
-from unialg.terms import tensor_coder
+from unialg.terms import _RecordView, tensor_coder
+from .semiring import Semiring
 
 if TYPE_CHECKING:
     import hydra.errors

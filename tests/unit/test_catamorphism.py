@@ -17,7 +17,7 @@ from unialg import (
     PathSpec, FoldSpec, UnfoldSpec,
 )
 from unialg.assembly.compositions import FoldComposition, UnfoldComposition
-from unialg.assembly import unfold_n_primitive
+from unialg.assembly._primitives import unfold_n_primitive
 
 
 # ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ from unialg import (
 )
 from unialg.assembly.compositions import PathComposition, FanComposition
 from unialg.algebra.sort import Lens
-from unialg.assembly import lens_fwd_primitive, lens_bwd_primitive
+from unialg.assembly._primitives import lens_fwd_primitive, lens_bwd_primitive
 
 
 # ---------------------------------------------------------------------------

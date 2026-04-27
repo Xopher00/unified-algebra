@@ -7,11 +7,11 @@ from dataclasses import dataclass, field, fields
 import hydra.core as core
 from hydra.typing import TypeConstraint
 
-from unialg.terms import unify_or_raise
-from unialg.assembly.compositions import (
+from ._validation import unify_or_raise
+from .compositions import (
     PathComposition, FanComposition, FoldComposition, UnfoldComposition, FixpointComposition,
 )
-from unialg.assembly._primitives import (
+from ._primitives import (
     unfold_n_primitive, fixpoint_primitive,
     lens_fwd_primitive, lens_bwd_primitive, residual_add_primitive,
 )

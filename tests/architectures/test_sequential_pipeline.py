@@ -1,4 +1,4 @@
-"""Feedforward tests: feedforward neural network expressed as a path of equations.
+"""Sequential pipeline tests: multi-step path expressed as a path of equations.
 
 Demonstrates that a multi-layer feedforward network is a sequential composition
 of linear morphisms and nonlinear pointwise equations, semiring-polymorphic.

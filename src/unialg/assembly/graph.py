@@ -16,7 +16,7 @@ import hydra.substitution as subst
 import hydra.typing
 
 from unialg.algebra.equation import Equation
-from unialg.terms import unify_or_raise
+from ._validation import unify_or_raise
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
@@ -174,7 +174,7 @@ def assemble_graph(
     backend: Backend,
     extra_sorts: list[core.Term] | None = None,
     specs: list | None = None,
-    hyperparams: dict[str, core.Term] | None = None,
+    params: dict[str, core.Term] | None = None,
     lenses: list[core.Term] | None = None,
     semirings: dict[str, core.Term] | None = None,
 ) -> tuple[hydra.graph.Graph, dict, dict]:
@@ -195,8 +195,8 @@ def assemble_graph(
     validate_pipeline(list(eq_by_name.values()), schema_types)
 
     bound_terms: dict[core.Name, core.Term] = {}
-    if hyperparams:
-        for param_name, param_term in hyperparams.items():
+    if params:
+        for param_name, param_term in params.items():
             bound_terms[core.Name(f"ua.param.{param_name}")] = param_term
 
     compiled_fns = _build_compositions(
@@ -219,7 +219,7 @@ def assemble_graph(
     return graph, native_fns, compiled_fns
 
 
-def rebind_hyperparams(graph, updates):
+def rebind_params(graph, updates):
     param_updates = {core.Name(f"ua.param.{k}"): v for k, v in updates.items()}
     ts = hydra.typing.TermSubst(FrozenDict(param_updates))
     new_terms = {name: subst.substitute_in_term(ts, term) for name, term in graph.bound_terms.items()}

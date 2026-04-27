@@ -1,4 +1,4 @@
-"""Autoencoder tests: autoencoder as a lens primitive.
+"""Encode-decode pattern: bidirectional path composition.
 
 An autoencoder is a bidirectional morphism:
   forward (encoder): input → latent   (compression)

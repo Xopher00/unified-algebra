@@ -9,7 +9,7 @@ from typing import Any
 
 import unialg.algebra as alg
 import unialg.assembly.specs as sp
-from unialg.parser import UASpec
+from . import UASpec
 
 
 def _resolve_spec(raw_decls: list[tuple]) -> UASpec:

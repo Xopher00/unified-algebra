@@ -2,7 +2,7 @@
 
 This is the single callable surface for unified-algebra programs. It wraps
 a hydra.graph.Graph and provides encode/reduce/decode in a single __call__,
-plus entry point enumeration and hyperparam rebinding.
+plus entry point enumeration and parameter rebinding.
 
 Entry points that can be statically compiled (paths, single equations without
 param_slots) bypass reduce_term entirely: the _compute closures are composed
@@ -19,14 +19,17 @@ from __future__ import annotations
 import hydra.core as core
 import hydra.graph as gr
 from hydra.checking import type_of_term
-from hydra.dsl.python import Just, Left, Node, Right
+from hydra.context import Context
+from hydra.dsl.python import FrozenDict, Just, Left, Node, Right
 from hydra.dsl.terms import apply, var
 from hydra.lexical import lookup_primitive, lookup_term
 from hydra.reduction import reduce_term
 
 import unialg.algebra as alg
-from unialg.assembly.graph import assemble_graph, rebind_hyperparams
-from unialg.terms import EMPTY_CX
+from unialg.assembly.graph import assemble_graph, rebind_params
+from unialg.terms import tensor_coder
+
+EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
 
 
 # ---------------------------------------------------------------------------
@@ -179,8 +182,8 @@ class Program:
                     f"Failed to decode result for entry point {entry_point!r}: {err}"
                 )
 
-    def rebind(self, **hyperparams) -> "Program":
-        """Return a new Program with hyperparameters substituted.
+    def rebind(self, **params) -> "Program":
+        """Return a new Program with named parameters substituted.
 
         Accepts float/int scalars (wrapped as Hydra literals) or pre-wrapped
         Hydra Terms. Returns a new Program; the original is unchanged.
@@ -188,16 +191,16 @@ class Program:
         Recompiles the full graph so fused primitives and compiled_fns
         reflect the new parameter values.
         """
-        wrapped = {k: _wrap_scalar(v) for k, v in hyperparams.items()}
+        wrapped = {k: _wrap_scalar(v) for k, v in params.items()}
         if self._build_args is None:
-            new_graph = rebind_hyperparams(self._graph, wrapped)
+            new_graph = rebind_params(self._graph, wrapped)
             return Program(new_graph, self._backend, self._coder, self._cx,
                            self._compiled_fns)
-        existing_hp = self._build_args.get('hyperparams') or {}
+        existing_hp = self._build_args.get('params') or {}
         merged_hp = {**existing_hp, **wrapped}
         return compile_program(
             self._build_args['equations'], backend=self._backend,
-            specs=self._build_args['specs'], hyperparams=merged_hp,
+            specs=self._build_args['specs'], params=merged_hp,
             lenses=self._build_args['lenses'],
             extra_sorts=self._build_args['extra_sorts'],
             semirings=self._build_args['semirings'],
@@ -243,7 +246,7 @@ def compile_program(
     *,
     backend,
     specs: list | None = None,
-    hyperparams: dict | None = None,
+    params: dict | None = None,
     lenses: list | None = None,
     extra_sorts: list | None = None,
     semirings: dict | None = None,
@@ -257,14 +260,14 @@ def compile_program(
         equations,
         backend,
         specs=specs,
-        hyperparams=hyperparams,
+        params=params,
         lenses=lenses,
         extra_sorts=extra_sorts,
         semirings=semirings,
     )
-    coder = alg.tensor_coder(backend)
+    coder = tensor_coder(backend)
     build_args = dict(equations=equations, specs=specs, lenses=lenses,
                       extra_sorts=extra_sorts, semirings=semirings,
-                      hyperparams=hyperparams)
+                      params=params)
     return Program(graph, backend, coder, EMPTY_CX, compiled_fns=compiled_fns,
                    _build_args=build_args)

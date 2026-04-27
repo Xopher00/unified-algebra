@@ -1,4 +1,4 @@
-"""Fan and hyperparameter tests: list-based fan (unbounded arity) + dynamic hyperparameters."""
+"""Fan and dynamic parameter tests: list-based fan (unbounded arity) + dynamic hyperparameters."""
 
 import numpy as np
 import pytest
@@ -13,7 +13,7 @@ from hydra.reduction import reduce_term
 
 from unialg import (
     NumpyBackend, Semiring, Sort, tensor_coder,
-    build_graph, assemble_graph, rebind_hyperparams,
+    build_graph, assemble_graph, rebind_params,
     Equation,
     PathSpec, FanSpec,
 )
@@ -157,13 +157,13 @@ class TestListFanArity:
 class TestHyperparams:
     """Test hyperparameter declaration, injection, and rebinding.
 
-    The mechanism: hyperparams are bound_terms (scalars). Equations that
+    The mechanism: params are bound_terms (scalars). Equations that
     consume them are 2-input primitives (einsum "i,i->i" etc). The path's
     `params` dict pre-applies the scalar from bound_terms via var("ua.param.X").
     """
 
-    def test_hyperparams_in_assemble_graph(self, cx, real_sr, hidden, backend, coder):
-        """hyperparams dict creates bound_terms accessible during reduction.
+    def test_params_in_assemble_graph(self, cx, real_sr, hidden, backend, coder):
+        """params dict creates bound_terms accessible during reduction.
 
         Pattern: relu → scale(alpha, x) where scale is einsum "i,->i"
         (vector times scalar broadcast). alpha comes from bound_terms.
@@ -178,11 +178,11 @@ class TestHyperparams:
 
         graph, *_ = assemble_graph(
             [eq_relu, eq_tanh], backend,
-            hyperparams={"temp": Terms.float32(1.0)},
+            params={"temp": Terms.float32(1.0)},
             specs=[PathSpec("pipe", ["relu", "tanh"], hidden, hidden)],
         )
 
-        # Verify the hyperparam is in bound_terms
+        # Verify the param is in bound_terms
         assert core.Name("ua.param.temp") in graph.bound_terms
 
         x = np.array([-1.0, 0.0, 0.5, 1.0])
@@ -194,22 +194,22 @@ class TestHyperparams:
         ))
         np.testing.assert_allclose(out, np.tanh(np.maximum(0, x)))
 
-    def test_rebind_hyperparams(self, cx, real_sr, hidden, backend, coder):
-        """rebind_hyperparams changes bound_term values without re-resolving primitives.
+    def test_rebind_params(self, cx, real_sr, hidden, backend, coder):
+        """rebind_params changes bound_term values without re-resolving primitives.
 
-        Test by using the hyperparam as a pre-applied weight to a 2-input equation.
+        Test by using the param as a pre-applied weight to a 2-input equation.
         """
         # scale equation: "i,i->i" with times=multiply, so scale(w, x) = w * x
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_scale = Equation("scale", "i,i->i", hidden, hidden, real_sr)
 
-        # Encode a "weight" vector as the hyperparam
+        # Encode a "weight" vector as the param
         weight1 = np.array([2.0, 2.0, 2.0, 2.0])
         w1_enc = encode_array(coder, weight1)
 
         graph, *_ = assemble_graph(
             [eq_relu, eq_scale], backend,
-            hyperparams={"weight": w1_enc},
+            params={"weight": w1_enc},
             specs=[PathSpec("scaled_relu", ["relu", "scale"], hidden, hidden,
                     {"scale": [var("ua.param.weight")]})],
         )
@@ -226,7 +226,7 @@ class TestHyperparams:
         # Rebind to weight=[0.5, 0.5, 0.5, 0.5]
         weight2 = np.array([0.5, 0.5, 0.5, 0.5])
         w2_enc = encode_array(coder, weight2)
-        graph2 = rebind_hyperparams(graph, {"weight": w2_enc})
+        graph2 = rebind_params(graph, {"weight": w2_enc})
 
         out2 = decode_term(coder, assert_reduce_ok(
             cx, graph2, apply(var("ua.path.scaled_relu"), x_enc)
@@ -237,7 +237,7 @@ class TestHyperparams:
         assert not np.allclose(out1, out2)
 
     def test_rebind_preserves_other_terms(self, cx, real_sr, hidden, backend, coder):
-        """rebind_hyperparams doesn't affect other bound_terms or primitives."""
+        """rebind_params doesn't affect other bound_terms or primitives."""
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_scale = Equation("scale", "i,i->i", hidden, hidden, real_sr)
 
@@ -246,7 +246,7 @@ class TestHyperparams:
 
         graph, *_ = assemble_graph(
             [eq_relu, eq_scale], backend,
-            hyperparams={"weight": w_enc},
+            params={"weight": w_enc},
             specs=[PathSpec("scaled_relu", ["relu", "scale"], hidden, hidden,
                     {"scale": [var("ua.param.weight")]})],
         )
@@ -254,7 +254,7 @@ class TestHyperparams:
         # Rebind weight
         weight2 = np.array([5.0, 5.0, 5.0])
         w2_enc = encode_array(coder, weight2)
-        graph2 = rebind_hyperparams(graph, {"weight": w2_enc})
+        graph2 = rebind_params(graph, {"weight": w2_enc})
 
         # Primitives unchanged
         assert graph2.primitives == graph.primitives
@@ -352,7 +352,7 @@ class TestParamSlots:
         np.testing.assert_allclose(out_smooth, np.log1p(np.exp(x / 5.0)), rtol=1e-6)
         assert not np.allclose(out_sharp, out_smooth)
 
-    def test_param_slots_in_path_with_hyperparam(self, cx, real_sr, hidden, coder, temp_backend):
+    def test_param_slots_in_path_with_param(self, cx, real_sr, hidden, coder, temp_backend):
         """param_slots equation in a path, with temperature from bound_terms."""
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_tsoftplus = Equation("tsoftplus", None, hidden, hidden,
@@ -360,7 +360,7 @@ class TestParamSlots:
 
         graph, *_ = assemble_graph(
             [eq_relu, eq_tsoftplus], temp_backend,
-            hyperparams={"temperature": Terms.float32(2.0)},
+            params={"temperature": Terms.float32(2.0)},
             specs=[PathSpec("pipe", ["relu", "tsoftplus"], hidden, hidden,
                     {"tsoftplus": [var("ua.param.temperature")]})],
         )
@@ -384,7 +384,7 @@ class TestParamSlots:
 
         graph, *_ = assemble_graph(
             [eq_tsoftplus], temp_backend,
-            hyperparams={"temperature": Terms.float32(1.0)},
+            params={"temperature": Terms.float32(1.0)},
             specs=[PathSpec("smooth", ["tsoftplus"], hidden, hidden,
                     {"tsoftplus": [var("ua.param.temperature")]})],
         )
@@ -398,7 +398,7 @@ class TestParamSlots:
         ))
 
         # Rebind to temp=0.1
-        graph2 = rebind_hyperparams(graph, {"temperature": Terms.float32(0.1)})
+        graph2 = rebind_params(graph, {"temperature": Terms.float32(0.1)})
         out2 = decode_term(coder, assert_reduce_ok(
             cx, graph2, apply(var("ua.path.smooth"), x_enc)
         ))
@@ -411,8 +411,8 @@ class TestParamSlots:
 class TestHyperparamsValidation:
     """Edge cases and validation for hyperparameters."""
 
-    def test_multiple_hyperparams(self, cx, real_sr, hidden, backend, coder):
-        """Multiple hyperparams can coexist in the same graph."""
+    def test_multiple_params(self, cx, real_sr, hidden, backend, coder):
+        """Multiple params can coexist in the same graph."""
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
 
         w1 = encode_array(coder, np.array([1.0, 1.0]))
@@ -420,18 +420,18 @@ class TestHyperparamsValidation:
 
         graph, *_ = assemble_graph(
             [eq_relu], backend,
-            hyperparams={"alpha": w1, "beta": w2},
+            params={"alpha": w1, "beta": w2},
         )
 
         assert core.Name("ua.param.alpha") in graph.bound_terms
         assert core.Name("ua.param.beta") in graph.bound_terms
 
     def test_rebind_nonexistent_creates_new(self, cx, real_sr, hidden, backend, coder):
-        """rebind_hyperparams can add new params that didn't exist before."""
+        """rebind_params can add new params that didn't exist before."""
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
 
         graph, *_ = assemble_graph([eq_relu], backend)
 
         w = encode_array(coder, np.array([1.0]))
-        graph2 = rebind_hyperparams(graph, {"new_param": w})
+        graph2 = rebind_params(graph, {"new_param": w})
         assert core.Name("ua.param.new_param") in graph2.bound_terms

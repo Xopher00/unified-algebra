@@ -4,26 +4,16 @@ from __future__ import annotations
 
 import hydra.core as core
 import hydra.graph
-from hydra.context import Context
 from hydra.dsl.meta.phantoms import (
     binary as phantom_binary, boolean, float64, int32, list_, record, string, TTerm, unit,
 )
-from hydra.dsl.python import FrozenDict, Left, Right
-from hydra.unification import unify_type_constraints
+from hydra.dsl.python import Right
 from hydra.extract.core import binary as extract_binary
 from hydra.literals import float_value_to_bigfloat, integer_value_to_bigint
 
-EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
 
 _ENCODERS = {str: string, bool: boolean, float: float64, int: int32}
 
-
-def unify_or_raise(constraints, schema):
-    if constraints:
-        st = schema if isinstance(schema, FrozenDict) else FrozenDict(schema)
-        result = unify_type_constraints(EMPTY_CX, st, tuple(constraints))
-        if isinstance(result, Left):
-            raise TypeError(result.value.message)
 
 
 def tensor_coder(backend, type_=None) -> hydra.graph.TermCoder:

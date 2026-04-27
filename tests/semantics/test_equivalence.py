@@ -28,7 +28,7 @@ from unialg import (
     tensor_coder,
     parse_ua,
 )
-from unialg.terms import EMPTY_CX
+from unialg.runtime.program import EMPTY_CX
 
 
 # ---------------------------------------------------------------------------
@@ -323,9 +323,9 @@ class TestPathFastPathEqualsReduceTerm:
 class TestRebindProducesDifferentResults:
 
     def test_rebind_changes_output(self, hidden, real_sr, backend, coder):
-        """rebind_hyperparams() with a new weight vector produces different output.
+        """rebind_params() with a new weight vector produces different output.
 
-        Uses the assemble_graph + rebind_hyperparams pattern (the same mechanism
+        Uses the assemble_graph + rebind_params pattern (the same mechanism
         Program.rebind() delegates to). A weight vector is stored as ua.param.weight
         and referenced via var("ua.param.weight") in PathSpec.params, so rebinding
         it changes the path output.
@@ -336,7 +336,7 @@ class TestRebindProducesDifferentResults:
         from hydra.dsl.python import FrozenDict
         from hydra.dsl.terms import apply, var
         from hydra.reduction import reduce_term
-        from unialg.assembly.graph import assemble_graph, rebind_hyperparams
+        from unialg.assembly.graph import assemble_graph, rebind_params
 
         cx = Context(trace=(), messages=(), other=FrozenDict({}))
 
@@ -352,7 +352,7 @@ class TestRebindProducesDifferentResults:
         # Build graph: relu → scale(weight, x) where weight comes from ua.param.weight
         graph, *_ = assemble_graph(
             [eq_relu, eq_scale], backend,
-            hyperparams={"weight": w1_enc},
+            params={"weight": w1_enc},
             specs=[PathSpec("fp4_path", ["fp4_relu", "fp4_scale"], hidden, hidden,
                             params={"fp4_scale": [var("ua.param.weight")]})],
         )
@@ -368,7 +368,7 @@ class TestRebindProducesDifferentResults:
         out1 = out1_result.value
 
         # Rebind to weight2
-        graph2 = rebind_hyperparams(graph, {"weight": w2_enc})
+        graph2 = rebind_params(graph, {"weight": w2_enc})
         r2 = reduce_term(cx, graph2, True, apply(var("ua.path.fp4_path"), x_enc))
         assert isinstance(r2, Right), f"reduce_term failed after rebind: {r2}"
         out2_result = coder.encode(None, None, r2.value)
@@ -394,7 +394,7 @@ class TestRebindProducesDifferentResults:
         prog = compile_program(
             [eq_relu, eq_tanh], backend=backend,
             specs=[PathSpec("fp4b_path", ["fp4b_relu", "fp4b_tanh"], hidden, hidden)],
-            hyperparams={"dummy": dummy_val},
+            params={"dummy": dummy_val},
         )
 
         prog2 = prog.rebind(dummy=2.0)
@@ -906,7 +906,7 @@ class TestMixedGraphEquivalence:
                 PathSpec("fp11_var_path", ["fp11_scale"], hidden, hidden,
                          params={"fp11_scale": [W_var]}),
             ],
-            hyperparams={"fp11_weight": encode_array(coder, np.array([3.0, 3.0, 3.0]))},
+            params={"fp11_weight": encode_array(coder, np.array([3.0, 3.0, 3.0]))},
         )
 
         # The literal path must be a Primitive (statically compiled).

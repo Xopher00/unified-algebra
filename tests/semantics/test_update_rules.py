@@ -8,7 +8,7 @@ were deleted because `Semiring.resolve()` now validates the semiring axioms
 on instantiation; a fake semiring fails law checks and is rejected.
 
 What remains here are the genuine semiring-based iteration patterns:
-unfolding a contractive decay, and rebinding hyperparams in a scaled update.
+unfolding a contractive decay, and rebinding params in a scaled update.
 """
 
 import numpy as np
@@ -24,7 +24,7 @@ from hydra.reduction import reduce_term
 from unialg import (
     NumpyBackend, Semiring, Sort, tensor_coder,
     Equation,
-    assemble_graph, rebind_hyperparams,
+    assemble_graph, rebind_params,
     PathSpec, UnfoldSpec,
 )
 
@@ -115,12 +115,12 @@ class TestIteratedUpdate:
 # ===========================================================================
 
 class TestHyperparamsInUpdate:
-    """Learning rate and other hyperparams compose with update rules."""
+    """Learning rate and other params compose with update rules."""
 
     def test_rebind_learning_rate(self, cx, real_sr, hidden, backend, coder):
-        """rebind_hyperparams changes the effective learning rate in a scaled update.
+        """rebind_params changes the effective learning rate in a scaled update.
 
-        Path: scale(lr_vector, x) where lr_vector is a hyperparam.
+        Path: scale(lr_vector, x) where lr_vector is a param.
         Two different lr_vectors produce different scaling.
         """
         eq_scale = Equation("lr_scale", "i,i->i", hidden, hidden, real_sr)
@@ -130,7 +130,7 @@ class TestHyperparamsInUpdate:
 
         graph, *_ = assemble_graph(
             [eq_scale], backend,
-            hyperparams={"lr": lr1},
+            params={"lr": lr1},
             specs=[PathSpec("scaled", ["lr_scale"], hidden, hidden,
                             {"lr_scale": [var("ua.param.lr")]})],
         )
@@ -143,7 +143,7 @@ class TestHyperparamsInUpdate:
         ))
         np.testing.assert_allclose(out1, 0.1 * grad)
 
-        graph2 = rebind_hyperparams(graph, {"lr": lr2})
+        graph2 = rebind_params(graph, {"lr": lr2})
         out2 = decode_term(coder, assert_reduce_ok(
             cx, graph2, apply(var("ua.path.scaled"), grad_enc)
         ))
@@ -162,7 +162,7 @@ class TestHyperparamsInUpdate:
 
         graph, *_ = assemble_graph(
             [eq], backend,
-            hyperparams={"rate": Terms.float32(0.5)},
+            params={"rate": Terms.float32(0.5)},
             specs=[PathSpec("decay_path", ["scaled_decay"], state_sort, state_sort,
                             {"scaled_decay": [var("ua.param.rate")]})],
         )

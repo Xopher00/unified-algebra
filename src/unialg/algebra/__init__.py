@@ -1,7 +1,12 @@
 # Algebraic core: sorts, semirings, equations, lenses, contraction
-from unialg.algebra.semiring import Semiring
-from unialg.algebra.equation import Equation
-from unialg.algebra.sort import Lens
-from unialg.algebra.contraction import compile_einsum, semiring_contract
-from unialg.algebra.sort import Sort, ProductSort, check_sort_compatibility
-from unialg.terms import tensor_coder
+from .semiring import Semiring
+from .equation import Equation
+from .sort import Sort, ProductSort, Lens
+from .contraction import compile_einsum, semiring_contract
+
+__all__ = [
+    "Semiring",
+    "Equation",
+    "Sort", "ProductSort", "Lens",
+    "compile_einsum", "semiring_contract",
+]

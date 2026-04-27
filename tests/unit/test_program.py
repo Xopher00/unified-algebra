@@ -46,13 +46,13 @@ class TestRebind:
         eq_relu = Equation("t4_relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = Equation("t4_tanh", None, hidden, hidden, nonlinearity="tanh")
 
-        # hyperparams creates a ua.param.dummy bound_term (not used in path,
+        # params creates a ua.param.dummy bound_term (not used in path,
         # just verifying the rebind machinery round-trips)
         dummy_val = core.TermLiteral(value=core.LiteralFloat(value=1.0))
         prog = compile_program(
             [eq_relu, eq_tanh], backend=backend,
             specs=[PathSpec("t4_path", ["t4_relu", "t4_tanh"], hidden, hidden)],
-            hyperparams={"dummy": dummy_val},
+            params={"dummy": dummy_val},
         )
 
         new_val = core.TermLiteral(value=core.LiteralFloat(value=2.0))

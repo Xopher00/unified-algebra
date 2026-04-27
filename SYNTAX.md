@@ -493,7 +493,7 @@ The assembled result is two bound terms:
 
 **Example:**
 ```
-lens_branch attention : hidden <-> hidden = backprop1 | backprop2
+lens_branch bidi_pair : hidden <-> hidden = backprop1 | backprop2
   merge = merge_lens
 ```
 
@@ -552,7 +552,7 @@ seq resblock+ : hidden -> hidden = linear >> relu
   algebra = real
 
 # Branch with template instantiation
-branch attention : hidden -> hidden = proj[q] | proj[k] | proj[v]
+branch multi_head : hidden -> hidden = proj[q] | proj[k] | proj[v]
   merge = softmax_combine
 
 # Scan (catamorphism)

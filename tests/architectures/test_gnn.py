@@ -212,7 +212,7 @@ class TestGNNLayer:
     def test_layer_bound_term_in_graph(self, node_sort, real_sr, backend, coder):
         """PathSpec creates a bound_term for the composed layer."""
         prog = self.build_layer_program(node_sort, real_sr, backend, coder)
-        assert Name("ua.path.gnn_layer") in prog.graph.bound_terms
+        assert Name("ua.path.gnn_layer") in prog.graph.primitives
 
     def test_layer_relu_clips_negative(self, node_sort, real_sr, backend, coder):
         """ReLU zeros out negative post-aggregation values."""

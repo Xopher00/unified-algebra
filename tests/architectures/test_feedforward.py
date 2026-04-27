@@ -80,7 +80,7 @@ class TestFeedforward:
         for name in ("ffn_linear1", "ffn_relu1", "ffn_linear2",
                      "ffn_relu2", "ffn_linear3"):
             assert Name(f"ua.equation.{name}") in prog.graph.primitives
-        assert Name("ua.path.ffn") in prog.graph.bound_terms
+        assert Name("ua.path.ffn") in prog.graph.primitives
 
     def test_path_produces_correct_output(self, hidden, real_sr, backend, coder):
         """Running the path produces W3 @ relu(W2 @ relu(W1 @ x))."""
@@ -130,7 +130,7 @@ class TestFeedforward:
                                      "tffn_linear2", "tffn_relu2",
                                      "tffn_linear3"], h, h)],
         )
-        assert Name("ua.path.tffn") in prog.graph.bound_terms
+        assert Name("ua.path.tffn") in prog.graph.primitives
         for name in ("tffn_linear1", "tffn_relu1", "tffn_linear2",
                      "tffn_relu2", "tffn_linear3"):
             assert Name(f"ua.equation.{name}") in prog.graph.primitives

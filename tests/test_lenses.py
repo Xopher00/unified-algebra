@@ -469,7 +469,7 @@ class TestLensFoldIntegration:
         )
 
         assert Name("ua.path.rl_pipe.fwd") in graph.bound_terms
-        assert Name("ua.fold.rl_fold") in graph.bound_terms
+        assert Name("ua.fold.rl_fold") in graph.primitives
 
 
 # ===========================================================================

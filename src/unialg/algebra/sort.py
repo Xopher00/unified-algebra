@@ -40,6 +40,12 @@ class Sort(_RecordView):
     name     = _RecordView.Scalar(str)
     semiring = _RecordView.Term(coerce=Semiring.from_term)
     batched  = _RecordView.Scalar(bool, default=False)
+    axes     = _RecordView.ScalarList(default=())
+
+    @property
+    def rank(self) -> int | None:
+        ax = self.axes
+        return len(ax) if ax else None
 
     @property
     def semiring_name(self) -> str:

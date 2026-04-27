@@ -131,12 +131,22 @@ class _RecordView:
             return [extract(t) for t in items]
 
     class ScalarList(TermList):
-        __slots__ = ()
+        __slots__ = ("_default",)
+        def __init__(self, *, key=None, default=None):
+            super().__init__(key=key)
+            self._default = default
+
         def _extract(self, t):
             return _literal_value(t)
 
         def _encode(self, values):
-            return list_([string(v) for v in (values or [])])
+            return list_([string(v) for v in (values or self._default or [])])
+
+        def __get__(self, obj, cls=None):
+            t = obj._fields.get(self._key)
+            if t is None:
+                return list(self._default) if self._default is not None else []
+            return [self._extract(item) for item in t.value]
 
     @classmethod
     def _descriptors(cls):

@@ -44,6 +44,14 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     def _get_eq(name):   return _lookup(name, equations_by_name, 'op')
     def _get_lens(name): return _lookup(name, lenses_by_name, 'lens')
 
+    def _resolve_sort_ref(ref):
+        if isinstance(ref, str):
+            return _get_sort(ref)
+        if isinstance(ref, tuple) and ref[0] == '_product':
+            from unialg.algebra.sort import ProductSort
+            return ProductSort([_get_sort(n) for n in ref[1]])
+        raise ValueError(f"Invalid sort reference: {ref}")
+
     def _expand_template_ref(ref):
         if isinstance(ref, str):
             return ref
@@ -77,19 +85,20 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         elif kind == 'algebra':
             _, name, kw_args = decl
             sr_term = alg.Semiring(name, plus=kw_args['plus'], times=kw_args['times'],
-                                   zero=kw_args['zero'], one=kw_args['one'])
+                                   zero=kw_args['zero'], one=kw_args['one'],
+                                   contraction=kw_args.get('contraction', ''))
             semirings[name] = sr_term
 
         elif kind == 'spec':
-            _, name, sr_name, batched = decl
+            _, name, sr_name, batched, axes = decl
             sr_term = _get_sr(sr_name)
-            sort_term = alg.Sort(name, sr_term, batched=batched)
+            sort_term = alg.Sort(name, sr_term, batched=batched, axes=axes)
             sorts[name] = sort_term
 
         elif kind == 'op':
             _, name, (dom_name, cod_name), attr_dict = decl
-            dom_sort = _get_sort(dom_name)
-            cod_sort = _get_sort(cod_name)
+            dom_sort = _resolve_sort_ref(dom_name)
+            cod_sort = _resolve_sort_ref(cod_name)
             einsum = attr_dict.get('einsum', None) or None
             nl = attr_dict.get('nonlinearity', None) or None
             sr_name = attr_dict.get('algebra', None)
@@ -107,7 +116,10 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
 
         elif kind == 'lens':
             _, name, (_, _), attrs = decl
-            lens_term = alg.Lens(name, attrs['fwd'], attrs['bwd'])
+            res_name = attrs.get('residual')
+            res_sort = _get_sort(res_name) if res_name else None
+            lens_term = alg.Lens(name, attrs['fwd'], attrs['bwd'],
+                                 residual_sort=res_sort)
             lenses.append(lens_term)
             lenses_by_name[name] = lens_term
 

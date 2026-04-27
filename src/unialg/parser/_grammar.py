@@ -124,7 +124,18 @@ def _build_parser():
                P.bind(ident, lambda cod:
                P.pure((dom, cod)))))
 
-    _sort_sig = _sig(sym('->'))
+    _product_sort = P.bind(sym('('), lambda _:
+                    P.bind(ident, lambda first:
+                    P.bind(P.some(P.bind(_comma, lambda _: ident)), lambda rest:
+                    P.bind(sym(')'), lambda _:
+                    P.pure(('_product', tuple([first] + list(rest))))))))
+
+    _sort_or_product = P.alt(_product_sort, ident)
+
+    _sort_sig = P.bind(ident, lambda dom:
+                P.bind(sym('->'), lambda _:
+                P.bind(_sort_or_product, lambda cod:
+                P.pure((dom, cod)))))
     _lens_sig  = _sig(sym('<->'))
 
     # -------------------------------------------------------------------
@@ -135,6 +146,11 @@ def _build_parser():
         return P.bind(sym(k), lambda _:
                P.bind(sym('='), lambda _: vp))
 
+    _contraction_opt = P.optional(
+        P.bind(_comma, lambda _:
+        P.bind(_kv('contraction', ident), lambda c:
+        P.pure(c))))
+
     _sr_args = P.bind(sym('('), lambda _:
                P.bind(_kv('plus', ident), lambda plus:
                P.bind(_comma, lambda _:
@@ -143,8 +159,10 @@ def _build_parser():
                P.bind(_kv('zero', number_lit), lambda zero:
                P.bind(_comma, lambda _:
                P.bind(_kv('one', number_lit), lambda one:
+               P.bind(_contraction_opt, lambda mb_c:
                P.bind(sym(')'), lambda _:
-               P.pure(dict(plus=plus, times=times, zero=zero, one=one)))))))))))
+               P.pure(dict(plus=plus, times=times, zero=zero, one=one,
+                           contraction=(mb_c.value if not isinstance(mb_c, Nothing) else "")))))))))))))
 
     import_decl = P.bind(sym('import'), lambda _:
                   P.bind(ident, lambda name:
@@ -157,18 +175,35 @@ def _build_parser():
                    P.bind(_eol, lambda _:
                    P.pure(('algebra', name, kw_args))))))
 
-    _batched_flag = P.bind(_comma, lambda _:
-                    P.bind(sym('batched'), lambda _:
-                    P.pure(True)))
+    _ident_list = P.bind(sym('['), lambda _:
+                  P.bind(ident, lambda first:
+                  P.bind(P.many(P.bind(_comma, lambda _: ident)), lambda rest:
+                  P.bind(sym(']'), lambda _:
+                  P.pure(tuple([first] + list(rest)))))))
+
+    _spec_extra = P.optional(
+        P.bind(_comma, lambda _:
+        P.alt(
+            P.bind(sym('batched'), lambda _:
+            P.bind(P.optional(
+                P.bind(_comma, lambda _:
+                P.bind(_kv('axes', _ident_list), lambda a: P.pure(a)))
+            ), lambda mb_axes:
+            P.pure((True, mb_axes.value if not isinstance(mb_axes, Nothing) else ())))),
+            P.bind(_kv('axes', _ident_list), lambda axes:
+            P.pure((False, axes)))
+        )))
 
     spec_decl = P.bind(sym('spec'), lambda _:
                 P.bind(ident, lambda name:
                 P.bind(sym('('), lambda _:
                 P.bind(ident, lambda sr_name:
-                P.bind(P.optional(_batched_flag), lambda mb:
+                P.bind(_spec_extra, lambda mb:
                 P.bind(sym(')'), lambda _:
                 P.bind(_eol, lambda _:
-                P.pure(('spec', name, sr_name, not isinstance(mb, Nothing) and mb.value is True)))))))))
+                P.pure(('spec', name, sr_name,
+                        mb.value[0] if not isinstance(mb, Nothing) else False,
+                        mb.value[1] if not isinstance(mb, Nothing) else ())))))))))
 
     def _kv_decl(keyword, sig_parser, tag):
         return P.bind(sym(keyword), lambda _:

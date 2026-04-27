@@ -94,17 +94,22 @@ import numpy
 Declares a semiring with named binary operations and identity elements.
 
 ```
-algebra <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>)
+algebra <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>[, contraction=<ident>])
 ```
 
 The backend must provide functions named by `plus` and `times`.
 `zero` and `one` are the additive and multiplicative identities.
+
+The optional `contraction` names a registered multi-pass contraction strategy.
+When omitted, single-pass contraction is used (align → ⊗ elementwise → ⊕ reduce).
+Register strategies via `CONTRACTION_REGISTRY` in `unialg.algebra.contraction`.
 
 **Examples:**
 ```
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
 algebra fuzzy(plus=maximum, times=minimum, zero=0.0, one=1.0)
+algebra logprob(plus=logaddexp, times=add, zero=-inf, one=0.0, contraction=stable)
 ```
 
 ---
@@ -116,15 +121,28 @@ Declares a named tensor type associated with an algebra.
 ```
 spec <name>(<algebra-name>)
 spec <name>(<algebra-name>, batched)
+spec <name>(<algebra-name>[, batched], axes=[<ident>, ...])
 ```
 
 `batched` adds a leading independent batch dimension at resolution time.
+
+The optional `axes` declares ordered named axes for the sort. When declared:
+- Einsum output rank must match the codomain sort's axis count.
+- Einsum last-input rank must match the domain sort's axis count (earlier inputs are weight parameters).
+- Graph edges validate axis name compatibility between connected sorts.
+
+Axes are name-only labels (no dimension sizes). Axis order corresponds to einsum subscript position. When `batched` is set, declared axes do NOT include the batch dimension — it is prepended automatically.
+
+Sorts without `axes` skip all axis validation (backward compatible).
 
 **Examples:**
 ```
 spec hidden(real)
 spec output(real)
 spec hidden_batched(real, batched)
+spec hidden(real, axes=[batch, feature])
+spec output(real, axes=[batch, classes])
+spec hidden_batched(real, batched, axes=[feature])
 ```
 
 ---
@@ -138,6 +156,16 @@ op <name> : <dom> -> <cod>
   einsum = "<subscript>"
   algebra = <algebra-name>
 ```
+
+The codomain `<cod>` can be a single sort name or a **product sort** `(<sort1>, <sort2>[, ...])` for multi-value output (e.g., Viterbi returning values + argmax indices):
+
+```
+op <name> : <dom> -> (<sort1>, <sort2>)
+  einsum = "<subscript>"
+  algebra = <algebra-name>
+```
+
+Product sort codomains create a `ProductSort` — a right-nested Hydra pair type. The contraction hook (via `contraction_fn` on the algebra) returns a tuple matching the product structure.
 
 For nonlinear (pointwise) ops, use `nonlinearity` instead of `einsum`:
 
@@ -367,15 +395,23 @@ Declares a bidirectional morphism pairing a forward and backward op.
 lens <name> : <dom> <-> <cod>
   fwd = <op-name>
   bwd = <op-name>
+  residual = <sort-name>
 ```
 
 Sort constraints: `fwd.domain == bwd.codomain`, `fwd.codomain == bwd.domain`.
 
-**Example:**
+The optional `residual` attribute names a sort for auxiliary data carried from the forward pass to the backward pass (e.g., backpointer tables for Viterbi, stabilizers for logsumexp). When any lens in a `lens_seq` declares a residual, the composition uses optic threading: the forward pass collects residuals into a list, and the backward pass consumes them in reverse order.
+
+**Examples:**
 ```
 lens backprop : hidden <-> hidden
   fwd = linear
   bwd = linear_bwd
+
+lens viterbi_step : hidden <-> hidden
+  fwd = viterbi_fwd
+  bwd = viterbi_bwd
+  residual = indices
 ```
 
 ---
@@ -447,8 +483,8 @@ algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
 
 # Specs
-spec hidden(real)
-spec output(real)
+spec hidden(real, axes=[feature])
+spec output(real, axes=[classes])
 
 # Ops
 op linear : hidden -> hidden

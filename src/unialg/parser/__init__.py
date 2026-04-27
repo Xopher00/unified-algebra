@@ -20,6 +20,18 @@ class UASpec:
     backend_name: str | None = None
 
 
+def _source_location(text: str, remainder: str) -> tuple[int, int, str]:
+    """Derive (line, col, source_line) from the unconsumed remainder."""
+    offset = len(text) - len(remainder)
+    consumed = text[:offset]
+    lines = consumed.split('\n')
+    line_no = len(lines)
+    col = len(lines[-1]) + 1
+    all_lines = text.split('\n')
+    source_line = all_lines[line_no - 1] if line_no <= len(all_lines) else ''
+    return line_no, col, source_line
+
+
 def parse_ua_spec(text: str) -> UASpec:
     """Parse .ua source text into a UASpec without compiling."""
     import hydra.parsers as P
@@ -33,16 +45,21 @@ def parse_ua_spec(text: str) -> UASpec:
 
     if isinstance(result, HP.ParseResultFailure):
         err = result.value
-        snippet = repr(err.remainder[:40]) if err.remainder else "<end of input>"
+        rem = err.remainder or ''
+        line_no, col, source_line = _source_location(text, rem)
         raise SyntaxError(
-            f"Parse error: {err.message} at {snippet}"
+            f"Parse error: {err.message}",
+            ("<ua source>", line_no, col, source_line)
         )
 
     raw_decls = result.value.value
     remainder = result.value.remainder.strip()
     if remainder:
-        snippet = repr(remainder[:40])
-        raise SyntaxError(f"Unexpected input near {snippet}")
+        line_no, col, source_line = _source_location(text, remainder)
+        raise SyntaxError(
+            f"Unexpected input",
+            ("<ua source>", line_no, col, source_line)
+        )
 
     return _resolve_spec(raw_decls)
 

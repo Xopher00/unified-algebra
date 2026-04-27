@@ -1,4 +1,4 @@
-"""Composition types: record-based declarations that generate Hydra lambda terms."""
+"""Composition types: record-based declarations that generate Hydra lambda terms and fused primitives."""
 
 from __future__ import annotations
 
@@ -51,6 +51,19 @@ def _bind(kind, name, var_name, body):
     return (core.Name(f"ua.{kind}.{name}"), term)
 
 
+def _resolve_param(p, coder):
+    """Resolve a literal param term to a native value. Returns value or None.
+
+    Variable params (TermVariable) return None — they need dynamic resolution
+    via reduce_term because rebind may change the value after compilation.
+    """
+    if not isinstance(p, core.TermLiteral):
+        return None
+    match coder.encode(None, None, p):
+        case Right(value=arr): return arr
+        case _: return None
+
+
 class Composition(_RecordView):
 
     name = _RecordView.Scalar(str)
@@ -63,7 +76,20 @@ class Composition(_RecordView):
     def to_lambda(self):
         return _bind(self._kind, self.name, self._var_name, self._body())
 
-    def resolve_and_compile(self, native_fns, coder, backend) -> Callable | None:
+    def resolve(self, native_fns, coder, backend, bound_terms=None):
+        """Compile to a fused Hydra Primitive.
+
+        Returns (Primitive, compiled_fn) on success, (None, None) on failure.
+        On failure the caller should fall back to to_lambda().
+        """
+        fn = self._compile(native_fns, coder, backend, bound_terms or {})
+        if fn is None:
+            return None, None
+        from hydra.dsl.prims import prim1
+        name = core.Name(f"ua.{self._kind}.{self.name}")
+        return prim1(name, fn, [], coder, coder), fn
+
+    def _compile(self, native_fns, coder, backend, bound_terms) -> Callable | None:
         raise NotImplementedError
 
 
@@ -77,13 +103,13 @@ class StepComposition(Composition):
     def _body(self):
         return self._prim_var() @ _eq_var(self.step_name) @ self._extra_term() @ var(self._var_name)
 
-    def resolve_and_compile(self, native_fns, coder, backend) -> Callable | None:
+    def _compile(self, native_fns, coder, backend, bound_terms):
         step_fn = _lookup(native_fns, self.step_name)
         if step_fn is None:
             return None
-        return self._compile(step_fn, native_fns, coder, backend)
+        return self._compile_step(step_fn, native_fns, coder, backend)
 
-    def _compile(self, step_fn, native_fns, coder, backend) -> Callable | None:
+    def _compile_step(self, step_fn, native_fns, coder, backend) -> Callable | None:
         raise NotImplementedError
 
 
@@ -117,7 +143,7 @@ class PathComposition(Composition):
             body = var(f"ua.prim.residual_add.{sr}") @ body @ var("x")
         return body
 
-    def resolve_and_compile(self, native_fns, coder, backend):
+    def _compile(self, native_fns, coder, backend, bound_terms):
         fns = []
         for eq_name in self.eq_names:
             fn = _lookup(native_fns, eq_name)
@@ -125,12 +151,11 @@ class PathComposition(Composition):
                 return None
             if self._params and eq_name in self._params:
                 decoded = []
-                for lit in self._params[eq_name]:
-                    if not isinstance(lit, core.TermLiteral):
+                for p in self._params[eq_name]:
+                    val = _resolve_param(p, coder)
+                    if val is None:
                         return None
-                    match coder.encode(None, None, lit):
-                        case Right(value=arr): decoded.append(arr)
-                        case _: return None
+                    decoded.append(val)
                 fn = partial(fn, *decoded)
             fns.append(fn)
         plus_fn = None
@@ -183,7 +208,7 @@ class FanComposition(Composition):
                 body = _merge_eq_var(mn) @ list_([body])
         return body
 
-    def resolve_and_compile(self, native_fns, coder, backend):
+    def _compile(self, native_fns, coder, backend, bound_terms):
         branch_fns = [_lookup(native_fns, b) for b in self.branches]
         if not all(branch_fns):
             return None
@@ -234,7 +259,15 @@ class FoldComposition(StepComposition):
     def _prim_var(self): return var("hydra.lib.lists.foldl")
     def _extra_term(self): return TTerm(self.init_term)
 
-    def _compile(self, step_fn, native_fns, coder, backend):
+    def resolve(self, native_fns, coder, backend, bound_terms=None):
+        fn = self._compile(native_fns, coder, backend, bound_terms or {})
+        if fn is None:
+            return None, None
+        from hydra.dsl.prims import prim1, list_ as list_coder
+        name = core.Name(f"ua.{self._kind}.{self.name}")
+        return prim1(name, fn, [], list_coder(coder), coder), fn
+
+    def _compile_step(self, step_fn, native_fns, coder, backend):
         init, is_scalar = _decode_init(coder, self.init_term)
         if init is None:
             return None
@@ -258,7 +291,15 @@ class UnfoldComposition(StepComposition):
     def _prim_var(self): return var("ua.prim.unfold_n")
     def _extra_term(self): return int32(self.n)
 
-    def _compile(self, step_fn, native_fns, coder, backend):
+    def resolve(self, native_fns, coder, backend, bound_terms=None):
+        fn = self._compile(native_fns, coder, backend, bound_terms or {})
+        if fn is None:
+            return None, None
+        from hydra.dsl.prims import prim1, list_ as list_coder
+        name = core.Name(f"ua.{self._kind}.{self.name}")
+        return prim1(name, fn, [], coder, list_coder(coder)), fn
+
+    def _compile_step(self, step_fn, native_fns, coder, backend):
         n = self.n
         def compiled(state):
             outs = []
@@ -280,7 +321,15 @@ class FixpointComposition(StepComposition):
     def _prim_var(self): return var(f"ua.prim.fixpoint.{self.epsilon}.{self.max_iter}")
     def _extra_term(self): return _eq_var(self.pred_name)
 
-    def _compile(self, step_fn, native_fns, coder, backend):
+    def resolve(self, native_fns, coder, backend, bound_terms=None):
+        fn = self._compile(native_fns, coder, backend, bound_terms or {})
+        if fn is None:
+            return None, None
+        from hydra.dsl.prims import prim1, pair as pair_coder, int32 as int32_coder
+        name = core.Name(f"ua.{self._kind}.{self.name}")
+        return prim1(name, fn, [], coder, pair_coder(coder, int32_coder())), fn
+
+    def _compile_step(self, step_fn, native_fns, coder, backend):
         pred_fn = _lookup(native_fns, self.pred_name)
         if pred_fn is None:
             return None

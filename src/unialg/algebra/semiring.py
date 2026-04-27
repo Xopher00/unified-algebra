@@ -48,8 +48,9 @@ class Semiring(_RecordView):
     zero     = _RecordView.Scalar(float)
     one      = _RecordView.Scalar(float)
     residual = _RecordView.Scalar(str, default="")
-    bottom   = _RecordView.Scalar(float, default=-10.0)
-    top      = _RecordView.Scalar(float, default=10.0)
+    bottom      = _RecordView.Scalar(float, default=-10.0)
+    top         = _RecordView.Scalar(float, default=10.0)
+    contraction = _RecordView.Scalar(str, default="")
 
     @dataclass(frozen=True, slots=True)
     class Resolved:
@@ -65,6 +66,7 @@ class Semiring(_RecordView):
         one: float
         residual_name: str | None = None
         residual_elementwise: object | None = None
+        contraction_fn: object | None = None
 
     def _validation_samples(self, n: int = 5, seed: int = 42) -> list:
         """Draw n triplets uniformly from [bottom, top]."""
@@ -80,6 +82,12 @@ class Semiring(_RecordView):
         """
         self.validate_laws(backend, samples or self._validation_samples())
         residual_name = self.residual
+        contraction_fn = None
+        if self.contraction:
+            from unialg.algebra.contraction import CONTRACTION_REGISTRY
+            contraction_fn = CONTRACTION_REGISTRY.get(self.contraction)
+            if contraction_fn is None:
+                raise ValueError(f"Unknown contraction strategy: {self.contraction!r}")
         return Semiring.Resolved(
             name=self.name,
             plus_name=self.plus,
@@ -92,6 +100,7 @@ class Semiring(_RecordView):
             one=self.one,
             residual_name=residual_name or None,
             residual_elementwise=backend.elementwise(residual_name) if residual_name else None,
+            contraction_fn=contraction_fn,
         )
 
     def validate_laws(self, backend: "Backend", samples, atol: float = 1e-9) -> None:

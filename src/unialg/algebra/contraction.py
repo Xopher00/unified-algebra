@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from unialg.backend import Backend
     from unialg.algebra.semiring import Semiring
 
+CONTRACTION_REGISTRY: dict[str, object] = {}
+
 
 # ---------------------------------------------------------------------------
 # Compiled equation
@@ -188,34 +190,40 @@ def semiring_contract(
     einsum.validate(args)
 
     reduced_vars = einsum.reduced_vars
+    hook = sr.contraction_fn
+
+    def _full(einsum_, args_):
+        if hook is not None:
+            factors = _align_factors(einsum_, args_, backend)
+            cs = _make_compute_sum(factors, einsum_.reduced_dims)
+            return hook(cs, backend)
+        return _contract_full(einsum_, args_, sr, backend)
 
     if not reduced_vars:
-        return _contract_full(einsum, args, sr, backend)
+        return _full(einsum, args)
+
+    if hook is not None:
+        return _full(einsum, args)
 
     if block_size is None:
         block_size = _auto_block_size(einsum, args, backend)
 
     if block_size is None:
-        return _contract_full(einsum, args, sr, backend)
+        return _full(einsum, args)
 
-    # Determine the size of the first reduced variable so we can decide
-    # whether blocking is actually needed.
     first_reduced_var = reduced_vars[0]
     first_reduced_size = args[
         einsum.var_locations[first_reduced_var][0][0]
     ].shape[einsum.var_locations[first_reduced_var][0][1]]
 
     if first_reduced_size <= block_size:
-        # All reduction fits in one block — no splitting needed.
-        return _contract_full(einsum, args, sr, backend)
+        return _full(einsum, args)
 
-    # Blocked path: slice the first reduced variable into chunks and
-    # accumulate partial contractions with ⊕_elementwise.
     accumulator = None
     for start in range(0, first_reduced_size, block_size):
         end = min(start + block_size, first_reduced_size)
         sliced_args = _slice_args(args, einsum, first_reduced_var, start, end)
-        partial = _contract_full(einsum, sliced_args, sr, backend)
+        partial = _full(einsum, sliced_args)
         if accumulator is None:
             accumulator = partial
         else:
@@ -224,22 +232,42 @@ def semiring_contract(
     return accumulator
 
 
-def _contract_full(einsum: CompiledEinsum, args, sr: Semiring.Resolved, backend: Backend):
-    """Single-pass contraction — the original algorithm."""
-    # Target dim order: output_vars ++ reduced_vars
+def _align_factors(einsum: CompiledEinsum, args, backend: Backend):
+    """Align all input tensors to the target dim order: output_vars ++ reduced_vars."""
     all_target_vars = einsum.output_vars + einsum.reduced_vars
+    return [_align_tensor(arg, arg_vars, all_target_vars, backend)
+            for arg, arg_vars in zip(args, einsum.input_vars)]
 
-    # Align each tensor to target dims
-    factors = [_align_tensor(arg, arg_vars, all_target_vars, backend)
-               for arg, arg_vars in zip(args, einsum.input_vars)]
 
-    # Elementwise ⊗
-    term = factors[0]
-    for f in factors[1:]:
-        term = sr.times_elementwise(term, f)
+def _make_compute_sum(factors, reduced_dims):
+    """Build a compute_sum(times_fn, reduce_fn) callable from pre-aligned factors.
 
-    # Reduce contracted dims with ⊕
-    return sr.plus_reduce(term, einsum.reduced_dims)
+    This is the engine's primitive for multi-pass contraction. A contraction_fn
+    hook can call it multiple times with different operations.
+
+    Attributes on the returned callable:
+        compute_product(times_fn) — returns the elementwise product before reduction
+        reduced_dims — tuple of axis indices to reduce over
+    """
+    def compute_product(times_fn):
+        term = factors[0]
+        for f in factors[1:]:
+            term = times_fn(term, f)
+        return term
+
+    def compute_sum(times_fn, reduce_fn):
+        return reduce_fn(compute_product(times_fn), reduced_dims)
+
+    compute_sum.compute_product = compute_product
+    compute_sum.reduced_dims = reduced_dims
+    return compute_sum
+
+
+def _contract_full(einsum: CompiledEinsum, args, sr: Semiring.Resolved, backend: Backend):
+    """Single-pass contraction — the default algorithm."""
+    factors = _align_factors(einsum, args, backend)
+    cs = _make_compute_sum(factors, einsum.reduced_dims)
+    return cs(sr.times_elementwise, sr.plus_reduce)
 
 
 def _slice_args(args, einsum: CompiledEinsum, reduced_var: int, start: int, end: int):

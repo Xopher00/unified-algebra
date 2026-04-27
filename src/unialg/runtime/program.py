@@ -101,12 +101,14 @@ class Program:
     Do not construct directly — use compile_program().
     """
 
-    def __init__(self, graph, backend, coder, cx, compiled_fns: dict | None = None):
+    def __init__(self, graph, backend, coder, cx, compiled_fns: dict | None = None,
+                 *, _build_args: dict | None = None):
         self._graph = graph
         self._backend = backend
         self._coder = coder
         self._cx = cx
         self._compiled_fns = compiled_fns or {}
+        self._build_args = _build_args
 
     @property
     def graph(self):
@@ -183,21 +185,35 @@ class Program:
         Accepts float/int scalars (wrapped as Hydra literals) or pre-wrapped
         Hydra Terms. Returns a new Program; the original is unchanged.
 
-        Note: rebind recompiles the graph so compiled_fns reflect the new
-        parameter values.
+        Recompiles the full graph so fused primitives and compiled_fns
+        reflect the new parameter values.
         """
         wrapped = {k: _wrap_scalar(v) for k, v in hyperparams.items()}
-        new_graph = rebind_hyperparams(self._graph, wrapped)
-        # compiled_fns closures capture backend ops, not param values — safe to reuse
-        return Program(new_graph, self._backend, self._coder, self._cx, self._compiled_fns)
+        if self._build_args is None:
+            new_graph = rebind_hyperparams(self._graph, wrapped)
+            return Program(new_graph, self._backend, self._coder, self._cx,
+                           self._compiled_fns)
+        existing_hp = self._build_args.get('hyperparams') or {}
+        merged_hp = {**existing_hp, **wrapped}
+        return compile_program(
+            self._build_args['equations'], backend=self._backend,
+            specs=self._build_args['specs'], hyperparams=merged_hp,
+            lenses=self._build_args['lenses'],
+            extra_sorts=self._build_args['extra_sorts'],
+            semirings=self._build_args['semirings'],
+        )
 
     def type_check(self, entry_point: str):
         """Return the Hydra Type of the named entry point."""
         full_name = _resolve_full_name(entry_point, self._graph)
-        match lookup_term(self._graph, core.Name(full_name)):
+        name = core.Name(full_name)
+        match lookup_term(self._graph, name):
             case Just(value=term):
                 return type_check_term(self._graph, term)
-        raise KeyError(f"Bound term not found: {full_name}")
+        match lookup_primitive(self._graph, name):
+            case Just(value=prim):
+                return prim.type.type
+        raise KeyError(f"Entry point not found: {full_name}")
 
 
 # ---------------------------------------------------------------------------
@@ -247,4 +263,8 @@ def compile_program(
         semirings=semirings,
     )
     coder = alg.tensor_coder(backend)
-    return Program(graph, backend, coder, EMPTY_CX, compiled_fns=compiled_fns)
+    build_args = dict(equations=equations, specs=specs, lenses=lenses,
+                      extra_sorts=extra_sorts, semirings=semirings,
+                      hyperparams=hyperparams)
+    return Program(graph, backend, coder, EMPTY_CX, compiled_fns=compiled_fns,
+                   _build_args=build_args)

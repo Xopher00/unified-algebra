@@ -162,6 +162,7 @@ class NumpyApiBackend(Backend):
             broadcast_copy=self._broadcast_copy(np_api),
             where=np_api.where,
         )
+        self._argmax = np_api.argmax
 
     def _build_activations(self, np_api) -> dict[str, Callable]:
         """Default: scipy-style. Override for backends with their own activation lib."""
@@ -178,6 +179,9 @@ class NumpyApiBackend(Backend):
 
     def _broadcast_copy(self, np_api) -> Callable:
         return lambda a, shape: np_api.broadcast_to(a, shape).copy()
+
+    def argmax(self, tensor, axis):
+        return self._argmax(tensor, axis=axis)
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +330,9 @@ class PytorchBackend(Backend):
         a = arr.contiguous().detach().cpu()
         dtype_str = str(a.dtype).replace("torch.", "")
         return self._encode_wire_header(dtype_str, a.shape) + a.untyped_storage().tobytes()
+
+    def argmax(self, tensor, axis):
+        return self._lib.argmax(tensor, dim=axis)
 
     def compile(self, fn):
         return self._lib.compile(fn)

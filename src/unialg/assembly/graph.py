@@ -70,6 +70,12 @@ def validate_pipeline(equations: list, schema_types=None) -> None:
             raise TypeError(
                 f"Rank mismatch: '{u.name}' output rank {out_rank} != "
                 f"'{d.name}' input rank {in_rank} at slot {slot}")
+        cod_axes = u.codomain_sort.axes
+        dom_axes = d.domain_sort.axes
+        if cod_axes and dom_axes and tuple(cod_axes) != tuple(dom_axes):
+            raise TypeError(
+                f"Axis mismatch: '{u.name}' codomain axes {list(cod_axes)} != "
+                f"'{d.name}' domain axes {list(dom_axes)}")
     unify_or_raise(cs, schema_types)
 
 
@@ -108,6 +114,7 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
 
 
 def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, schema_types, coder, backend, **kwargs):
+    from hydra.dsl.prims import prim1
     from unialg.assembly.compositions import Composition
     compiled_fns = {}
     for spec in specs:
@@ -115,21 +122,27 @@ def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, 
         first_term = None
         for entry in spec.build(primitives, native_fns, coder=coder, **kwargs):
             if isinstance(entry, Composition):
-                name, term = entry.to_lambda()
-                bound_terms[name] = term
-                fn = entry.resolve_and_compile(native_fns, coder, backend)
-                if fn is not None:
+                prim, fn = entry.resolve(native_fns, coder, backend, bound_terms)
+                if prim is not None:
+                    primitives[prim.name] = prim
                     compiled_fns[spec.name] = fn
-                if first_term is None:
-                    first_term = term
+                else:
+                    name, term = entry.to_lambda()
+                    bound_terms[name] = term
+                    if fn is not None:
+                        compiled_fns[spec.name] = fn
+                    if first_term is None:
+                        first_term = term
             else:
                 name, term = entry
                 bound_terms[name] = term
         eq_key = core.Name(f"ua.equation.{spec.name}")
-        if first_term is not None:
-            bound_terms[eq_key] = first_term
         if spec.name in compiled_fns:
+            alias_prim = prim1(eq_key, compiled_fns[spec.name], [], coder, coder)
+            primitives[eq_key] = alias_prim
             native_fns[eq_key] = compiled_fns[spec.name]
+        elif first_term is not None:
+            bound_terms[eq_key] = first_term
         eq_by_name[spec.name] = spec
     return compiled_fns
 

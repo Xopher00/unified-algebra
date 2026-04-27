@@ -119,8 +119,32 @@ class Equation(_RecordView):
         self.domain_sort.register_schema(schema)
         self.codomain_sort.register_schema(schema)
 
+    def validate_axes(self) -> None:
+        from unialg.algebra.sort import ProductSort
+        if isinstance(self.codomain_sort, ProductSort) or isinstance(self.domain_sort, ProductSort):
+            return
+        es = self.einsum
+        if not es:
+            return
+        compiled = compile_einsum(es)
+        cod_axes = self.codomain_sort.axes
+        if cod_axes:
+            out_rank = len(compiled.output_vars)
+            if out_rank != len(cod_axes):
+                raise TypeError(
+                    f"Op '{self.name}': einsum output rank {out_rank} != "
+                    f"codomain sort '{self.codomain_sort.name}' axes {list(cod_axes)} (rank {len(cod_axes)})")
+        dom_axes = self.domain_sort.axes
+        if dom_axes:
+            last_input = compiled.input_vars[-1]
+            if len(last_input) != len(dom_axes):
+                raise TypeError(
+                    f"Op '{self.name}': einsum last-input rank {len(last_input)} != "
+                    f"domain sort '{self.domain_sort.name}' axes {list(dom_axes)} (rank {len(dom_axes)})")
+
     def compile(self, backend):
         """Prepare this equation for resolution against a backend."""
+        self.validate_axes()
         einsum_str = self.effective_einsum()
         has_einsum = bool(einsum_str)
         has_nl = bool(self.nonlinearity)

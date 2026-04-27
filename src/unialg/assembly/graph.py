@@ -72,10 +72,19 @@ def validate_pipeline(equations: list, schema_types=None) -> None:
                 f"'{d.name}' input rank {in_rank} at slot {slot}")
         cod_axes = u.codomain_sort.axes
         dom_axes = d.domain_sort.axes
-        if cod_axes and dom_axes and tuple(cod_axes) != tuple(dom_axes):
-            raise TypeError(
-                f"Axis mismatch: '{u.name}' codomain axes {list(cod_axes)} != "
-                f"'{d.name}' domain axes {list(dom_axes)}")
+        if cod_axes and dom_axes:
+            cod_names = u.codomain_sort.axis_names
+            dom_names = d.domain_sort.axis_names
+            if tuple(cod_names) != tuple(dom_names):
+                raise TypeError(
+                    f"Axis mismatch: '{u.name}' codomain axes {cod_names} != "
+                    f"'{d.name}' domain axes {dom_names}")
+            for i, (cd, dd) in enumerate(zip(u.codomain_sort.axis_dims,
+                                              d.domain_sort.axis_dims)):
+                if cd is not None and dd is not None and cd != dd:
+                    raise TypeError(
+                        f"Dimension mismatch: '{u.name}' axis '{cod_names[i]}' "
+                        f"size {cd} != '{d.name}' size {dd}")
     unify_or_raise(cs, schema_types)
 
 

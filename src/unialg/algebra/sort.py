@@ -42,10 +42,25 @@ class Sort(_RecordView):
     batched  = _RecordView.Scalar(bool, default=False)
     axes     = _RecordView.ScalarList(default=())
 
+    @staticmethod
+    def _parse_axis(s: str) -> tuple[str, int | None]:
+        if ':' in s:
+            name, size = s.rsplit(':', 1)
+            return name, int(size)
+        return s, None
+
     @property
     def rank(self) -> int | None:
         ax = self.axes
         return len(ax) if ax else None
+
+    @property
+    def axis_names(self) -> list[str]:
+        return [self._parse_axis(a)[0] for a in self.axes]
+
+    @property
+    def axis_dims(self) -> list[int | None]:
+        return [self._parse_axis(a)[1] for a in self.axes]
 
     @property
     def semiring_name(self) -> str:

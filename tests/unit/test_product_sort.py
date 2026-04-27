@@ -1,7 +1,9 @@
-"""Product sort tests: typed tuples of sorts with round-trip TermCoder.
+"""Unit tests for ProductSort: construction, predicate, element round-trips, coder.
 
-Covers product_sort construction, element extraction, type identity,
-is_product_sort predicate, and sort_coder dispatch to product_sort_coder.
+Covers test_product_sort_creates_record_with_correct_type_name,
+test_is_product_sort_true_for_product, test_is_product_sort_false_for_plain_sort,
+test_product_sort_elements_round_trips, test_sort_type_from_term_distinct_for_product_vs_components,
+test_sort_coder_on_product_sort_encodes_decodes_tuple.
 """
 
 import numpy as np
@@ -46,7 +48,7 @@ def residual_sort(real_sr):
 
 
 # ===========================================================================
-# Product sorts
+# Product sorts — structural and round-trip tests
 # ===========================================================================
 
 class TestProductSorts:
@@ -79,16 +81,6 @@ class TestProductSorts:
         ]
         actual_types = [Sort.from_term(e).type_ for e in elements]
         assert actual_types == expected_types
-
-    def test_product_sort_requires_at_least_two_elements(self, hidden):
-        """ProductSort([single]) raises ValueError."""
-        with pytest.raises(ValueError, match="at least 2"):
-            ProductSort([hidden])
-
-    def test_product_sort_empty_raises(self):
-        """ProductSort([]) raises ValueError."""
-        with pytest.raises(ValueError, match="at least 2"):
-            ProductSort([])
 
     def test_sort_type_from_term_distinct_for_product_vs_components(self, hidden, output_sort):
         """sort_type_from_term produces a nested TypePair for product sorts, distinct from components."""

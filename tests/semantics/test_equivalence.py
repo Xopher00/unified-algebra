@@ -26,6 +26,7 @@ from unialg import (
     compile_program, Program,
     PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec,
     tensor_coder,
+    parse_ua,
 )
 from unialg.terms import EMPTY_CX
 
@@ -928,3 +929,136 @@ class TestMixedGraphEquivalence:
         assert not np.allclose(literal_result, var_result), (
             "literal and variable path results must differ"
         )
+
+
+# ---------------------------------------------------------------------------
+# Test 11: DSL round-trip equivalence — parse_ua fast path vs reduce_term
+# ---------------------------------------------------------------------------
+
+class TestDSLEquivalence:
+    """parse_ua programs: fast compiled path and reduce_term fallback must agree.
+
+    Each test:
+    1. Parses a .ua program via parse_ua().
+    2. Calls prog(entry, *args) — fast path (statically compiled closures).
+    3. Strips compiled_fns to force reduce_term, calls slow_prog(entry, *args).
+    4. Asserts the two results are numerically identical (rtol=1e-6).
+    """
+
+    def test_path_dsl_equivalence(self):
+        """seq of two nonlinearities: relu >> tanh.
+
+        Fast path composes native closures; slow path dispatches through
+        reduce_term → ua.path.layer primitive.
+        """
+        backend = NumpyBackend()
+        text = """
+algebra dsl_real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec dsl_hidden(dsl_real)
+
+op dsl_relu : dsl_hidden -> dsl_hidden
+  nonlinearity = relu
+
+op dsl_tanh : dsl_hidden -> dsl_hidden
+  nonlinearity = tanh
+
+seq dsl_layer : dsl_hidden -> dsl_hidden = dsl_relu >> dsl_tanh
+"""
+        prog = parse_ua(text, backend)
+        coder = tensor_coder(backend)
+
+        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
+
+        # Fast path
+        fast_result = prog("dsl_layer", x)
+
+        # Reduce path: strip compiled_fns to force reduce_term dispatch
+        slow_prog = Program(prog._graph, backend, coder, EMPTY_CX, compiled_fns={})
+        reduce_result = slow_prog("dsl_layer", x)
+
+        np.testing.assert_allclose(fast_result, reduce_result, rtol=1e-6,
+                                   err_msg="DSL path: fast path and reduce_term disagree")
+
+        # Independent numpy oracle
+        expected = np.tanh(np.maximum(0.0, x))
+        np.testing.assert_allclose(fast_result, expected, rtol=1e-6)
+
+    def test_fan_dsl_equivalence(self):
+        """branch with two nonlinear ops and a Hadamard-product merge.
+
+        Branches: relu and tanh. Merge: "i,i->i" with real semiring (times=multiply).
+        Expected output: relu(x) * tanh(x).
+        """
+        backend = NumpyBackend()
+        text = """
+algebra dsl_real2(plus=add, times=multiply, zero=0.0, one=1.0)
+spec dsl_h2(dsl_real2)
+
+op dsl_relu2 : dsl_h2 -> dsl_h2
+  nonlinearity = relu
+
+op dsl_tanh2 : dsl_h2 -> dsl_h2
+  nonlinearity = tanh
+
+op dsl_hadamard2 : dsl_h2 -> dsl_h2
+  einsum = "i,i->i"
+  algebra = dsl_real2
+
+branch dsl_fan2 : dsl_h2 -> dsl_h2 = dsl_relu2 | dsl_tanh2
+  merge = dsl_hadamard2
+"""
+        prog = parse_ua(text, backend)
+        coder = tensor_coder(backend)
+
+        x = np.array([-1.0, 0.0, 0.5, 1.0, 2.0])
+
+        # Fast path
+        fast_result = prog("dsl_fan2", x)
+
+        # Reduce path
+        slow_prog = Program(prog._graph, backend, coder, EMPTY_CX, compiled_fns={})
+        reduce_result = slow_prog("dsl_fan2", x)
+
+        np.testing.assert_allclose(fast_result, reduce_result, rtol=1e-6,
+                                   err_msg="DSL fan: fast path and reduce_term disagree")
+
+        # Independent numpy oracle: relu(x) * tanh(x)
+        expected = np.maximum(0.0, x) * np.tanh(x)
+        np.testing.assert_allclose(fast_result, expected, rtol=1e-6)
+
+    def test_residual_path_dsl_equivalence(self):
+        """seq+ with skip connection: output = relu(x) + x.
+
+        The residual add uses the semiring's plus (add). Both the fast path
+        (which composes plus_fn into the closure) and the reduce_term path
+        (which dispatches through ua.prim.residual_add.<sr>) must agree.
+        """
+        backend = NumpyBackend()
+        text = """
+algebra dsl_real3(plus=add, times=multiply, zero=0.0, one=1.0)
+spec dsl_h3(dsl_real3)
+
+op dsl_relu3 : dsl_h3 -> dsl_h3
+  nonlinearity = relu
+
+seq dsl_skip3+ : dsl_h3 -> dsl_h3 = dsl_relu3
+  algebra = dsl_real3
+"""
+        prog = parse_ua(text, backend)
+        coder = tensor_coder(backend)
+
+        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
+
+        # Fast path
+        fast_result = prog("dsl_skip3", x)
+
+        # Reduce path
+        slow_prog = Program(prog._graph, backend, coder, EMPTY_CX, compiled_fns={})
+        reduce_result = slow_prog("dsl_skip3", x)
+
+        np.testing.assert_allclose(fast_result, reduce_result, rtol=1e-6,
+                                   err_msg="DSL residual path: fast path and reduce_term disagree")
+
+        # Independent numpy oracle: relu(x) + x
+        expected = np.maximum(0.0, x) + x
+        np.testing.assert_allclose(fast_result, expected, rtol=1e-6)

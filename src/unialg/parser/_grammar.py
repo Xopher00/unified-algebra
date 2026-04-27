@@ -175,9 +175,16 @@ def _build_parser():
                    P.bind(_eol, lambda _:
                    P.pure(('algebra', name, kw_args))))))
 
+    _axis_size = P.bind(P.char(ord(':')), lambda _:
+                 P.bind(_tok(_digits), lambda ds:
+                 P.pure(int(''.join(chr(c) for c in ds)))))
+    _axis_item = P.bind(ident, lambda name:
+                 P.bind(P.optional(_axis_size), lambda mb_sz:
+                 P.pure(name if isinstance(mb_sz, Nothing) else f"{name}:{mb_sz.value}")))
+
     _ident_list = P.bind(sym('['), lambda _:
-                  P.bind(ident, lambda first:
-                  P.bind(P.many(P.bind(_comma, lambda _: ident)), lambda rest:
+                  P.bind(_axis_item, lambda first:
+                  P.bind(P.many(P.bind(_comma, lambda _: _axis_item)), lambda rest:
                   P.bind(sym(']'), lambda _:
                   P.pure(tuple([first] + list(rest)))))))
 
@@ -291,7 +298,96 @@ def _build_parser():
 
     lens_branch_decl = _branch_like('lens_branch', _lens_sig, 'lens_branch')
 
+    # -------------------------------------------------------------------
+    # Expression sub-grammar for `define` declarations
+    # -------------------------------------------------------------------
+
+    _INFIX_MAP = {'+': 'add', '-': 'subtract', '*': 'multiply', '/': 'divide'}
+
+    def _fold_infix(first, rest):
+        result = first
+        for op, rhs in rest:
+            result = ('call', _INFIX_MAP[op], [result, rhs])
+        return result
+
+    _expr_cell = [None]
+    _unary_cell = [None]
+    _expr_fwd = P.bind(P.pure(None), lambda _: _expr_cell[0])
+    _unary_fwd = P.bind(P.pure(None), lambda _: _unary_cell[0])
+
+    _lit_expr = P.bind(number_lit, lambda v: P.pure(('lit', v)))
+    _paren_expr = P.bind(P.char(ord('(')), lambda _:
+                  P.bind(_iws, lambda _:
+                  P.bind(_expr_fwd, lambda e:
+                  P.bind(_iws, lambda _:
+                  P.bind(P.char(ord(')')), lambda _:
+                  P.bind(_iws, lambda _:
+                  P.pure(e)))))))
+
+    _ident_expr = P.bind(ident, lambda name:
+                  P.alt(
+                      P.bind(P.char(ord('(')), lambda _:
+                      P.bind(_iws, lambda _:
+                      P.bind(_expr_fwd, lambda first:
+                      P.bind(P.many(P.bind(_comma, lambda _: _expr_fwd)), lambda rest:
+                      P.bind(_iws, lambda _:
+                      P.bind(P.char(ord(')')), lambda _:
+                      P.bind(_iws, lambda _:
+                      P.pure(('call', name, [first] + list(rest)))))))))),
+                      P.pure(('var', name))
+                  ))
+
+    _atom_expr = P.alt(_lit_expr, P.alt(_paren_expr, _ident_expr))
+
+    _neg_expr = P.bind(sym('-'), lambda _:
+                P.bind(_unary_fwd, lambda e:
+                P.pure(('call', 'neg', [e]))))
+    _unary_expr = P.alt(_atom_expr, _neg_expr)
+    _unary_cell[0] = _unary_expr
+
+    _mul_op = P.alt(P.bind(sym('*'), lambda _: P.pure('*')),
+                    P.bind(sym('/'), lambda _: P.pure('/')))
+    _mul_div_expr = P.bind(_unary_expr, lambda first:
+                    P.bind(P.many(P.bind(_mul_op, lambda op:
+                                  P.bind(_unary_expr, lambda rhs:
+                                  P.pure((op, rhs))))), lambda rest:
+                    P.pure(_fold_infix(first, rest))))
+
+    _add_op = P.alt(P.bind(sym('+'), lambda _: P.pure('+')),
+                    P.bind(sym('-'), lambda _: P.pure('-')))
+    _add_sub_expr = P.bind(_mul_div_expr, lambda first:
+                    P.bind(P.many(P.bind(_add_op, lambda op:
+                                  P.bind(_mul_div_expr, lambda rhs:
+                                  P.pure((op, rhs))))), lambda rest:
+                    P.pure(_fold_infix(first, rest))))
+
+    _expr_cell[0] = _add_sub_expr
+
+    # -------------------------------------------------------------------
+    # define declaration
+    # -------------------------------------------------------------------
+
+    _arity_kw = P.alt(
+        P.bind(sym('unary'), lambda _: P.pure('unary')),
+        P.bind(sym('binary'), lambda _: P.pure('binary')))
+
+    _param_list = P.bind(ident, lambda first:
+                  P.bind(P.many(P.bind(_comma, lambda _: ident)), lambda rest:
+                  P.pure([first] + list(rest))))
+
+    define_decl = P.bind(sym('define'), lambda _:
+                  P.bind(_arity_kw, lambda ar:
+                  P.bind(ident, lambda name:
+                  P.bind(sym('('), lambda _:
+                  P.bind(_param_list, lambda params:
+                  P.bind(sym(')'), lambda _:
+                  P.bind(sym('='), lambda _:
+                  P.bind(_add_sub_expr, lambda body:
+                  P.bind(_eol, lambda _:
+                  P.pure(('define', name, ar, params, body)))))))))))
+
     decl = reduce(P.alt, [
+        define_decl,
         import_decl, algebra_decl, spec_decl, op_decl, seq_decl,
         branch_decl, scan_decl, unroll_decl, fixpoint_decl,
         lens_branch_decl, lens_seq_decl, lens_decl,

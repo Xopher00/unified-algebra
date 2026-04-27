@@ -17,6 +17,7 @@ class UASpec:
     equations: list[Any] = field(default_factory=list)
     specs: list[Any] = field(default_factory=list)
     lenses: list[Any] = field(default_factory=list)
+    defines: list[Any] = field(default_factory=list)
     backend_name: str | None = None
 
 
@@ -96,6 +97,10 @@ def parse_ua(text: str, backend=None) -> "Program":
             raise ValueError(
                 "No backend specified — pass backend= or add 'import <backend>' to .ua source")
         backend = _resolve_backend(spec.backend_name)
+
+    if spec.defines:
+        from unialg.algebra.expr import register_defines
+        register_defines(spec.defines, backend)
 
     return compile_program(
         spec.equations,

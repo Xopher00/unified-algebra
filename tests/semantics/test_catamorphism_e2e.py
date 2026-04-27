@@ -350,6 +350,53 @@ class TestAssembleWithRecursion:
         np.testing.assert_allclose(fold_out, v1 * v2)
 
 
+class TestUnfoldFromParser:
+
+    def test_unfold_produces_sequence(self):
+        """unroll with steps=3 applies the step op 3 times, returning a tuple of states."""
+        backend = NumpyBackend()
+        backend.unary_ops["double"] = lambda x: x * 2.0
+        from unialg import parse_ua
+        prog = parse_ua('''
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op double : hidden -> hidden
+  nonlinearity = double
+
+unroll stream : hidden -> hidden
+  step = double
+  steps = 3
+''', backend)
+        x = np.array([1.0, 2.0])
+        result = prog('stream', x)
+        # Unfold returns a tuple: (step(x), step²(x), step³(x)) = (2x, 4x, 8x)
+        assert len(result) == 3
+        np.testing.assert_allclose(result[0], x * 2.0)
+        np.testing.assert_allclose(result[1], x * 4.0)
+        np.testing.assert_allclose(result[2], x * 8.0)
+
+    def test_unfold_single_step(self):
+        """unroll with steps=1 returns a 1-tuple containing one application of the step op."""
+        backend = NumpyBackend()
+        from unialg import parse_ua
+        prog = parse_ua('''
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op relu_step : hidden -> hidden
+  nonlinearity = relu
+
+unroll one_step : hidden -> hidden
+  step = relu_step
+  steps = 1
+''', backend)
+        x = np.array([-1.0, 0.0, 2.0])
+        result = prog('one_step', x)
+        assert len(result) == 1
+        np.testing.assert_allclose(result[0], np.maximum(0, x))
+
+
 class TestFoldFromParser:
 
     def test_fold_default_init(self):

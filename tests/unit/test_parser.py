@@ -341,6 +341,29 @@ branch dual : hidden -> hidden = branch_relu | branch_tanh
         expected = np.maximum(0, x) * np.tanh(x)
         np.testing.assert_allclose(out, expected, rtol=1e-6)
 
+    def test_sized_axes_parse(self):
+        text = """
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real, axes=[batch, feature:128])
+"""
+        spec = parse_ua_spec(text)
+        from unialg.algebra.sort import Sort
+        s = Sort.from_term(spec.sorts['hidden'])
+        assert s.axes == ['batch', 'feature:128']
+        assert s.axis_names == ['batch', 'feature']
+        assert s.axis_dims == [None, 128]
+
+    def test_all_sized_axes_parse(self):
+        text = """
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real, axes=[batch:32, feature:128])
+"""
+        spec = parse_ua_spec(text)
+        from unialg.algebra.sort import Sort
+        s = Sort.from_term(spec.sorts['hidden'])
+        assert s.axis_dims == [32, 128]
+        assert s.rank == 2
+
 
 # ---------------------------------------------------------------------------
 # Path with >> — compile and run, match numpy oracle
@@ -850,3 +873,74 @@ lens_branch attention : hidden <-> hidden = backprop1 | backprop2
         assert lfs.merge_names == ['merge_fwd']
         assert lfs.domain_sort is not None
         assert lfs.codomain_sort is not None
+
+
+# ---------------------------------------------------------------------------
+# Define declarations — parse-level tests
+# ---------------------------------------------------------------------------
+
+class TestDefineDeclaration:
+
+    def test_define_unary_parses(self):
+        text = """
+define unary clamp(x) = minimum(1.0, maximum(0.0, x))
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+"""
+        spec = parse_ua_spec(text)
+        assert len(spec.defines) == 1
+        arity, name, params, body = spec.defines[0]
+        assert arity == 'unary'
+        assert name == 'clamp'
+        assert params == ['x']
+        assert body[0] == 'call'
+        assert body[1] == 'minimum'
+
+    def test_define_binary_parses(self):
+        text = """
+define binary smooth_max(a, b) = log(exp(a) + exp(b))
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+"""
+        spec = parse_ua_spec(text)
+        assert len(spec.defines) == 1
+        arity, name, params, body = spec.defines[0]
+        assert arity == 'binary'
+        assert name == 'smooth_max'
+        assert params == ['a', 'b']
+        # Body should be: call('log', [call('add', [call('exp', [var('a')]), call('exp', [var('b')])])])
+        assert body == ('call', 'log', [('call', 'add', [('call', 'exp', [('var', 'a')]), ('call', 'exp', [('var', 'b')])])])
+
+    def test_define_infix_precedence(self):
+        text = """
+define binary f(a, b) = a + b * 2.0
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+"""
+        spec = parse_ua_spec(text)
+        _, _, _, body = spec.defines[0]
+        # * binds tighter than +: add(var(a), multiply(var(b), lit(2.0)))
+        assert body == ('call', 'add', [('var', 'a'), ('call', 'multiply', [('var', 'b'), ('lit', 2.0)])])
+
+    def test_define_unary_minus(self):
+        text = """
+define unary neg_relu(x) = -maximum(0.0, x)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+"""
+        spec = parse_ua_spec(text)
+        _, _, _, body = spec.defines[0]
+        assert body[0] == 'call'
+        assert body[1] == 'neg'
+
+    def test_multiple_defines(self):
+        text = """
+define unary act(x) = tanh(x)
+define binary my_plus(a, b) = maximum(a, b)
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+"""
+        spec = parse_ua_spec(text)
+        assert len(spec.defines) == 2
+        assert spec.defines[0][1] == 'act'
+        assert spec.defines[1][1] == 'my_plus'

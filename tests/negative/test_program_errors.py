@@ -47,3 +47,12 @@ class TestErrorPath:
 
         with pytest.raises(ValueError, match="t7b_eq"):
             prog("wrong_name", np.array([1.0]))
+
+
+class TestWrapScalarError:
+
+    def test_rebind_rejects_non_numeric(self, hidden, real_sr, backend):
+        eq = Equation("ws_eq", None, hidden, hidden, nonlinearity="relu")
+        prog = compile_program([eq], backend=backend)
+        with pytest.raises(TypeError):
+            prog.rebind(bad_param="not_a_number")

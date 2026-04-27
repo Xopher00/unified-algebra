@@ -244,3 +244,12 @@ class TestAutoBlockSize:
             backend.available_memory = orig
 
         np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+
+class TestBackendArgmax:
+
+    def test_argmax_matches_numpy(self):
+        backend = NumpyBackend()
+        x = np.array([[1.0, 3.0, 2.0], [5.0, 0.0, 4.0]])
+        result = backend.argmax(x, axis=1)
+        np.testing.assert_array_equal(result, np.argmax(x, axis=1))

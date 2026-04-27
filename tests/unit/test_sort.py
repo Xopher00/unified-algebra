@@ -137,3 +137,34 @@ class TestGraphAssembly:
         g = build_graph([Sort("hidden", real_sr)])
         assert Name("ua.tensor.NDArray") in g.schema_types
 
+
+class TestSizedAxes:
+
+    @pytest.fixture
+    def real_sr(self):
+        return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+
+    def test_axis_names_from_unsized(self, real_sr):
+        s = Sort("h", real_sr, axes=("batch", "feature"))
+        assert s.axis_names == ["batch", "feature"]
+        assert s.axis_dims == [None, None]
+
+    def test_axis_names_from_sized(self, real_sr):
+        s = Sort("h", real_sr, axes=("batch", "feature:128"))
+        assert s.axis_names == ["batch", "feature"]
+        assert s.axis_dims == [None, 128]
+
+    def test_axis_dims_all_sized(self, real_sr):
+        s = Sort("h", real_sr, axes=("batch:32", "feature:128"))
+        assert s.axis_names == ["batch", "feature"]
+        assert s.axis_dims == [32, 128]
+
+    def test_rank_unchanged_by_sizes(self, real_sr):
+        s = Sort("h", real_sr, axes=("batch:32", "feature:128"))
+        assert s.rank == 2
+
+    def test_no_axes_gives_empty(self, real_sr):
+        s = Sort("h", real_sr)
+        assert s.axis_names == []
+        assert s.axis_dims == []
+

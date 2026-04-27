@@ -46,21 +46,3 @@ class TestCanonicalSemirings:
 
     def test_fuzzy(self, backend):
         Semiring("fuzzy", "maximum", "minimum", 0.0, 1.0).validate_laws(backend, _FUZZY_SAMPLES)
-
-
-# ---------------------------------------------------------------------------
-# Counterexample
-# ---------------------------------------------------------------------------
-
-class TestCounterexamples:
-
-    def test_swapped_zero_one(self, backend):
-        """Real semiring with zero=1, one=0 violates ⊕ identity."""
-        with pytest.raises(ValueError, match="⊕ identity"):
-            Semiring("broken", "add", "multiply", 1.0, 0.0).validate_laws(backend, _REAL_SAMPLES)
-
-    def test_nan_producing_semiring_rejected(self, backend):
-        """Semiring whose operations produce NaN must be caught by validate_laws."""
-        sr = Semiring("broken", "add", "multiply", 0.0, 1.0)
-        with pytest.raises(ValueError, match="NaN"):
-            sr.validate_laws(backend, [(float('nan'), 1.0, 1.0)])

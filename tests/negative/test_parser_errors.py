@@ -146,3 +146,15 @@ lens_branch attention : hidden <-> hidden = backprop1 | backprop2
 """
         with pytest.raises(ValueError, match="Unknown lens 'nonexistent_merge'"):
             parse_ua_spec(text)
+
+
+class TestUnknownBackend:
+
+    def test_unknown_backend_raises(self):
+        text = """
+import fakebackend
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+"""
+        with pytest.raises(ValueError, match="Unknown backend 'fakebackend'"):
+            parse_ua(text)

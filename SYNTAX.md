@@ -72,6 +72,42 @@ Attribute blocks are indented with at least one space or tab.
 
 ---
 
+### `define`
+
+Declares a custom operation inline as an expression over existing backend operations.
+
+```
+define unary <name>(<param>) = <expr>
+define binary <name>(<param1>, <param2>) = <expr>
+```
+
+The expression language supports:
+- **Literals**: numbers (`0.0`, `1.0`, `-inf`)
+- **Variables**: the declared parameter names
+- **Function calls**: `fn(arg1, arg2)` — names resolve against the backend's unary (1-arg) or binary (2-arg) operation tables
+- **Infix operators**: `+` `-` `*` `/` desugar to `add`/`subtract`/`multiply`/`divide` with standard precedence
+- **Parenthesized grouping**: `(expr)`
+- **Unary minus**: `-expr` desugars to `neg(expr)`
+
+Unary defines register as nonlinearities (usable in `op` declarations). Binary defines register as both elementwise and reduction operations (usable as semiring `plus`/`times` in `algebra` declarations).
+
+`define` declarations must appear before any `algebra` or `op` that references them. Multiple defines are allowed; later defines may reference earlier ones.
+
+**Examples:**
+```
+define unary clamp(x) = minimum(1.0, maximum(0.0, x))
+define binary smooth_max(a, b) = log(exp(a) + exp(b))
+define unary leaky_relu(x) = maximum(0.0, x) * 0.1 + x * 0.9
+```
+
+**Semiring usage:**
+```
+define binary smooth_max(a, b) = log(exp(a) + exp(b))
+algebra lse(plus=smooth_max, times=add, zero=-inf, one=0.0)
+```
+
+---
+
 ### `import`
 
 Specifies the backend for the program. Must appear before any other declaration. Available backends: `numpy`, `jax`, `pytorch`, `cupy`.
@@ -121,17 +157,20 @@ Declares a named tensor type associated with an algebra.
 ```
 spec <name>(<algebra-name>)
 spec <name>(<algebra-name>, batched)
-spec <name>(<algebra-name>[, batched], axes=[<ident>, ...])
+spec <name>(<algebra-name>[, batched], axes=[<axis>, ...])
 ```
+
+Where `<axis>` is either `<ident>` (unsized) or `<ident>:<integer>` (sized).
 
 `batched` adds a leading independent batch dimension at resolution time.
 
-The optional `axes` declares ordered named axes for the sort. When declared:
+The optional `axes` declares ordered named axes for the sort. Each axis is a name optionally followed by `:` and an integer dimension size. When declared:
 - Einsum output rank must match the codomain sort's axis count.
 - Einsum last-input rank must match the domain sort's axis count (earlier inputs are weight parameters).
 - Graph edges validate axis name compatibility between connected sorts.
+- When both sides of a graph edge declare a size for the same axis, the sizes must match. Unsized axes skip the dimension check.
 
-Axes are name-only labels (no dimension sizes). Axis order corresponds to einsum subscript position. When `batched` is set, declared axes do NOT include the batch dimension — it is prepended automatically.
+Sized and unsized axes may be mixed freely (e.g., `axes=[batch, feature:128]`). Axis order corresponds to einsum subscript position. When `batched` is set, declared axes do NOT include the batch dimension — it is prepended automatically.
 
 Sorts without `axes` skip all axis validation (backward compatible).
 
@@ -141,8 +180,9 @@ spec hidden(real)
 spec output(real)
 spec hidden_batched(real, batched)
 spec hidden(real, axes=[batch, feature])
-spec output(real, axes=[batch, classes])
-spec hidden_batched(real, batched, axes=[feature])
+spec hidden(real, axes=[batch, feature:128])
+spec output(real, axes=[batch, classes:10])
+spec hidden_batched(real, batched, axes=[feature:128])
 ```
 
 ---
@@ -463,9 +503,10 @@ lens_branch attention : hidden <-> hidden = backprop1 | backprop2
 
 The parser resolves names in dependency order:
 
-1. `algebra` — no dependencies
+0. `define` — no dependencies (uses built-in backend ops or earlier defines)
+1. `algebra` — may reference define names for plus/times
 2. `spec` — depends on algebras by name
-3. `op` — depends on specs and algebras by name
+3. `op` — depends on specs, algebras, and optionally define names for nonlinearity
 4. `seq`, `branch`, `scan`, `unroll`, `fixpoint` — depend on ops by name
 5. `lens` — depends on ops by name
 6. `lens_seq` — depends on lenses by name
@@ -554,5 +595,5 @@ Rules:
 2. Any change to `SYNTAX.md` that adds a new construct **must** be backed by a corresponding parser implementation and tests before merging.
 3. When in doubt: `_grammar.py` is ground truth for what parses; `SYNTAX.md` is ground truth for what is intended to parse. Divergence is a bug.
 
-The canonical test suite for parser/syntax alignment is `tests/test_parser.py`.
-Run it after any parser change: `uv run --python 3.12 --extra dev python -m pytest tests/test_parser.py -v`.
+The canonical test suite for parser/syntax alignment is `tests/unit/test_parser.py` and `tests/negative/test_parser_errors.py`.
+Run them after any parser change: `uv run --python 3.12 --extra dev python -m pytest tests/unit/test_parser.py tests/negative/test_parser_errors.py -v`.

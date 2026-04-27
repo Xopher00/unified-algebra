@@ -25,6 +25,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     backend_name: str | None = None
     semirings: dict[str, Any] = {}
     sorts: dict[str, Any] = {}
+    defines: list[tuple] = []
     equations_by_name: dict[str, Any] = {}
     equations_list: list[Any] = []
     templates_by_name: dict[str, tuple] = {}
@@ -79,7 +80,11 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     for decl in raw_decls:
         kind = decl[0]
 
-        if kind == 'import':
+        if kind == 'define':
+            _, name, arity, params, expr_ast = decl
+            defines.append((arity, name, params, expr_ast))
+
+        elif kind == 'import':
             backend_name = decl[1]
 
         elif kind == 'algebra':
@@ -135,5 +140,6 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         equations=equations_list,
         specs=specs,
         lenses=lenses,
+        defines=defines,
         backend_name=backend_name,
     )

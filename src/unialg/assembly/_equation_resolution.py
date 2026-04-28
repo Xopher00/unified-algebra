@@ -31,6 +31,7 @@ class EquationCompiled:
     compiled: object
     n_inputs: int
     n_params: int
+    skip_fn: object = None
 
 
 _PRIMS = {1: prim1, 2: prim2, 3: prim3}
@@ -43,9 +44,12 @@ def _make_prim(prim_name, compute, coders, out_coder) -> Primitive:
     return _PRIMS[n](prim_name, compute, [], *coders, out_coder)
 
 
-def _build_resolved(in_coder, n_params, n_inputs, sr, compiled, backend, nl_fn):
+def _build_resolved(in_coder, n_params, n_inputs, sr, compiled, backend, nl_fn, skip_fn=None):
     def _core(params, tensors):
-        return contract_and_apply(compiled, list(tensors), sr, backend, nl_fn, tuple(params))
+        result = contract_and_apply(compiled, list(tensors), sr, backend, nl_fn, tuple(params))
+        if skip_fn is not None:
+            result = skip_fn(result, tensors[-1])
+        return result
 
     def native_fn(*args):
         return _core(args[:n_params], args[n_params:])
@@ -93,16 +97,18 @@ def compile_equation(eq: "Equation", backend: "Backend") -> EquationCompiled:
             from dataclasses import replace as _replace
             _res, _red = sr.residual_elementwise, sr.times_reduce
             sr = _replace(sr, contraction_fn=lambda cs, be, p: cs(_res, _red))
+        skip_fn = sr.plus_elementwise if eq.skip else None
     else:
         sr = compiled = None
         n_inputs = 0
+        skip_fn = None
     in_coder, out_coder = eq.coders(backend)
     nl_fn = backend.unary(eq.nonlinearity) if has_nl else None
     return EquationCompiled(
         has_einsum=has_einsum, has_nl=has_nl, nl_fn=nl_fn,
         in_coder=in_coder, out_coder=out_coder,
         prim_name=eq.prim_name, sr=sr, compiled=compiled,
-        n_inputs=n_inputs, n_params=len(eq.param_slots))
+        n_inputs=n_inputs, n_params=len(eq.param_slots), skip_fn=skip_fn)
 
 
 def resolve_equation(eq: "Equation", backend: "Backend"):
@@ -112,7 +118,8 @@ def resolve_equation(eq: "Equation", backend: "Backend"):
         raise ValueError(f"Equation '{eq.name}' has neither einsum nor nonlinearity")
     n_inputs = 1 if not ctx.has_einsum else ctx.n_inputs
     coders, hydra_compute, native_fn = _build_resolved(
-        ctx.in_coder, ctx.n_params, n_inputs, ctx.sr, ctx.compiled, backend, ctx.nl_fn)
+        ctx.in_coder, ctx.n_params, n_inputs, ctx.sr, ctx.compiled, backend, ctx.nl_fn,
+        skip_fn=ctx.skip_fn)
     prim = _make_prim(ctx.prim_name, hydra_compute, coders, ctx.out_coder)
     return prim, native_fn, ctx.sr, ctx.in_coder
 

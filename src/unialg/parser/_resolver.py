@@ -62,9 +62,102 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             return ProductSort([_get_sort(n) for n in ref[1]])
         raise ValueError(f"Invalid sort reference: {ref}")
 
+    _fresh_counters: dict[str, int] = {}
+    compositions_by_name: dict[str, object] = {}
+
+    def _clone_eq(base_name, new_name, *, adjoint=None, skip=None):
+        """Create a named copy of an equation, optionally overriding adjoint/skip."""
+        if new_name not in equations_by_name:
+            base_eq = _get_eq(base_name)
+            copy_eq = alg.Equation(
+                new_name, base_eq.einsum, base_eq.domain_sort, base_eq.codomain_sort,
+                base_eq.semiring, nonlinearity=base_eq.nonlinearity,
+                inputs=tuple(base_eq.inputs),
+                adjoint=base_eq.adjoint if adjoint is None else adjoint,
+                skip=base_eq.skip if skip is None else skip)
+            equations_by_name[new_name] = copy_eq
+            equations_list.append(copy_eq)
+
+    def _clone_composition(comp, new_name, suffix, *, residual=False):
+        """Shallow-clone a PathSpec or FanSpec: fresh equation copies, new composition name."""
+        if isinstance(comp, sp.PathSpec):
+            new_eq_names = []
+            for eq_name in comp.eq_names:
+                if eq_name in equations_by_name:
+                    fresh = f"{eq_name}__{suffix}"
+                    _clone_eq(eq_name, fresh)
+                    new_eq_names.append(fresh)
+                else:
+                    new_eq_names.append(eq_name)
+            infer_sr = None
+            if residual:
+                for n in new_eq_names:
+                    eq = equations_by_name.get(n)
+                    if eq and eq.semiring:
+                        infer_sr = eq.semiring_name
+                        break
+            clone = sp.PathSpec(
+                name=new_name, eq_names=new_eq_names,
+                domain_sort=comp.domain_sort, codomain_sort=comp.codomain_sort,
+                residual=residual or comp.residual,
+                residual_semiring=infer_sr or comp.residual_semiring or "")
+            specs.append(clone)
+            compositions_by_name[new_name] = clone
+            return new_name
+        if isinstance(comp, sp.FanSpec):
+            new_branches = []
+            for br in comp.branches:
+                if br in equations_by_name:
+                    fresh = f"{br}__{suffix}"
+                    _clone_eq(br, fresh)
+                    new_branches.append(fresh)
+                else:
+                    new_branches.append(br)
+            clone = sp.FanSpec(
+                name=new_name, branches=new_branches,
+                merge_names=list(comp.merge_names),
+                domain_sort=comp.domain_sort, codomain_sort=comp.codomain_sort)
+            specs.append(clone)
+            compositions_by_name[new_name] = clone
+            return new_name
+        raise ValueError(
+            f"~{comp.name}: fresh copies are supported for seq and branch compositions only")
+
     def _expand_template_ref(ref):
         if isinstance(ref, str):
             return ref
+        tag = ref[0]
+        if tag == '_fresh':
+            _, inner = ref
+            base_name = _expand_template_ref(inner)
+            n = _fresh_counters.get(base_name, 0)
+            _fresh_counters[base_name] = n + 1
+            fresh_name = f"{base_name}__{n}"
+            if base_name in compositions_by_name:
+                if fresh_name not in compositions_by_name:
+                    _clone_composition(compositions_by_name[base_name], fresh_name, n)
+            else:
+                _clone_eq(base_name, fresh_name)
+            return fresh_name
+        if tag == '_adj':
+            _, inner = ref
+            base_name = _expand_template_ref(inner)
+            adj_name = f"{base_name}__adj"
+            if adj_name not in equations_by_name:
+                _clone_eq(base_name, adj_name, adjoint=True)
+            return adj_name
+        if tag == '_res':
+            _, inner = ref
+            base_name = _expand_template_ref(inner)
+            res_name = f"{base_name}__res"
+            if base_name in compositions_by_name:
+                if res_name not in compositions_by_name:
+                    _clone_composition(compositions_by_name[base_name], res_name, 'res',
+                                       residual=True)
+            else:
+                if res_name not in equations_by_name:
+                    _clone_eq(base_name, res_name, skip=True)
+            return res_name
         _, tpl_name, prefix = ref
         concrete_name = f"{prefix}_{tpl_name}"
         if concrete_name not in equations_by_name:
@@ -141,7 +234,9 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         kw = dict(expand_ref=_expand_template_ref)
         if kind.startswith('lens_'):
             kw['get_lens'] = _get_lens
-        specs.append(_SPEC_CLASSES[kind].from_parsed(decl, _get_sort, **kw))
+        spec = _SPEC_CLASSES[kind].from_parsed(decl, _get_sort, **kw)
+        specs.append(spec)
+        compositions_by_name[spec.name] = spec
 
     # --- dispatch loop ---
 

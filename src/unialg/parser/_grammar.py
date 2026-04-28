@@ -59,16 +59,33 @@ def _build_parser():
                  P.pure(chr(c) + ''.join(chr(x) for x in cs))))
     ident = _tok(_raw_ident)
 
-    # Template reference: ident optionally followed by [prefix]
-    # e.g., "proj[q]" -> ('_tpl', 'proj', 'q')
-    # e.g., "linear"  -> 'linear'  (plain string)
+    # Op reference: optional ~ prefix, ident, optional [prefix], optional * or + suffix.
+    # ~name        -> ('_fresh', 'name')     fresh instance (unique weights)
+    # name*        -> ('_adj',   'name')     adjoint contraction
+    # name+        -> ('_res',   'name')     skip connection (output ⊕ input)
+    # proj[q]      -> ('_tpl',  'proj', 'q')
+    # ~proj[q]*    -> ('_adj', ('_fresh', ('_tpl', 'proj', 'q')))
+    # plain "name" -> 'name'
     _bracket_suffix = P.bind(P.char(ord('[')), lambda _:
                       P.bind(_raw_ident, lambda prefix:
                       P.bind(_tok(P.char(ord(']'))), lambda _:
                       P.pure(prefix))))
-    ident_or_tpl = P.bind(ident, lambda name:
+    _op_suffix = P.alt(P.bind(P.char(ord('*')), lambda _: P.pure('*')),
+                       P.bind(P.char(ord('+')), lambda _: P.pure('+')))
+
+    def _wrap_ref(name, mb, fresh, suf):
+        base = name if isinstance(mb, Nothing) else ('_tpl', name, mb.value)
+        if fresh:
+            base = ('_fresh', base)
+        if not isinstance(suf, Nothing):
+            base = ('_adj', base) if suf.value == '*' else ('_res', base)
+        return base
+
+    ident_or_tpl = P.bind(P.optional(P.char(ord('~'))), lambda fr:
+                   P.bind(ident, lambda name:
                    P.bind(P.optional(_bracket_suffix), lambda mb:
-                   P.pure(name if isinstance(mb, Nothing) else ('_tpl', name, mb.value))))
+                   P.bind(P.optional(_op_suffix), lambda suf:
+                   P.pure(_wrap_ref(name, mb, not isinstance(fr, Nothing), suf))))))
 
     # String literal  "…"
     _dq = P.char(ord('"'))

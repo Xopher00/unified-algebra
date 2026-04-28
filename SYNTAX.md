@@ -54,8 +54,9 @@ Integer or decimal. Special values `inf` and `-inf` are supported.
 | `<->` | Bidirectional sort signature (`dom <-> cod`, lenses only) |
 | `:`   | Type annotation — separates a declaration name from its signature |
 | `=`   | Assignment — separates a name or key from its value |
-| `~`   | Template marker — prefix on `op` name; marks the op as a template for parametric instantiation |
-| `+`   | Residual marker — suffix on `seq` name; adds a skip connection via the semiring's plus |
+| `~`   | Template marker — prefix on `op` name in a declaration (marks op as template); also a call-site prefix on op references (`~name`) to create a fresh instance with unique weights |
+| `*`   | Adjoint marker — suffix on an op reference at a call site; invokes that step using the adjoint contraction. Requires the algebra to declare `residual=`. |
+| `+`   | Residual/skip marker — suffix on a `seq` name (declaration-time skip over whole seq); also a call-site suffix on op references (`name+`) for a per-step skip connection: `output = op(x) ⊕ x` using the semiring's plus |
 | `\|`  | Branch separator — inline branch list in `branch` and `lens_branch` declarations |
 | `&`   | Bimap separator — separates the two component ops in a `parallel` declaration |
 | `(`   | Open argument list |
@@ -201,6 +202,24 @@ op <name> : <dom> -> <cod>
   algebra = <algebra-name>
 ```
 
+Three call-site suffixes/prefixes modify how an op is invoked inside `seq` chains and `branch` lists. The op itself is declared normally; the annotation appears only at the reference.
+
+| Annotation | Syntax | Effect | Synthetic name |
+|---|---|---|---|
+| Adjoint | `op*` | Invokes via residual contraction: `residual_elementwise` + `times_reduce`. Requires `residual=` on the algebra. | `op__adj` |
+| Skip (residual) | `op+` | Wraps op with a skip connection: `output = op(x) ⊕ x` using the semiring's `plus`. | `op__res` |
+| Fresh instance | `~op` | Creates a distinct copy of the op with a unique name (separate weight tensor). Auto-numbered: first `~op` → `op__0`, second → `op__1`, … | `op__0`, `op__1`, … |
+
+All three can be combined: `~op*` = fresh adjoint instance; `~op+` = fresh with skip; `~op[prefix]` = fresh via template prefix.
+
+```
+seq adj_path : mat -> mat = residuate*
+seq skip_path : hidden -> hidden = linear+
+seq heads : hidden -> hidden = ~proj[q] | ~proj[k] | ~proj[v]
+```
+
+Each annotation creates and registers a synthetic equation on first use; subsequent uses of the same annotation reuse it (except `~` which always creates a fresh one).
+
 The codomain `<cod>` can be a single sort name or a **product sort** `(<sort1>, <sort2>[, ...])` for multi-value output (e.g., Viterbi returning values + argmax indices):
 
 ```
@@ -226,7 +245,6 @@ Attributes are indented key-value pairs. `einsum` and `nonlinearity` are mutuall
 | `einsum` | string | Einsum subscript string |
 | `algebra` | ident | Algebra name (required for einsum ops) |
 | `nonlinearity` | ident | Pointwise operation name |
-| `adjoint` | bool | When `true`, use the adjoint contraction: `times_reduce(residual_elementwise(A, B), dims)` instead of `plus_reduce(times_elementwise(A, B), dims)`. Requires the algebra to declare `residual=`. |
 | `inputs` | ident list | Comma-separated list of upstream op names whose outputs feed into this op. Establishes typed DAG edges for sort compatibility validation and topological ordering. Example: `inputs = linear` or `inputs = query, key`. |
 
 **Examples:**

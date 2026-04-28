@@ -1,4 +1,4 @@
-"""Stage 6: adjoint=true DSL attribute and residual= semiring field."""
+"""Adjoint op suffix (*) and residual= semiring field."""
 
 import numpy as np
 import pytest
@@ -93,10 +93,10 @@ class TestAdjointContractDirect:
 # ---------------------------------------------------------------------------
 
 class TestAdjointDSL:
-    """Verify adjoint=true via parse_ua end-to-end."""
+    """Verify op* call-site adjoint annotation via parse_ua end-to-end."""
 
     def test_adjoint_parses_and_runs(self):
-        """parse_ua with adjoint=true must not raise and must return a callable result."""
+        """op* in a seq creates residuate__adj; calling it must return a valid result."""
         prog = parse_ua('''
 algebra tropical(plus=minimum, times=add, zero=inf, one=0.0, residual=subtract)
 spec mat(tropical)
@@ -108,16 +108,17 @@ op join : mat -> mat
 op residuate : mat -> mat
   einsum = "ij,kj->ik"
   algebra = tropical
-  adjoint = true
+
+seq residuate_adj : mat -> mat = residuate*
 ''', NumpyBackend())
 
         A = np.array([[1.0, 2.0], [3.0, 0.0]])
         B = np.array([[4.0, 1.0], [2.0, 5.0]])
-        result = prog('residuate', A, B)
+        result = prog('residuate__adj', A, B)
         assert result.shape == (2, 2)
 
     def test_adjoint_differs_from_forward(self):
-        """The adjoint op must return a different result from the forward join."""
+        """The adjoint step must return a different result from the forward op."""
         prog = parse_ua('''
 algebra tropical(plus=minimum, times=add, zero=inf, one=0.0, residual=subtract)
 spec mat(tropical)
@@ -129,18 +130,19 @@ op join : mat -> mat
 op residuate : mat -> mat
   einsum = "ij,kj->ik"
   algebra = tropical
-  adjoint = true
+
+seq residuate_adj : mat -> mat = residuate*
 ''', NumpyBackend())
 
         A = np.array([[1.0, 2.0], [3.0, 0.0]])
         B = np.array([[4.0, 1.0], [2.0, 5.0]])
         join_result = prog('join', A, B)
-        adj_result = prog('residuate', A, B)
+        adj_result = prog('residuate__adj', A, B)
         assert not np.allclose(join_result, adj_result), \
             "adjoint must differ from forward join"
 
     def test_adjoint_correct_values(self):
-        """Adjoint result matches manual sum_j(B[k,j] - A[i,j]) for tropical."""
+        """Adjoint result matches manual sum_j(A[i,j] - B[k,j]) for tropical."""
         prog = parse_ua('''
 algebra tropical(plus=minimum, times=add, zero=inf, one=0.0, residual=subtract)
 spec mat(tropical)
@@ -148,12 +150,13 @@ spec mat(tropical)
 op residuate : mat -> mat
   einsum = "ij,kj->ik"
   algebra = tropical
-  adjoint = true
+
+seq residuate_adj : mat -> mat = residuate*
 ''', NumpyBackend())
 
         A = np.array([[1.0, 2.0], [3.0, 0.0]])
         B = np.array([[4.0, 1.0], [2.0, 5.0]])
-        result = prog('residuate', A, B)
+        result = prog('residuate__adj', A, B)
 
         # Adjoint: result[i,k] = sum_j(subtract(A[i,j], B[k,j]))
         # = sum_j(A[i,j] - B[k,j])  [numpy subtract(a,b) = a - b]
@@ -170,7 +173,7 @@ op residuate : mat -> mat
         np.testing.assert_allclose(result, expected, atol=1e-9)
 
     def test_missing_residual_raises(self):
-        """adjoint=true on a semiring without residual= must raise at compile time."""
+        """op* on a semiring without residual= must raise at compile time."""
         with pytest.raises((ValueError, AttributeError), match="adjoint|residual"):
             parse_ua('''
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
@@ -179,7 +182,8 @@ spec vec(real)
 op no_residual : vec -> vec
   einsum = "ij,j->i"
   algebra = real
-  adjoint = true
+
+seq no_residual_adj : vec -> vec = no_residual*
 ''', NumpyBackend())
 
     def test_residual_in_algebra_without_adjoint_op(self):
@@ -204,7 +208,7 @@ op join : mat -> mat
         np.testing.assert_allclose(result, expected, atol=1e-9)
 
     def test_adjoint_field_on_equation(self):
-        """Equation.adjoint field is True when set via DSL, False otherwise."""
+        """op* in a seq creates a synthetic __adj equation with adjoint=True."""
         from unialg.parser import parse_ua_spec
         spec = parse_ua_spec('''
 algebra tropical(plus=minimum, times=add, zero=inf, one=0.0, residual=subtract)
@@ -213,16 +217,19 @@ spec mat(tropical)
 op residuate : mat -> mat
   einsum = "ij,kj->ik"
   algebra = tropical
-  adjoint = true
 
 op join : mat -> mat
   einsum = "ij,jk->ik"
   algebra = tropical
+
+seq residuate_adj : mat -> mat = residuate*
 ''')
-        residuate_eq = next(eq for eq in spec.equations if eq.name == 'residuate')
+        adj_eq = next(eq for eq in spec.equations if eq.name == 'residuate__adj')
         join_eq = next(eq for eq in spec.equations if eq.name == 'join')
-        assert residuate_eq.adjoint is True
+        base_eq = next(eq for eq in spec.equations if eq.name == 'residuate')
+        assert adj_eq.adjoint is True
         assert join_eq.adjoint is False
+        assert base_eq.adjoint is False
 
     def test_residual_field_on_semiring(self):
         """Semiring.residual field is set when residual= is given in algebra declaration."""

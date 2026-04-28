@@ -59,6 +59,7 @@ class Equation(_RecordView):
     inputs        = _RecordView.ScalarList()
     param_slots   = _RecordView.ScalarList(key="paramSlots")
     adjoint       = _RecordView.Scalar(bool, default=False)
+    skip          = _RecordView.Scalar(bool, default=False)
 
     @property
     def semiring_name(self) -> str | None:

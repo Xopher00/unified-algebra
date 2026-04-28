@@ -10,65 +10,22 @@ import numpy as np
 import pytest
 
 import hydra.core as core
-from hydra.context import Context
 from hydra.core import Name
-from hydra.dsl.python import FrozenDict, Right
+from hydra.dsl.python import Right
 from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort,
     Equation,
     ParallelSpec,
 )
-from unialg.terms import tensor_coder
-from unialg.assembly.graph import build_graph, assemble_graph
+from unialg.assembly.graph import assemble_graph
 from unialg.assembly.compositions import ParallelComposition
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-
-@pytest.fixture
-def hidden(real_sr):
-    return Sort("hidden", real_sr)
-
-
-@pytest.fixture
-def output_sort(real_sr):
-    return Sort("output", real_sr)
-
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def encode_array(coder, arr):
-    result = coder.decode(None, arr)
-    assert isinstance(result, Right)
-    return result.value
-
 
 def encode_pair(coder, a, b):
     from hydra.dsl.prims import pair as pair_coder
@@ -219,7 +176,7 @@ op dsl_relu : feat -> feat
 op dsl_tanh : feat -> feat
   nonlinearity = tanh
 
-parallel dsl_bimap = dsl_relu | dsl_tanh
+parallel dsl_bimap : feat -> feat = dsl_relu & dsl_tanh
 """
         ua_spec = parse_ua_spec(src)
         assert len(ua_spec.specs) == 1
@@ -248,7 +205,7 @@ parallel dsl_bimap = dsl_relu | dsl_tanh
         from hydra.parsers import run_parser
 
         parser = _build_parser()
-        src = "parallel pair_op = left_fn | right_fn\n"
+        src = "parallel pair_op : dom_s -> cod_s = left_fn & right_fn\n"
         result = run_parser(parser, src)
         assert result is not None
         # run_parser returns ParseResultSuccess with .value = ParseSuccess(value=..., remainder=...)
@@ -257,4 +214,5 @@ parallel dsl_bimap = dsl_relu | dsl_tanh
         d = decls[0]
         assert d[0] == "parallel"
         assert d[1] == "pair_op"
-        assert d[2] == ("left_fn", "right_fn")
+        assert d[2] == ("dom_s", "cod_s")
+        assert d[3] == ("left_fn", "right_fn")

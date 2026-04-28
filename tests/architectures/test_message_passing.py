@@ -29,17 +29,12 @@ import pytest
 from hydra.core import Name
 
 from unialg import NumpyBackend, Semiring, Sort, Equation, compile_program, PathSpec
-from unialg.terms import tensor_coder
+from conftest import encode_array
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
 
 @pytest.fixture
 def real_sr():
@@ -59,22 +54,6 @@ def node_sort(real_sr):
 @pytest.fixture
 def node_sort_trop(tropical_sr):
     return Sort("node_gnn_trop", tropical_sr)
-
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
-# ---------------------------------------------------------------------------
-# Helper: encode a numpy array as a Hydra term
-# ---------------------------------------------------------------------------
-
-def encode_array(coder, arr):
-    from hydra.dsl.python import Right
-    result = coder.decode(None, np.ascontiguousarray(arr, dtype=np.float64))
-    assert isinstance(result, Right)
-    return result.value
 
 
 # ---------------------------------------------------------------------------

@@ -87,7 +87,13 @@ class Composition(_RecordView):
             return None, None
         from hydra.dsl.prims import prim1
         name = core.Name(f"ua.{self._kind}.{self.name}")
-        return prim1(name, fn, [], coder, coder), fn
+        return prim1(name, fn, [], self._in_coder(coder), self._out_coder(coder)), fn
+
+    def _in_coder(self, coder):
+        return coder
+
+    def _out_coder(self, coder):
+        return coder
 
     def _compile(self, native_fns, coder, backend, bound_terms) -> Callable | None:
         raise NotImplementedError
@@ -171,20 +177,6 @@ class PathComposition(Composition):
             return plus_fn(out, x) if plus_fn else out
         return backend.compile(compiled)
 
-    @staticmethod
-    def build_lens(name, fwd_eq_names, bwd_eq_names, params=None, has_residual=False):
-        if not fwd_eq_names:
-            raise ValueError(f"lens_path '{name}' must have at least one lens")
-        if has_residual and len(fwd_eq_names) > 1:
-            fwd = _bind("path", f"{name}.fwd", "x",
-                         var("ua.prim.lens_fwd") @ list_([_eq_var(n) for n in fwd_eq_names]) @ var("x"))
-            bwd = _bind("path", f"{name}.bwd", "p",
-                         var("ua.prim.lens_bwd") @ list_([_eq_var(n) for n in bwd_eq_names]) @ var("p"))
-            return fwd, bwd
-        fwd = PathComposition(f"{name}.fwd", fwd_eq_names, params).to_lambda()
-        bwd = PathComposition(f"{name}.bwd", list(reversed(bwd_eq_names))).to_lambda()
-        return fwd, bwd
-
 
 class FanComposition(Composition):
     _type_name = core.Name("ua.composition.Fan")
@@ -228,14 +220,6 @@ class FanComposition(Composition):
                 steps.append((lambda t, _nl=nl: _nl(t), 1))
         return backend.compile(lambda x: _stack_execute(branch_fns, steps, x))
 
-    @staticmethod
-    def build_lens(name, fwd_branches, bwd_branches, merge_fwd, merge_bwd):
-        if not fwd_branches:
-            raise ValueError(f"lens_fan '{name}' must have at least one branch lens")
-        fwd = FanComposition(f"{name}.fwd", fwd_branches, [merge_fwd]).to_lambda()
-        bwd = FanComposition(f"{name}.bwd", bwd_branches, [merge_bwd]).to_lambda()
-        return fwd, bwd
-
 
 def _stack_execute(branch_fns, steps, x):
     stack = [fn(x) for fn in branch_fns]
@@ -271,15 +255,13 @@ class ParallelComposition(Composition):
             return None
         return backend.compile(lambda pair: (left_fn(pair[0]), right_fn(pair[1])))
 
-    def resolve(self, native_fns, coder, backend, bound_terms=None):
-        fn = self._compile(native_fns, coder, backend, bound_terms or {})
-        if fn is None:
-            return None, None
-        from hydra.dsl.prims import prim1, pair as pair_coder
-        name = core.Name(f"ua.{self._kind}.{self.name}")
-        in_coder  = pair_coder(coder, coder)
-        out_coder = pair_coder(coder, coder)
-        return prim1(name, fn, [], in_coder, out_coder), fn
+    def _in_coder(self, coder):
+        from hydra.dsl.prims import pair as pair_coder
+        return pair_coder(coder, coder)
+
+    def _out_coder(self, coder):
+        from hydra.dsl.prims import pair as pair_coder
+        return pair_coder(coder, coder)
 
 
 class FoldComposition(StepComposition):
@@ -292,13 +274,9 @@ class FoldComposition(StepComposition):
     def _prim_var(self): return var("hydra.lib.lists.foldl")
     def _extra_term(self): return TTerm(self.init_term)
 
-    def resolve(self, native_fns, coder, backend, bound_terms=None):
-        fn = self._compile(native_fns, coder, backend, bound_terms or {})
-        if fn is None:
-            return None, None
-        from hydra.dsl.prims import prim1, list_ as list_coder
-        name = core.Name(f"ua.{self._kind}.{self.name}")
-        return prim1(name, fn, [], list_coder(coder), coder), fn
+    def _in_coder(self, coder):
+        from hydra.dsl.prims import list_ as list_coder
+        return list_coder(coder)
 
     def _compile_step(self, step_fn, native_fns, coder, backend):
         init, is_scalar = _decode_init(coder, self.init_term)
@@ -324,13 +302,9 @@ class UnfoldComposition(StepComposition):
     def _prim_var(self): return var("ua.prim.unfold_n")
     def _extra_term(self): return int32(self.n)
 
-    def resolve(self, native_fns, coder, backend, bound_terms=None):
-        fn = self._compile(native_fns, coder, backend, bound_terms or {})
-        if fn is None:
-            return None, None
-        from hydra.dsl.prims import prim1, list_ as list_coder
-        name = core.Name(f"ua.{self._kind}.{self.name}")
-        return prim1(name, fn, [], coder, list_coder(coder)), fn
+    def _out_coder(self, coder):
+        from hydra.dsl.prims import list_ as list_coder
+        return list_coder(coder)
 
     def _compile_step(self, step_fn, native_fns, coder, backend):
         n = self.n
@@ -354,13 +328,9 @@ class FixpointComposition(StepComposition):
     def _prim_var(self): return var(f"ua.prim.fixpoint.{self.epsilon}.{self.max_iter}")
     def _extra_term(self): return _eq_var(self.pred_name)
 
-    def resolve(self, native_fns, coder, backend, bound_terms=None):
-        fn = self._compile(native_fns, coder, backend, bound_terms or {})
-        if fn is None:
-            return None, None
-        from hydra.dsl.prims import prim1, pair as pair_coder, int32 as int32_coder
-        name = core.Name(f"ua.{self._kind}.{self.name}")
-        return prim1(name, fn, [], coder, pair_coder(coder, int32_coder())), fn
+    def _out_coder(self, coder):
+        from hydra.dsl.prims import pair as pair_coder, int32 as int32_coder
+        return pair_coder(coder, int32_coder())
 
     def _compile_step(self, step_fn, native_fns, coder, backend):
         pred_fn = _lookup(native_fns, self.pred_name)

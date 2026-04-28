@@ -106,11 +106,31 @@ def _build_parser():
 
     _any_value = P.alt(string_lit, P.alt(_bool_lit, P.alt(number_lit, ident)))
 
+    # Comma-separated ident list — used for list-valued attributes (e.g. inputs)
+    _ident_csv = P.bind(ident, lambda first:
+                 P.bind(P.many(P.bind(_comma, lambda _: ident)), lambda rest:
+                 P.pure([first] + list(rest))))
+
     def _indented_kv():
         return P.bind(_indent, lambda _:
                P.bind(ident, lambda k:
                P.bind(sym('='), lambda _:
                P.bind(_any_value, lambda v:
+               P.bind(_eol, lambda _:
+               P.pure((k, v)))))))
+
+    # Like _indented_kv but parses list-valued attributes for specified keys.
+    # When the key matches a list key, the value is parsed as a comma-separated
+    # ident list. All other keys fall back to _any_value.
+    _LIST_ATTR_KEYS = {'inputs'}
+
+    def _indented_kv_op():
+        def _value_parser(k):
+            return _ident_csv if k in _LIST_ATTR_KEYS else _any_value
+        return P.bind(_indent, lambda _:
+               P.bind(ident, lambda k:
+               P.bind(sym('='), lambda _:
+               P.bind(_value_parser(k), lambda v:
                P.bind(_eol, lambda _:
                P.pure((k, v)))))))
 
@@ -231,7 +251,7 @@ def _build_parser():
               P.bind(sym(':'), lambda _:
               P.bind(_sort_sig, lambda sig:
               P.bind(_eol, lambda _:
-              P.bind(P.many(_indented_kv()), lambda kv_list:
+              P.bind(P.many(_indented_kv_op()), lambda kv_list:
               P.pure(('op', name, sig,
                       {**dict(kv_list),
                        **({"template": True} if not isinstance(tilde, Nothing) else {})}
@@ -302,16 +322,17 @@ def _build_parser():
 
     lens_branch_decl = _branch_like('lens_branch', _lens_sig, 'lens_branch')
 
-    # parallel name = left | right
-    # Syntax: parallel <name> = <left-op> | <right-op>
+    # parallel name : dom -> cod = left & right
     parallel_decl = P.bind(sym('parallel'), lambda _:
                     P.bind(ident, lambda name:
+                    P.bind(sym(':'), lambda _:
+                    P.bind(_sort_sig, lambda sig:
                     P.bind(sym('='), lambda _:
                     P.bind(ident, lambda left:
-                    P.bind(sym('|'), lambda _:
+                    P.bind(sym('&'), lambda _:
                     P.bind(ident, lambda right:
                     P.bind(_eol, lambda _:
-                    P.pure(('parallel', name, (left, right))))))))))
+                    P.pure(('parallel', name, sig, (left, right))))))))))))
 
 
     # -------------------------------------------------------------------

@@ -21,37 +21,20 @@ The tests verify:
 import numpy as np
 import pytest
 
-from hydra.context import Context
 from hydra.core import Name
-from hydra.dsl.python import FrozenDict, Right
+from hydra.dsl.python import Right
 from hydra.dsl.terms import apply, var
-from hydra.reduction import reduce_term
 
 from unialg import NumpyBackend, Semiring, Sort, Equation, PathSpec
-from unialg.terms import tensor_coder
 from unialg.assembly.graph import assemble_graph, build_graph
 from unialg.assembly.compositions import PathComposition
 from unialg.assembly._equation_resolution import resolve_equation
+from conftest import assert_reduce_ok
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def tropical_sr():
-    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
 
 @pytest.fixture
 def node_sort(tropical_sr):
@@ -63,16 +46,6 @@ def node_sort(tropical_sr):
 def node_sort_real(real_sr):
     """The same 'node' sort name but under the real semiring."""
     return Sort("node_real", real_sr)
-
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
 
 
 # ---------------------------------------------------------------------------
@@ -88,12 +61,6 @@ def enc(coder, arr):
 def dec(coder, term):
     result = coder.encode(None, None, term)
     assert isinstance(result, Right), f"decode failed: {result}"
-    return result.value
-
-
-def assert_reduce_ok(cx, graph, term):
-    result = reduce_term(cx, graph, True, term)
-    assert isinstance(result, Right), f"reduce_term returned Left: {result}"
     return result.value
 
 

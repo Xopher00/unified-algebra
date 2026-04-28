@@ -30,15 +30,12 @@ from unialg import (
 from unialg.terms import tensor_coder
 from unialg.runtime.program import EMPTY_CX
 
+from conftest import encode_array
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
 
 @pytest.fixture
 def real_sr():
@@ -48,22 +45,6 @@ def real_sr():
 @pytest.fixture
 def hidden(real_sr):
     return Sort("fphidden", real_sr)
-
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def encode_array(coder, arr):
-    """Python/numpy array → Hydra term (decode in Hydra's naming convention)."""
-    result = coder.decode(None, np.ascontiguousarray(arr, dtype=np.float64))
-    assert isinstance(result, Right)
-    return result.value
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +166,7 @@ class TestFanRegisteredAsPrimitive:
         prog = compile_program(
             [eq_relu, eq_tanh, eq_merge], backend=backend,
             specs=[FanSpec("fp2_fan",
-                           branch_names=["fp2_relu", "fp2_tanh"],
+                           branches=["fp2_relu", "fp2_tanh"],
                            merge_names=["fp2_merge"],
                            domain_sort=hidden, codomain_sort=hidden)],
         )
@@ -203,7 +184,7 @@ class TestFanRegisteredAsPrimitive:
         prog = compile_program(
             [eq_relu, eq_tanh, eq_merge], backend=backend,
             specs=[FanSpec("fp2b_fan",
-                           branch_names=["fp2b_relu", "fp2b_tanh"],
+                           branches=["fp2b_relu", "fp2b_tanh"],
                            merge_names=["fp2b_merge"],
                            domain_sort=hidden, codomain_sort=hidden)],
         )
@@ -224,7 +205,7 @@ class TestFanRegisteredAsPrimitive:
         prog = compile_program(
             [eq_relu, eq_tanh, eq_merge], backend=backend,
             specs=[FanSpec("fp2c_fan",
-                           branch_names=["fp2c_relu", "fp2c_tanh"],
+                           branches=["fp2c_relu", "fp2c_tanh"],
                            merge_names=["fp2c_merge"],
                            domain_sort=hidden, codomain_sort=hidden)],
         )
@@ -242,7 +223,7 @@ class TestFanRegisteredAsPrimitive:
         prog = compile_program(
             [eq_relu, eq_tanh, eq_merge], backend=backend,
             specs=[FanSpec("fp2d_fan",
-                           branch_names=["fp2d_relu", "fp2d_tanh"],
+                           branches=["fp2d_relu", "fp2d_tanh"],
                            merge_names=["fp2d_merge"],
                            domain_sort=hidden, codomain_sort=hidden)],
         )
@@ -488,7 +469,7 @@ class TestFusedPrimitiveImplementationCallable:
         prog = compile_program(
             [eq_relu, eq_tanh, eq_merge], backend=backend,
             specs=[FanSpec("fp6b_fan",
-                           branch_names=["fp6b_relu", "fp6b_tanh"],
+                           branches=["fp6b_relu", "fp6b_tanh"],
                            merge_names=["fp6b_merge"],
                            domain_sort=hidden, codomain_sort=hidden)],
         )
@@ -533,7 +514,7 @@ class TestFusedPrimitiveImplementationCallable:
         prog = compile_program(
             [eq_relu, eq_tanh, eq_merge], backend=backend,
             specs=[FanSpec("fp6d_fan",
-                           branch_names=["fp6d_relu", "fp6d_tanh"],
+                           branches=["fp6d_relu", "fp6d_tanh"],
                            merge_names=["fp6d_merge"],
                            domain_sort=hidden, codomain_sort=hidden)],
         )

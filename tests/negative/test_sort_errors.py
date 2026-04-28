@@ -5,25 +5,6 @@ import pytest
 from unialg import NumpyBackend, Semiring, Sort, ProductSort
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-
-@pytest.fixture
-def hidden(real_sr):
-    return Sort("hidden", real_sr)
-
-
 # Triplets of unbounded reals — work for real, tropical, max-plus, log-prob.
 _REAL_SAMPLES = [
     (1.0, 2.0, 3.0), (-1.5, 0.5, 2.5),

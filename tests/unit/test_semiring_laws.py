@@ -8,12 +8,7 @@ operator definitions, no parallel arithmetic — whatever the backend says
 
 import pytest
 
-from unialg import NumpyBackend, Semiring
-
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
+from unialg import Semiring
 
 
 # Triplets of unbounded reals — work for real, tropical, max-plus, log-prob.

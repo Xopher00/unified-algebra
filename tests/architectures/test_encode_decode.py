@@ -18,7 +18,7 @@ Deep autoencoder (two encoding layers, two decoding layers):
   encoder2: hidden → latent   ("ij,j->i")
   decoder1: latent → hidden   ("ij,j->i")
   decoder2: hidden → input    ("ij,j->i")
-  Two lenses composed via LensPathSpec.
+  Two lenses composed via PathSpec.
 
 Tests:
   1. test_single_lens_autoencoder_assembles  — graph assembly succeeds
@@ -31,41 +31,25 @@ Tests:
 import numpy as np
 import pytest
 
-from hydra.context import Context
 from hydra.core import Name
-from hydra.dsl.python import FrozenDict, Right
+from hydra.dsl.python import Right
 from hydra.dsl.terms import apply, var
-from hydra.reduction import reduce_term
 
 from unialg import (
     NumpyBackend, Semiring, Sort,
     Equation,
     Lens,
-    LensPathSpec,
+    PathSpec,
 )
 from unialg.terms import tensor_coder
 from unialg.assembly.graph import assemble_graph
 from unialg.assembly._equation_resolution import resolve_equation
+from conftest import encode_array, decode_term, assert_reduce_ok
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
-
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
 
 @pytest.fixture
 def real_sr():
@@ -95,28 +79,6 @@ def hidden_sort(real_sr):
     return Sort("ae_hidden", real_sr)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def encode_array(coder, arr):
-    result = coder.decode(None, np.ascontiguousarray(arr, dtype=np.float64))
-    assert isinstance(result, Right)
-    return result.value
-
-
-def decode_term(coder, term):
-    result = coder.encode(None, None, term)
-    assert isinstance(result, Right)
-    return result.value
-
-
-def assert_reduce_ok(cx, graph, term):
-    result = reduce_term(cx, graph, True, term)
-    assert isinstance(result, Right), f"reduce_term returned Left: {result}"
-    return result.value
-
-
 # ===========================================================================
 # TestAutoencoder
 # ===========================================================================
@@ -135,7 +97,7 @@ class TestAutoencoder:
 
         The encoder maps input → latent ("ij,j->i") and the decoder maps
         latent → input ("ij,j->i"). Wrapping them in a lens and assembling
-        with LensPathSpec should succeed without errors and register both
+        with PathSpec should succeed without errors and register both
         the forward and backward path bound_terms.
         """
         # encoder: input_sort → latent_sort  (compression)
@@ -154,7 +116,7 @@ class TestAutoencoder:
         graph, *_ = assemble_graph(
             [eq_enc, eq_dec], backend,
             lenses=[ae_lens],
-            specs=[LensPathSpec(
+            specs=[PathSpec(
                 name="ae1_pipe",
                 eq_names=["ae1_enc"],
                 domain_sort=input_sort,
@@ -245,7 +207,7 @@ class TestAutoencoder:
           decoder1: latent → hidden  (lens ae_deep2 backward)
           decoder2: hidden → input   (lens ae_deep1 backward)
 
-        Composed as LensPathSpec(["ae_deep1", "ae_deep2"]).
+        Composed as PathSpec(["ae_deep1", "ae_deep2"]).
         Forward:  encoder1 then encoder2  (input → hidden → latent)
         Backward: decoder1 then decoder2  (latent → hidden → input, reversed order)
         """
@@ -274,7 +236,7 @@ class TestAutoencoder:
         graph, *_ = assemble_graph(
             [eq_enc1, eq_enc2, eq_dec1, eq_dec2], backend,
             lenses=[lens1, lens2],
-            specs=[LensPathSpec(
+            specs=[PathSpec(
                 name="ae_deep_pipe",
                 eq_names=["ae4_enc1", "ae4_enc2"],
                 domain_sort=input_sort,
@@ -316,7 +278,7 @@ class TestAutoencoder:
         graph, *_ = assemble_graph(
             [eq_enc, eq_dec], backend,
             lenses=[ae_lens],
-            specs=[LensPathSpec(
+            specs=[PathSpec(
                 name="ae6_pipe",
                 eq_names=["ae6_enc"],
                 domain_sort=trop_input,

@@ -12,7 +12,7 @@ Two levels tested:
 import numpy as np
 import pytest
 
-from unialg import NumpyBackend, Semiring, Sort, Equation
+from unialg import Semiring, Sort, Equation
 from unialg.algebra import CONTRACTION_REGISTRY
 from unialg.algebra.contraction import compile_einsum, semiring_contract
 from unialg.assembly._equation_resolution import resolve_equation
@@ -36,11 +36,6 @@ CONTRACTION_REGISTRY["scale_hook"] = _scale_hook
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
 
 @pytest.fixture
 def real_sr_with_hook():

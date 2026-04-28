@@ -18,6 +18,7 @@ import hydra.typing
 from unialg.algebra.equation import Equation
 from ._equation_resolution import resolve_equation, resolve_equation_as_merge, resolve_semirings
 from ._validation import unify_or_raise
+from .compositions import _EQ_PREFIX, _MERGE_SUFFIX
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
@@ -119,7 +120,7 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
         primitives[prim.name] = prim
         native_fns[prim.name] = native_fn
         if eq.name in merge_names:
-            merge_key = core.Name(f"ua.equation.{eq.name}.__merge__")
+            merge_key = core.Name(f"{_EQ_PREFIX}{eq.name}{_MERGE_SUFFIX}")
             merge_prim, merge_fn, _, _ = resolve_equation_as_merge(eq, backend, prim_name_override=merge_key)
             primitives[merge_prim.name] = merge_prim
             native_fns[merge_prim.name] = merge_fn
@@ -150,7 +151,7 @@ def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, 
             else:
                 name, term = entry
                 bound_terms[name] = term
-        eq_key = core.Name(f"ua.equation.{spec.name}")
+        eq_key = core.Name(f"{_EQ_PREFIX}{spec.name}")
         if spec.name in compiled_fns:
             alias_prim = prim1(eq_key, compiled_fns[spec.name], [], coder, coder)
             primitives[eq_key] = alias_prim
@@ -209,7 +210,7 @@ def assemble_graph(
         coder=coder, backend=backend, resolved_semirings=resolved_semirings)
 
     for eq_name in eq_by_name:
-        fn = native_fns.get(core.Name(f"ua.equation.{eq_name}"))
+        fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{eq_name}"))
         if fn is not None:
             compiled_fns[eq_name] = fn
 

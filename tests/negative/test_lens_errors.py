@@ -4,51 +4,27 @@ Covers TestLensValidation (sort contract violations) and
 TestAssembleGraphWithLenses (integration-level error paths).
 """
 
-import numpy as np
 import pytest
 
 import hydra.core as core
-from hydra.context import Context
 from hydra.core import Name
-from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var
-from hydra.reduction import reduce_term
 
 from unialg import (
     NumpyBackend, Semiring, Sort,
     ProductSort, Equation,
-    FoldSpec, LensPathSpec,
+    FoldSpec, PathSpec,
 )
-from unialg.terms import tensor_coder
 from unialg.assembly.graph import build_graph, assemble_graph
 from unialg.assembly.compositions import PathComposition, FanComposition
 from unialg.algebra.sort import Lens
 from unialg.assembly._primitives import lens_fwd_primitive, lens_bwd_primitive
+from conftest import build_schema
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-
-@pytest.fixture
-def hidden(real_sr):
-    return Sort("hidden", real_sr)
-
 
 @pytest.fixture
 def output_sort(real_sr):
@@ -60,31 +36,12 @@ def residual_sort(real_sr):
     return Sort("residual", real_sr)
 
 
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _schema(eq_by_name, extra_sorts=()):
-    from unialg.algebra.sort import sort_wrap
-    schema = {}
-    for eq in eq_by_name.values():
-        eq.register_sorts(schema)
-    for s in extra_sorts:
-        sort_wrap(s).register_schema(schema)
-    return FrozenDict(schema)
-
-
 # ===========================================================================
-# Part B: Lens validation via LensPathSpec
+# Part B: Lens validation via PathSpec
 # ===========================================================================
 
 class TestLensValidation:
-    """Verify LensPathSpec.validate() enforces the bidirectionality sort contract."""
+    """Verify PathSpec.validate() enforces the bidirectionality sort contract."""
 
     def _make_matching_pair(self, hidden, output_sort):
         """Build a valid fwd (hidden→output) + bwd (output→hidden) pair."""
@@ -96,49 +53,49 @@ class TestLensValidation:
     def test_valid_lens_passes(self, hidden, output_sort):
         eq_fwd, eq_bwd = self._make_matching_pair(hidden, output_sort)
         eq_by_name = {"fwd": eq_fwd, "bwd": eq_bwd}
-        spec = LensPathSpec("test", ["fwd"], hidden, output_sort, bwd_eq_names=["bwd"])
-        spec.validate(eq_by_name, _schema(eq_by_name))
+        spec = PathSpec("test", ["fwd"], hidden, output_sort, bwd_eq_names=["bwd"])
+        spec.validate(eq_by_name, build_schema(eq_by_name))
 
     def test_valid_lens_same_sort_passes(self, hidden):
         eq_fwd = Equation("fwd_id", None, hidden, hidden, nonlinearity="relu")
         eq_bwd = Equation("bwd_id", None, hidden, hidden, nonlinearity="relu")
         eq_by_name = {"fwd_id": eq_fwd, "bwd_id": eq_bwd}
-        spec = LensPathSpec("test", ["fwd_id"], hidden, hidden, bwd_eq_names=["bwd_id"])
-        spec.validate(eq_by_name, _schema(eq_by_name))
+        spec = PathSpec("test", ["fwd_id"], hidden, hidden, bwd_eq_names=["bwd_id"])
+        spec.validate(eq_by_name, build_schema(eq_by_name))
 
     def test_invalid_lens_forward_not_found(self, hidden):
         eq_bwd = Equation("bwd", None, hidden, hidden, nonlinearity="relu")
-        spec = LensPathSpec("bad_lens", ["nonexistent_fwd"], hidden, hidden, bwd_eq_names=["bwd"])
+        spec = PathSpec("bad_lens", ["nonexistent_fwd"], hidden, hidden, bwd_eq_names=["bwd"])
         with pytest.raises((TypeError, ValueError), match="nonexistent_fwd"):
             ebn = {"bwd": eq_bwd}
-            spec.validate(ebn, _schema(ebn))
+            spec.validate(ebn, build_schema(ebn))
 
     def test_invalid_lens_backward_not_found(self, hidden):
         eq_fwd = Equation("fwd", None, hidden, hidden, nonlinearity="relu")
-        spec = LensPathSpec("bad_lens", ["fwd"], hidden, hidden, bwd_eq_names=["nonexistent_bwd"])
+        spec = PathSpec("bad_lens", ["fwd"], hidden, hidden, bwd_eq_names=["nonexistent_bwd"])
         with pytest.raises((TypeError, ValueError), match="nonexistent_bwd"):
             ebn = {"fwd": eq_fwd}
-            spec.validate(ebn, _schema(ebn))
+            spec.validate(ebn, build_schema(ebn))
 
     def test_invalid_lens_domain_mismatch(self, hidden, output_sort):
         real_sr = hidden.semiring
         # both fwd and bwd go hidden->output, so fwd.domain != bwd.codomain
         eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
         eq_bwd = Equation("bwd", "i->j", hidden, output_sort, real_sr)
-        spec = LensPathSpec("bad", ["fwd"], hidden, output_sort, bwd_eq_names=["bwd"])
+        spec = PathSpec("bad", ["fwd"], hidden, output_sort, bwd_eq_names=["bwd"])
         with pytest.raises(TypeError):
             ebn = {"fwd": eq_fwd, "bwd": eq_bwd}
-            spec.validate(ebn, _schema(ebn))
+            spec.validate(ebn, build_schema(ebn))
 
     def test_invalid_lens_codomain_mismatch(self, hidden, output_sort):
         real_sr = hidden.semiring
         # fwd: hidden->output, bwd: hidden->hidden; fwd.codomain != bwd.domain
         eq_fwd = Equation("fwd", "i->j", hidden, output_sort, real_sr)
         eq_bwd = Equation("bwd", None, hidden, hidden, nonlinearity="relu")
-        spec = LensPathSpec("bad", ["fwd"], hidden, output_sort, bwd_eq_names=["bwd"])
+        spec = PathSpec("bad", ["fwd"], hidden, output_sort, bwd_eq_names=["bwd"])
         with pytest.raises(TypeError):
             ebn = {"fwd": eq_fwd, "bwd": eq_bwd}
-            spec.validate(ebn, _schema(ebn))
+            spec.validate(ebn, build_schema(ebn))
 
 
 # ===========================================================================
@@ -156,7 +113,7 @@ class TestAssembleGraphWithLenses:
         graph, *_ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            specs=[LensPathSpec("id_pipe", ["id_fwd"], hidden, hidden, bwd_eq_names=["id_bwd"])],
+            specs=[PathSpec("id_pipe", ["id_fwd"], hidden, hidden, bwd_eq_names=["id_bwd"])],
         )
 
         assert Name("ua.path.id_pipe.fwd") in graph.bound_terms
@@ -173,7 +130,7 @@ class TestAssembleGraphWithLenses:
             assemble_graph(
                 [eq_fwd, eq_bwd], backend,
                 lenses=[l],
-                specs=[LensPathSpec("bad_enc_pipe", ["enc_fwd"], hidden, output_sort, bwd_eq_names=["enc_bwd"])],
+                specs=[PathSpec("bad_enc_pipe", ["enc_fwd"], hidden, output_sort, bwd_eq_names=["enc_bwd"])],
             )
 
     def test_assemble_graph_no_lens_paths_still_validates(self, hidden, backend):
@@ -198,8 +155,8 @@ class TestAssembleGraphWithLenses:
             eqs, backend,
             lenses=[l_relu, l_tanh],
             specs=[
-                LensPathSpec("relu_only", ["relu_g_fwd"], hidden, hidden, bwd_eq_names=["relu_g_bwd"]),
-                LensPathSpec("tanh_only", ["tanh_g_fwd"], hidden, hidden, bwd_eq_names=["tanh_g_bwd"]),
+                PathSpec("relu_only", ["relu_g_fwd"], hidden, hidden, bwd_eq_names=["relu_g_bwd"]),
+                PathSpec("tanh_only", ["tanh_g_fwd"], hidden, hidden, bwd_eq_names=["tanh_g_bwd"]),
             ],
         )
 

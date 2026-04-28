@@ -3,26 +3,11 @@
 import numpy as np
 import pytest
 
-from unialg import Semiring, Sort, NumpyBackend
+from unialg import Semiring, Sort
 from unialg.terms import tensor_coder
 from unialg.assembly.graph import build_graph
 from unialg.algebra.sort import check_sort_compatibility
 from hydra.core import Name, TypeVariable, TypeApplication
-
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-
-@pytest.fixture
-def tropical_sr():
-    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
 
 
 class TestSortConstruction:

@@ -10,23 +10,6 @@ from unialg import (
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-@pytest.fixture
-def hidden(real_sr):
-    return Sort("hidden", real_sr)
-
-
-# ---------------------------------------------------------------------------
 # Test 7: error path
 # ---------------------------------------------------------------------------
 

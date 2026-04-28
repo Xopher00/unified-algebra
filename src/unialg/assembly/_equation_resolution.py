@@ -122,19 +122,17 @@ def resolve_equation_as_merge(eq: "Equation", backend: "Backend", prim_name_over
     ctx = compile_equation(eq, backend)
     pn = prim_name_override if prim_name_override is not None else ctx.prim_name
     if ctx.has_einsum:
-        def compute_merge(tensors):
+        def compute_fn(tensors):
             return contract_merge(ctx.compiled, tensors, ctx.sr, backend, ctx.nl_fn, ctx.n_inputs, eq.name)
-        compute_merge.n_inputs = ctx.n_inputs
-        prim = _make_prim(pn, compute_merge, [list_coder(ctx.in_coder)], ctx.out_coder)
-        return prim, compute_merge, ctx.sr, ctx.in_coder
+        compute_fn.n_inputs = ctx.n_inputs
     elif ctx.has_nl:
-        def compute_nl(tensors):
+        def compute_fn(tensors):
             result = tensors[0]
             for t in tensors[1:]:
                 result = result + t
             return ctx.nl_fn(result)
-        compute_nl.n_inputs = 1
-        prim = _make_prim(pn, compute_nl, [list_coder(ctx.in_coder)], ctx.out_coder)
-        return prim, compute_nl, ctx.sr, ctx.in_coder
+        compute_fn.n_inputs = 1
     else:
         raise ValueError(f"List-merge equation '{eq.name}' has neither einsum nor nonlinearity")
+    prim = _make_prim(pn, compute_fn, [list_coder(ctx.in_coder)], ctx.out_coder)
+    return prim, compute_fn, ctx.sr, ctx.in_coder

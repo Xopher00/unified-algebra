@@ -57,6 +57,7 @@ Integer or decimal. Special values `inf` and `-inf` are supported.
 | `~`   | Template marker — prefix on `op` name; marks the op as a template for parametric instantiation |
 | `+`   | Residual marker — suffix on `seq` name; adds a skip connection via the semiring's plus |
 | `\|`  | Branch separator — inline branch list in `branch` and `lens_branch` declarations |
+| `&`   | Bimap separator — separates the two component ops in a `parallel` declaration |
 | `(`   | Open argument list |
 | `)`   | Close argument list |
 | `[`   | Open template instantiation or subscript |
@@ -130,24 +131,24 @@ import numpy
 Declares a semiring with named binary operations and identity elements.
 
 ```
-algebra <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>[, contraction=<ident>][, residual=<ident>])
+algebra <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>[, strategy=<ident>][, residual=<ident>])
 ```
 
 The backend must provide functions named by `plus` and `times`.
 `zero` and `one` are the additive and multiplicative identities.
 
-The optional `contraction` names a registered multi-pass contraction strategy.
-When omitted, single-pass contraction is used (align → ⊗ elementwise → ⊕ reduce).
-Register strategies via `CONTRACTION_REGISTRY` in `unialg.algebra.contraction`.
+The optional `strategy` names a contraction hook registered in `CONTRACTION_REGISTRY`. When present, it replaces the default single-pass algorithm (align → ⊗ elementwise → ⊕ reduce) with the named implementation. Register hooks via `CONTRACTION_REGISTRY["name"] = fn` in Python before the program runs. The hook signature is `fn(compute_sum, backend, params) → tensor`.
 
-The optional `residual` names a binary operation that serves as the algebraic residual (right adjoint of `times`). When an `op` with `adjoint = true` is resolved against this algebra, the contraction uses `residual` elementwise and `times_reduce` instead of the forward `times`/`plus_reduce` pair. Both `contraction` and `residual` are optional and independent; a user may supply either, both, or neither.
+The legacy `contraction=` key is equivalent and still accepted; `strategy=` takes precedence if both are given.
+
+The optional `residual` names a binary operation that serves as the algebraic residual (right adjoint of `times`). When an `op` with `adjoint = true` is resolved against this algebra, the contraction uses `residual` elementwise and `times_reduce` instead of the forward `times`/`plus_reduce` pair. Both `strategy` and `residual` are optional and independent; a user may supply either, both, or neither.
 
 **Examples:**
 ```
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
 algebra fuzzy(plus=maximum, times=minimum, zero=0.0, one=1.0)
-algebra logprob(plus=logaddexp, times=add, zero=-inf, one=0.0, contraction=stable)
+algebra logprob(plus=logaddexp, times=add, zero=-inf, one=0.0, strategy=my_hook)
 algebra fuzzy_residuated(plus=maximum, times=minimum, zero=0.0, one=1.0, residual=godel_impl)
 ```
 
@@ -226,6 +227,7 @@ Attributes are indented key-value pairs. `einsum` and `nonlinearity` are mutuall
 | `algebra` | ident | Algebra name (required for einsum ops) |
 | `nonlinearity` | ident | Pointwise operation name |
 | `adjoint` | bool | When `true`, use the adjoint contraction: `times_reduce(residual_elementwise(A, B), dims)` instead of `plus_reduce(times_elementwise(A, B), dims)`. Requires the algebra to declare `residual=`. |
+| `inputs` | ident list | Comma-separated list of upstream op names whose outputs feed into this op. Establishes typed DAG edges for sort compatibility validation and topological ordering. Example: `inputs = linear` or `inputs = query, key`. |
 
 **Examples:**
 ```
@@ -510,10 +512,10 @@ Declares a bimap / monoidal product of two morphisms: routes the two components 
 Categorical reading: `f ⊗ g : (A, B) → (C, D)`
 
 ```
-parallel <name> = <left-op> | <right-op>
+parallel <name> : <dom> -> <cod> = <left-op> & <right-op>
 ```
 
-`left-op` receives the first component of the input pair; `right-op` receives the second component. Both must be declared ops. The result is a new composed op that takes a Python tuple `(a, b)` and returns `(left-op(a), right-op(b))`.
+`left-op` receives the first component of the input pair; `right-op` receives the second component. Both must be declared ops. `dom` and `cod` are sort names — they annotate the input/output types of the composition. The result is a new composed op that takes a Python tuple `(a, b)` and returns `(left-op(a), right-op(b))`.
 
 Both named ops must already be declared before the `parallel` declaration.
 
@@ -531,7 +533,7 @@ op encode : feat -> feat
 op decode : label -> label
   nonlinearity = relu
 
-parallel bimap_pair = encode | decode
+parallel bimap_pair : feat -> label = encode & decode
 ```
 
 ---

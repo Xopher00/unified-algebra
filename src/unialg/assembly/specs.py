@@ -8,14 +8,20 @@ import hydra.core as core
 from hydra.typing import TypeConstraint
 
 from ._validation import unify_or_raise
+from hydra.dsl.meta.phantoms import list_, var
+
 from .compositions import (
     PathComposition, FanComposition, FoldComposition, UnfoldComposition, FixpointComposition,
-    ParallelComposition,
+    ParallelComposition, _bind, _eq_var,
 )
 from ._primitives import (
     unfold_n_primitive, fixpoint_primitive,
     lens_fwd_primitive, lens_bwd_primitive, residual_add_primitive,
 )
+
+
+def _expand_ref(ref, expand_ref):
+    return expand_ref(ref) if expand_ref and isinstance(ref, tuple) else ref
 
 
 @dataclass
@@ -34,7 +40,14 @@ class Spec:
         return cls(name=name, **dict(zip(sort_fields, sorts)), **cls._parse_rest(decl[3:], **kw))
 
     @classmethod
-    def _parse_rest(cls, rest, **kw):
+    def _parse_rest(cls, rest, expand_ref=None, get_lens=None, **_):
+        if get_lens is not None:
+            fwd, bwd, has_res = Spec._decompose_lenses(rest[0], get_lens)
+            return cls._parse_lens_rest(rest, fwd, bwd, has_res, get_lens)
+        return cls._parse_ref_rest(rest, expand_ref)
+
+    @classmethod
+    def _parse_ref_rest(cls, rest, expand_ref=None):
         return {}
 
     def sort_terms(self) -> list:
@@ -60,7 +73,13 @@ class Spec:
         return []
 
     def _compose(self) -> list:
+        pair = self._build_lens_pair()
+        if pair is not None:
+            return list(pair)
         return [self.COMPOSITION(self.name, *[getattr(self, f) for f in self._COMPOSE_FIELDS])]
+
+    def _build_lens_pair(self):
+        return None
 
     @staticmethod
     def _require_eq(eq_by_name: dict, name: str, label: str) -> None:
@@ -130,10 +149,11 @@ class PathSpec(Spec):
     has_residual: bool = False
 
     @classmethod
-    def _parse_rest(cls, rest, expand_ref=None, get_lens=None, **_):
-        if get_lens is not None:
-            fwd, bwd, has_res = Spec._decompose_lenses(rest[0], get_lens)
-            return dict(eq_names=fwd, bwd_eq_names=bwd, has_residual=has_res)
+    def _parse_lens_rest(cls, rest, fwd, bwd, has_res, get_lens):
+        return dict(eq_names=fwd, bwd_eq_names=bwd, has_residual=has_res)
+
+    @classmethod
+    def _parse_ref_rest(cls, rest, expand_ref=None):
         eq_names = [expand_ref(en) for en in rest[0]]
         attrs = rest[1]
         residual = attrs.get('residual', False)
@@ -172,37 +192,46 @@ class PathSpec(Spec):
             prims.extend([(lens_fwd_primitive, None), (lens_bwd_primitive, None)])
         return prims
 
-    def _compose(self) -> list:
+    def _build_lens_pair(self):
         if not self.bwd_eq_names:
-            return super()._compose()
-        fwd, bwd = PathComposition.build_lens(
-            self.name, self.eq_names, self.bwd_eq_names, self.params, self.has_residual)
-        return [fwd, bwd]
+            return None
+        if not self.eq_names:
+            raise ValueError(f"lens_path '{self.name}' must have at least one lens")
+        if self.has_residual and len(self.eq_names) > 1:
+            fwd = _bind("path", f"{self.name}.fwd", "x",
+                        var("ua.prim.lens_fwd") @ list_([_eq_var(n) for n in self.eq_names]) @ var("x"))
+            bwd = _bind("path", f"{self.name}.bwd", "p",
+                        var("ua.prim.lens_bwd") @ list_([_eq_var(n) for n in self.bwd_eq_names]) @ var("p"))
+            return fwd, bwd
+        fwd = PathComposition(f"{self.name}.fwd", self.eq_names, self.params).to_lambda()
+        bwd = PathComposition(f"{self.name}.bwd", list(reversed(self.bwd_eq_names))).to_lambda()
+        return fwd, bwd
 
 
 @dataclass
 class FanSpec(Spec):
     COMPOSITION = FanComposition
-    _COMPOSE_FIELDS = ('branch_names', 'merge_names')
-    branch_names: list[str]
+    _COMPOSE_FIELDS = ('branches', 'merge_names')
+    branches: list[str]
     merge_names: list[str]
     domain_sort: object
     codomain_sort: object
-    bwd_branch_names: list[str] = field(default_factory=list)
+    bwd_branches: list[str] = field(default_factory=list)
     merge_bwd_name: str = ""
 
     @classmethod
-    def _parse_rest(cls, rest, expand_ref=None, get_lens=None, **_):
-        if get_lens is not None:
-            fwd, bwd, _ = Spec._decompose_lenses(rest[0], get_lens)
-            mlv = get_lens(rest[1][0])
-            return dict(branch_names=fwd, merge_names=[mlv.forward],
-                        bwd_branch_names=bwd, merge_bwd_name=mlv.backward)
+    def _parse_lens_rest(cls, rest, fwd, bwd, has_res, get_lens):
+        mlv = get_lens(rest[1][0])
+        return dict(branches=fwd, merge_names=[mlv.forward],
+                    bwd_branches=bwd, merge_bwd_name=mlv.backward)
+
+    @classmethod
+    def _parse_ref_rest(cls, rest, expand_ref=None):
         branches = [expand_ref(bn) for bn in rest[0]]
-        return dict(branch_names=branches, merge_names=rest[1])
+        return dict(branches=branches, merge_names=rest[1])
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
-        all_names = self.branch_names + self.bwd_branch_names
+        all_names = self.branches + self.bwd_branches
         if self.merge_bwd_name:
             all_names += [self.merge_names[0], self.merge_bwd_name]
         declared = [n for n in self.merge_names if n in eq_by_name]
@@ -210,17 +239,17 @@ class FanSpec(Spec):
             self._require_eq(eq_by_name, n, f"Branch '{self.name}'")
         if not declared:
             cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
-                                self.branch_names)
+                                self.branches)
         else:
             first_merge = declared[0]
             cs = self._boundary(eq_by_name, self.domain_sort, self.codomain_sort,
-                                self.branch_names, first_merge)
+                                self.branches, first_merge)
             md = self._eq_sort_type(eq_by_name, first_merge, "d")
-            for b in self.branch_names:
+            for b in self.branches:
                 cs.append(TypeConstraint(
                     self._eq_sort_type(eq_by_name, b, "c"), md,
                     f"Branch '{b}' codomain != merge domain"))
-        for fwd, bwd in zip(self.branch_names, self.bwd_branch_names):
+        for fwd, bwd in zip(self.branches, self.bwd_branches):
             cs.extend(self._bidi(eq_by_name, fwd, bwd,
                                  f"LensBranch '{self.name}' branch '{fwd}'"))
         if self.merge_bwd_name:
@@ -228,13 +257,14 @@ class FanSpec(Spec):
                                  f"LensBranch '{self.name}' merge"))
         return cs
 
-    def _compose(self) -> list:
-        if not self.bwd_branch_names:
-            return super()._compose()
-        fwd, bwd = FanComposition.build_lens(
-            self.name, self.branch_names, self.bwd_branch_names,
-            self.merge_names[0], self.merge_bwd_name)
-        return [fwd, bwd]
+    def _build_lens_pair(self):
+        if not self.bwd_branches:
+            return None
+        if not self.branches:
+            raise ValueError(f"lens_fan '{self.name}' must have at least one branch lens")
+        fwd = FanComposition(f"{self.name}.fwd", self.branches, [self.merge_names[0]]).to_lambda()
+        bwd = FanComposition(f"{self.name}.bwd", self.bwd_branches, [self.merge_bwd_name]).to_lambda()
+        return fwd, bwd
 
 
 @dataclass
@@ -247,11 +277,11 @@ class FoldSpec(Spec):
     state_sort: object = None
 
     @classmethod
-    def _parse_rest(cls, rest, **_):
+    def _parse_ref_rest(cls, rest, expand_ref=None):
         attrs = rest[0]
         init_val = float(attrs.get('init', 0.0))
         init_term = core.TermLiteral(value=core.LiteralFloat(value=init_val))
-        return dict(step_name=attrs['step'], init_term=init_term)
+        return dict(step_name=_expand_ref(attrs['step'], expand_ref), init_term=init_term)
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         self._require_eq(eq_by_name, self.step_name, "Scan step")
@@ -271,8 +301,9 @@ class UnfoldSpec(Spec):
     state_sort: object = None
 
     @classmethod
-    def _parse_rest(cls, rest, **_):
-        return dict(step_name=rest[0]['step'], n_steps=int(rest[0]['steps']))
+    def _parse_ref_rest(cls, rest, expand_ref=None):
+        attrs = rest[0]
+        return dict(step_name=_expand_ref(attrs['step'], expand_ref), n_steps=int(attrs['steps']))
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         self._require_eq(eq_by_name, self.step_name, "Unroll step")
@@ -293,9 +324,10 @@ class FixpointSpec(Spec):
     domain_sort: object = None
 
     @classmethod
-    def _parse_rest(cls, rest, **_):
+    def _parse_ref_rest(cls, rest, expand_ref=None):
         attrs = rest[0]
-        return dict(step_name=attrs.get('step'), predicate_name=attrs.get('predicate'),
+        return dict(step_name=_expand_ref(attrs.get('step'), expand_ref),
+                    predicate_name=_expand_ref(attrs.get('predicate'), expand_ref),
                     epsilon=float(attrs.get('epsilon', 1e-6)),
                     max_iter=int(attrs.get('max_iter', 100)))
 
@@ -329,19 +361,35 @@ class ParallelSpec(Spec):
     _COMPOSE_FIELDS = ('left_name', 'right_name')
     left_name: str
     right_name: str
-    domain_sort: object = None    # the ProductSort (A, B)
-    codomain_sort: object = None  # the ProductSort (C, D)
+    domain_sort: object = None
+    codomain_sort: object = None
 
     @classmethod
-    def from_parsed(cls, decl, get_sort, **kw):
-        # decl = ('parallel', name, (left_name, right_name))
-        _, name, (left_name, right_name) = decl
-        return cls(name=name, left_name=left_name, right_name=right_name)
+    def _parse_ref_rest(cls, rest, expand_ref=None):
+        left, right = rest[0]
+        return dict(left_name=left, right_name=right)
 
     def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
         self._require_eq(eq_by_name, self.left_name,  f"Parallel '{self.name}' left")
         self._require_eq(eq_by_name, self.right_name, f"Parallel '{self.name}' right")
-        return []
+        cs = []
+        if self.domain_sort is not None:
+            cs.append(TypeConstraint(
+                self._eq_sort_type(eq_by_name, self.left_name, "d"),
+                self.domain_sort.type_,
+                f"Parallel '{self.name}': left op domain != declared domain sort"))
+            cs.append(TypeConstraint(
+                self._eq_sort_type(eq_by_name, self.right_name, "d"),
+                self.domain_sort.type_,
+                f"Parallel '{self.name}': right op domain != declared domain sort"))
+        if self.codomain_sort is not None:
+            cs.append(TypeConstraint(
+                self._eq_sort_type(eq_by_name, self.left_name, "c"),
+                self.codomain_sort.type_,
+                f"Parallel '{self.name}': left op codomain != declared codomain sort"))
+            cs.append(TypeConstraint(
+                self._eq_sort_type(eq_by_name, self.right_name, "c"),
+                self.codomain_sort.type_,
+                f"Parallel '{self.name}': right op codomain != declared codomain sort"))
+        return cs
 
-LensPathSpec = PathSpec
-LensFanSpec = FanSpec

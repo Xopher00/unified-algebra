@@ -9,11 +9,6 @@ from unialg.assembly._equation_resolution import resolve_equation
 
 
 @pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
 def real(backend):
     return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0).resolve(backend)
 
@@ -217,3 +212,53 @@ op viterbi : hidden -> (hidden, indices)
         prim, native_fn, sr, in_coder = resolve_equation(eq, backend)
         assert prim is not None
         assert 'viterbi' in prim.name.value
+
+
+# ---------------------------------------------------------------------------
+# strategy= in algebra declarations
+# ---------------------------------------------------------------------------
+
+class TestStrategyAttribute:
+    """DSL strategy= attribute wires through to contraction_fn on Semiring.Resolved."""
+
+    def test_strategy_resolves_to_contraction_fn(self, backend):
+        from unialg.parser import parse_ua_spec
+        from unialg.algebra.contraction import CONTRACTION_REGISTRY
+
+        sentinel = object()
+        CONTRACTION_REGISTRY["_test_strategy"] = sentinel
+        try:
+            spec = parse_ua_spec(
+                "algebra real(plus=add, times=multiply, zero=0.0, one=1.0, strategy=_test_strategy)\n"
+            )
+            resolved = spec.semirings["real"].resolve(backend, check_laws=False)
+            assert resolved.contraction_fn is sentinel
+        finally:
+            del CONTRACTION_REGISTRY["_test_strategy"]
+
+    def test_unknown_strategy_raises(self, backend):
+        from unialg.parser import parse_ua_spec
+
+        spec = parse_ua_spec(
+            "algebra real(plus=add, times=multiply, zero=0.0, one=1.0, strategy=no_such_hook)\n"
+        )
+        with pytest.raises(ValueError, match="no_such_hook"):
+            spec.semirings["real"].resolve(backend)
+
+    def test_strategy_takes_precedence_over_contraction(self, backend):
+        from unialg.parser import parse_ua_spec
+        from unialg.algebra.contraction import CONTRACTION_REGISTRY
+
+        hook_a, hook_b = object(), object()
+        CONTRACTION_REGISTRY["_hook_a"] = hook_a
+        CONTRACTION_REGISTRY["_hook_b"] = hook_b
+        try:
+            spec = parse_ua_spec(
+                "algebra real(plus=add, times=multiply, zero=0.0, one=1.0,"
+                " strategy=_hook_a, contraction=_hook_b)\n"
+            )
+            resolved = spec.semirings["real"].resolve(backend, check_laws=False)
+            assert resolved.contraction_fn is hook_a
+        finally:
+            del CONTRACTION_REGISTRY["_hook_a"]
+            del CONTRACTION_REGISTRY["_hook_b"]

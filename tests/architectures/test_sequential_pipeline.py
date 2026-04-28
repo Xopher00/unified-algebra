@@ -10,16 +10,12 @@ import pytest
 from hydra.core import Name
 
 from unialg import NumpyBackend, Semiring, Sort, Equation, compile_program, PathSpec
-from unialg.terms import tensor_coder
+from conftest import encode_array
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
 
 @pytest.fixture
 def real_sr():
@@ -28,21 +24,6 @@ def real_sr():
 @pytest.fixture
 def hidden(real_sr):
     return Sort("h14ff", real_sr)
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def encode_array(coder, arr):
-    from hydra.dsl.python import Right
-    result = coder.decode(None, np.ascontiguousarray(arr, dtype=np.float64))
-    assert isinstance(result, Right)
-    return result.value
 
 
 # ---------------------------------------------------------------------------

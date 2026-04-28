@@ -5,72 +5,17 @@ import pytest
 from scipy.special import expit
 
 import hydra.core as core
-from hydra.context import Context
-from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var
 import hydra.dsl.terms as Terms
-from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort,
+    NumpyBackend, Sort,
     Equation,
     PathSpec, FanSpec,
 )
-from unialg.terms import tensor_coder
 from unialg.assembly.graph import build_graph, assemble_graph, rebind_params
-from unialg.assembly.compositions import PathComposition, FanComposition
 from unialg.assembly._equation_resolution import resolve_equation
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-
-@pytest.fixture
-def hidden(real_sr):
-    return Sort("hidden", real_sr)
-
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def encode_array(coder, arr):
-    result = coder.decode(None, np.ascontiguousarray(arr, dtype=np.float64))
-    assert isinstance(result, Right)
-    return result.value
-
-
-def decode_term(coder, term):
-    result = coder.encode(None, None, term)
-    assert isinstance(result, Right)
-    return result.value
-
-
-def assert_reduce_ok(cx, graph, term):
-    result = reduce_term(cx, graph, True, term)
-    assert isinstance(result, Right), f"reduce_term returned Left: {result}"
-    return result.value
+from conftest import encode_array, decode_term, assert_reduce_ok
 
 
 # ===========================================================================

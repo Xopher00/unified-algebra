@@ -3,30 +3,13 @@
 import numpy as np
 import pytest
 
-from hydra.context import Context
 from hydra.core import Name
-from hydra.dsl.python import FrozenDict, Right
+from hydra.dsl.python import Right
 from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import NumpyBackend, Semiring, Sort, Equation
-from unialg.terms import tensor_coder
 from unialg.assembly.graph import assemble_graph
-
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
 
 
 @pytest.fixture

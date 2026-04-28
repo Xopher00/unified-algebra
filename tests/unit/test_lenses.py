@@ -1,6 +1,6 @@
 """Unit tests for lens declaration, structure, and path composition.
 
-Covers Lens record fields, PathComposition.build_lens() wiring,
+Covers Lens record fields, PathSpec._build_lens_pair() wiring,
 LensFoldIntegration, OpticPrimitives, OpticPathStructure, and LensPathRouting.
 """
 
@@ -8,21 +8,13 @@ import numpy as np
 import pytest
 
 import hydra.core as core
-from hydra.context import Context
 from hydra.core import Name
-from hydra.dsl.python import FrozenDict, Right
-from hydra.dsl.terms import apply, var
-import hydra.dsl.terms as Terms
-from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort,
-    ProductSort, Equation,
-    FoldSpec, LensPathSpec,
+    Sort, ProductSort, Equation,
+    PathSpec, FoldSpec,
 )
-from unialg.terms import tensor_coder
-from unialg.assembly.graph import build_graph, assemble_graph
-from unialg.assembly.compositions import PathComposition, FanComposition
+from unialg.assembly.graph import assemble_graph
 from unialg.algebra.sort import Lens
 from unialg.assembly._primitives import lens_fwd_primitive, lens_bwd_primitive
 
@@ -30,31 +22,6 @@ from unialg.assembly._primitives import lens_fwd_primitive, lens_bwd_primitive
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-
-@pytest.fixture
-def tropical_sr():
-    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
-
-
-@pytest.fixture
-def hidden(real_sr):
-    return Sort("hidden", real_sr)
-
 
 @pytest.fixture
 def output_sort(real_sr):
@@ -66,19 +33,14 @@ def residual_sort(real_sr):
     return Sort("residual", real_sr)
 
 
-@pytest.fixture
-def tropic_sort(tropical_sr):
-    return Sort("tropic", tropical_sr)
-
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+from hydra.dsl.python import Right
+from hydra.reduction import reduce_term
+from unialg.terms import tensor_coder
+
 
 def encode_array(coder, arr):
     result = coder.decode(None, np.ascontiguousarray(arr, dtype=np.float64))
@@ -149,7 +111,7 @@ class TestLensDeclaration:
 # ===========================================================================
 
 class TestLensPath:
-    """Verify PathComposition.build_lens() produces correctly wired forward and backward paths."""
+    """Verify PathSpec._build_lens_pair() produces correctly wired forward and backward paths."""
 
     def _make_id_lens(self, name, hidden):
         """Make a self-inverse lens (identity-like, hidden→hidden in both dirs)."""
@@ -160,24 +122,24 @@ class TestLensPath:
 
     def test_lens_path_single_returns_two_pairs(self, hidden):
         eq_fwd, eq_bwd, l = self._make_id_lens("a", hidden)
-        result = PathComposition.build_lens("pipe", ["a_fwd"], ["a_bwd"])
+        result = PathSpec("pipe", ["a_fwd"], None, None, bwd_eq_names=["a_bwd"])._build_lens_pair()
         (fwd_name, fwd_term), (bwd_name, bwd_term) = result
         assert fwd_name == Name("ua.path.pipe.fwd")
         assert bwd_name == Name("ua.path.pipe.bwd")
 
     def test_lens_path_forward_name(self, hidden):
         eq_fwd, eq_bwd, l = self._make_id_lens("a", hidden)
-        (fwd_name, _), _ = PathComposition.build_lens("mypipe", ["a_fwd"], ["a_bwd"])
+        (fwd_name, _), _ = PathSpec("mypipe", ["a_fwd"], None, None, bwd_eq_names=["a_bwd"])._build_lens_pair()
         assert fwd_name == Name("ua.path.mypipe.fwd")
 
     def test_lens_path_backward_name(self, hidden):
         eq_fwd, eq_bwd, l = self._make_id_lens("a", hidden)
-        _, (bwd_name, _) = PathComposition.build_lens("mypipe", ["a_fwd"], ["a_bwd"])
+        _, (bwd_name, _) = PathSpec("mypipe", ["a_fwd"], None, None, bwd_eq_names=["a_bwd"])._build_lens_pair()
         assert bwd_name == Name("ua.path.mypipe.bwd")
 
     def test_lens_path_terms_are_lambdas(self, hidden):
         eq_fwd, eq_bwd, l = self._make_id_lens("a", hidden)
-        (_, fwd_term), (_, bwd_term) = PathComposition.build_lens("pipe", ["a_fwd"], ["a_bwd"])
+        (_, fwd_term), (_, bwd_term) = PathSpec("pipe", ["a_fwd"], None, None, bwd_eq_names=["a_bwd"])._build_lens_pair()
         assert isinstance(fwd_term.value, core.Lambda)
         assert isinstance(bwd_term.value, core.Lambda)
 
@@ -185,7 +147,7 @@ class TestLensPath:
         """For lenses [a, b], forward body is: b_fwd(a_fwd(x)) — left-to-right."""
         eq_a_fwd, eq_a_bwd, l_a = self._make_id_lens("a", hidden)
         eq_b_fwd, eq_b_bwd, l_b = self._make_id_lens("b", hidden)
-        (_, fwd_term), _ = PathComposition.build_lens("pipe", ["a_fwd", "b_fwd"], ["a_bwd", "b_bwd"])
+        (_, fwd_term), _ = PathSpec("pipe", ["a_fwd", "b_fwd"], None, None, bwd_eq_names=["a_bwd", "b_bwd"])._build_lens_pair()
         body = fwd_term.value.body
         assert body.value.function.value.value == "ua.equation.b_fwd"
 
@@ -193,13 +155,13 @@ class TestLensPath:
         """For lenses [a, b], backward body is: a_bwd(b_bwd(x)) — right-to-left."""
         eq_a_fwd, eq_a_bwd, l_a = self._make_id_lens("a", hidden)
         eq_b_fwd, eq_b_bwd, l_b = self._make_id_lens("b", hidden)
-        _, (_, bwd_term) = PathComposition.build_lens("pipe", ["a_fwd", "b_fwd"], ["a_bwd", "b_bwd"])
+        _, (_, bwd_term) = PathSpec("pipe", ["a_fwd", "b_fwd"], None, None, bwd_eq_names=["a_bwd", "b_bwd"])._build_lens_pair()
         body = bwd_term.value.body
         assert body.value.function.value.value == "ua.equation.a_bwd"
 
     def test_lens_path_empty_raises(self, hidden):
         with pytest.raises(ValueError, match="at least one lens"):
-            PathComposition.build_lens("empty", [], [])
+            PathSpec("empty", [], None, None, bwd_eq_names=["x"])._build_lens_pair()
 
 
 # ===========================================================================
@@ -222,7 +184,7 @@ class TestLensFoldIntegration:
             [eq_relu_fwd, eq_relu_bwd, eq_step], backend,
             lenses=[l],
             specs=[
-                LensPathSpec("rl_pipe", ["rl_fwd"], hidden, hidden, bwd_eq_names=["rl_bwd"]),
+                PathSpec("rl_pipe", ["rl_fwd"], hidden, hidden, bwd_eq_names=["rl_bwd"]),
                 FoldSpec("rl_fold", "fold_step", init, hidden, hidden),
             ],
         )
@@ -257,7 +219,7 @@ def _make_residual_lens_path(name, lens_names, fwd_names, bwd_names, residual_so
         ln: Lens(ln, forward=fwd, backward=bwd, residual_sort=residual_sort)
         for ln, fwd, bwd in zip(lens_names, fwd_names, bwd_names)
     }
-    return PathComposition.build_lens(name, fwd_names, bwd_names, has_residual=True)
+    return PathSpec(name, fwd_names, None, None, bwd_eq_names=bwd_names, has_residual=True)._build_lens_pair()
 
 
 class TestOpticPathStructure:
@@ -320,9 +282,9 @@ class TestLensPathRouting:
         eq_bwd = Equation("so_bwd", None, prod, hidden, nonlinearity="relu")
         l = Lens("so", "so_fwd", "so_bwd", residual_sort=residual_sort)
 
-        (fwd_name, fwd_term), (bwd_name, bwd_term) = PathComposition.build_lens(
-            "so_pipe", ["so_fwd"], ["so_bwd"]
-        )
+        (fwd_name, fwd_term), (bwd_name, bwd_term) = PathSpec(
+            "so_pipe", ["so_fwd"], None, None, bwd_eq_names=["so_bwd"]
+        )._build_lens_pair()
         body = fwd_term.value.body
         assert body.value.function.value.value == "ua.equation.so_fwd"
 
@@ -336,9 +298,10 @@ class TestLensPathRouting:
         l_a = Lens("mo_a", "mo_fwd_a", "mo_bwd_a", residual_sort=residual_sort)
         l_b = Lens("mo_b", "mo_fwd_b", "mo_bwd_b", residual_sort=residual_sort)
 
-        (fwd_name, fwd_term), (bwd_name, bwd_term) = PathComposition.build_lens(
-            "mo_pipe", ["mo_fwd_a", "mo_fwd_b"], ["mo_bwd_a", "mo_bwd_b"], has_residual=True
-        )
+        (fwd_name, fwd_term), (bwd_name, bwd_term) = PathSpec(
+            "mo_pipe", ["mo_fwd_a", "mo_fwd_b"], None, None,
+            bwd_eq_names=["mo_bwd_a", "mo_bwd_b"], has_residual=True
+        )._build_lens_pair()
         body = fwd_term.value.body
         inner = body.value.function
         prim_ref = inner.value.function
@@ -350,8 +313,8 @@ class TestLensPathRouting:
         eq_bwd = Equation("pl_bwd", None, hidden, hidden, nonlinearity="relu")
         l = Lens("pl", "pl_fwd", "pl_bwd")
 
-        (fwd_name, fwd_term), (bwd_name, bwd_term) = PathComposition.build_lens(
-            "pl_pipe", ["pl_fwd"], ["pl_bwd"]
-        )
+        (fwd_name, fwd_term), (bwd_name, bwd_term) = PathSpec(
+            "pl_pipe", ["pl_fwd"], None, None, bwd_eq_names=["pl_bwd"]
+        )._build_lens_pair()
         body = fwd_term.value.body
         assert body.value.function.value.value == "ua.equation.pl_fwd"

@@ -1,12 +1,16 @@
-"""Shared test helpers for unified-algebra.
+"""Shared test helpers and base fixtures for unified-algebra.
 
-These helpers wrap Hydra's encode/decode conventions and graph-building
-boilerplate. They were previously copy-pasted across 20+ test files.
+These helpers and fixtures were previously copy-pasted across 20+ test files.
 """
 
 import numpy as np
+import pytest
+from hydra.context import Context
 from hydra.dsl.python import FrozenDict, Right, Left
 from hydra.reduction import reduce_term
+
+from unialg import NumpyBackend, Semiring, Sort
+from unialg.terms import tensor_coder
 
 
 def encode_array(coder, arr):
@@ -49,3 +53,33 @@ def build_schema(eq_by_name, extra_sorts=()):
     for s in extra_sorts:
         sort_wrap(s).register_schema(schema)
     return FrozenDict(schema)
+
+
+@pytest.fixture
+def backend():
+    return NumpyBackend()
+
+
+@pytest.fixture
+def cx():
+    return Context(trace=(), messages=(), other=FrozenDict({}))
+
+
+@pytest.fixture
+def real_sr():
+    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
+
+
+@pytest.fixture
+def tropical_sr():
+    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
+
+
+@pytest.fixture
+def hidden(real_sr):
+    return Sort("hidden", real_sr)
+
+
+@pytest.fixture
+def coder(backend):
+    return tensor_coder(backend)

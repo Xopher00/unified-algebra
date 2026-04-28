@@ -5,13 +5,8 @@ import pytest
 
 from hydra.core import Name
 
-from unialg import NumpyBackend, Semiring, Sort, Equation
+from unialg import Semiring, Sort, Equation
 from unialg.assembly.graph import topo_edges, validate_pipeline, assemble_graph
-
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
 
 
 @pytest.fixture

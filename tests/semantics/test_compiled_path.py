@@ -8,33 +8,6 @@ from unialg import (
     Semiring, Sort, Equation, NumpyBackend,
     PathSpec, FanSpec, FoldSpec,
 )
-from unialg.terms import tensor_coder
-from unialg.assembly.compositions import PathComposition, FanComposition
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-@pytest.fixture
-def tropical_sr():
-    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
-
-@pytest.fixture
-def hidden(real_sr):
-    return Sort("hidden", real_sr)
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
 
 
 # ---------------------------------------------------------------------------

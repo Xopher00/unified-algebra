@@ -10,7 +10,7 @@ import pytest
 
 from unialg import (
     NumpyBackend, parse_ua, parse_ua_spec, UASpec,
-    PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, LensPathSpec, LensFanSpec,
+    PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, PathSpec, FanSpec,
 )
 from unialg import Equation
 
@@ -217,7 +217,7 @@ branch kv : hidden -> hidden = proj[q] | proj[k] | proj[v]
         assert 'k_proj' in eq_names_in_spec
         assert 'v_proj' in eq_names_in_spec
         fan_spec = spec.specs[0]
-        assert fan_spec.branch_names == ['q_proj', 'k_proj', 'v_proj']
+        assert fan_spec.branches == ['q_proj', 'k_proj', 'v_proj']
 
     def test_template_expansion_in_path(self):
         """Seq with proj[q] >> proj[k] should expand to two concrete equations."""
@@ -267,6 +267,78 @@ seq qr : hidden -> hidden = proj[q] >> relu
         assert 'relu' in eq_names_in_spec
         path_spec = spec.specs[0]
         assert path_spec.eq_names == ['q_proj', 'relu']
+
+
+# ---------------------------------------------------------------------------
+# Op inputs attribute
+# ---------------------------------------------------------------------------
+
+_INPUTS_BASE = """
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+"""
+
+class TestOpInputsAttribute:
+
+    def test_single_input_parsed(self):
+        """inputs = linear sets the equation's inputs tuple to ('linear',)."""
+        spec = parse_ua_spec(_INPUTS_BASE + """
+op linear : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+
+op relu : hidden -> hidden
+  nonlinearity = relu
+  inputs = linear
+""")
+        relu_eq = next(eq for eq in spec.equations if eq.name == 'relu')
+        assert tuple(relu_eq.inputs) == ('linear',)
+
+    def test_multi_input_parsed(self):
+        """inputs = a, b sets the equation's inputs tuple to ('a', 'b')."""
+        spec = parse_ua_spec(_INPUTS_BASE + """
+op a : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+
+op b : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+
+op c : hidden -> hidden
+  einsum = "ij,jk->ik"
+  algebra = real
+  inputs = a, b
+""")
+        c_eq = next(eq for eq in spec.equations if eq.name == 'c')
+        assert tuple(c_eq.inputs) == ('a', 'b')
+
+    def test_no_inputs_defaults_empty(self):
+        """An op without inputs = has an empty inputs tuple."""
+        spec = parse_ua_spec(_INPUTS_BASE + """
+op linear : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+""")
+        linear_eq = spec.equations[0]
+        assert tuple(linear_eq.inputs) == ()
+
+    def test_inputs_does_not_affect_other_attrs(self):
+        """inputs attribute coexists with einsum and algebra attributes."""
+        spec = parse_ua_spec(_INPUTS_BASE + """
+op linear : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+
+op downstream : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+  inputs = linear
+""")
+        ds_eq = next(eq for eq in spec.equations if eq.name == 'downstream')
+        assert ds_eq.einsum == "ij,j->i"
+        assert ds_eq.semiring_name == "real"
+        assert tuple(ds_eq.inputs) == ('linear',)
 
 
 # ---------------------------------------------------------------------------
@@ -542,7 +614,7 @@ branch parallel : hidden -> hidden = a | b | c
 """
         spec = parse_ua_spec(text)
         fan_spec = spec.specs[0]
-        assert fan_spec.branch_names == ['a', 'b', 'c']
+        assert fan_spec.branches == ['a', 'b', 'c']
         assert fan_spec.merge_names == ['add_merge']
 
     def test_fan_entry_point_exists(self):
@@ -869,7 +941,7 @@ lens_branch attention : hidden <-> hidden = backprop1 | backprop2
         lfs = spec.specs[0]
         assert isinstance(lfs, FanSpec)
         assert lfs.name == 'attention'
-        assert lfs.branch_names == ['fwd1', 'fwd2']
+        assert lfs.branches == ['fwd1', 'fwd2']
         assert lfs.merge_names == ['merge_fwd']
         assert lfs.domain_sort is not None
         assert lfs.codomain_sort is not None

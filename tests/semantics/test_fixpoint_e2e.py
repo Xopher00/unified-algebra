@@ -3,79 +3,21 @@
 import numpy as np
 import pytest
 
-from hydra.context import Context
 from hydra.core import Name
-from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var
 from hydra.dsl.prims import prim1, float32 as float32_coder
-from hydra.reduction import reduce_term
 
 from unialg import (
     NumpyBackend, Semiring, Sort,
     Equation,
     FixpointSpec,
 )
-from unialg.terms import tensor_coder
-from unialg.assembly.graph import build_graph
 from unialg.assembly.compositions import FixpointComposition
 from unialg.assembly._primitives import fixpoint_primitive
 from unialg.assembly._equation_resolution import resolve_equation
 from unialg.algebra.sort import sort_wrap
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def encode_array(coder, arr):
-    result = coder.decode(None, np.ascontiguousarray(arr, dtype=np.float64))
-    assert isinstance(result, Right)
-    return result.value
-
-
-def decode_term(coder, term):
-    result = coder.encode(None, None, term)
-    assert isinstance(result, Right)
-    return result.value
-
-
-def assert_reduce_ok(cx, graph, term):
-    result = reduce_term(cx, graph, True, term)
-    assert isinstance(result, Right), f"reduce_term returned Left: {result}"
-    return result.value
-
-
-def make_graph_with_stdlib(primitives=None, bound_terms=None, sorts=None):
-    """Build a Hydra Graph with standard library + extra primitives/bound_terms."""
-    from hydra.sources.libraries import standard_library
-    all_prims = dict(standard_library())
-    if primitives:
-        all_prims.update(primitives)
-    return build_graph(sorts or [], primitives=all_prims, bound_terms=bound_terms or {})
+from conftest import encode_array, decode_term, assert_reduce_ok, make_graph_with_stdlib
 
 
 # ===========================================================================

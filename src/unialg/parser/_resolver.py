@@ -14,7 +14,7 @@ from . import UASpec
 _SPEC_CLASSES = {
     'seq': sp.PathSpec, 'branch': sp.FanSpec, 'scan': sp.FoldSpec,
     'unroll': sp.UnfoldSpec, 'fixpoint': sp.FixpointSpec,
-    'lens_seq': sp.LensPathSpec, 'lens_branch': sp.LensFanSpec,
+    'lens_seq': sp.PathSpec, 'lens_branch': sp.FanSpec,
     'parallel': sp.ParallelSpec,
 }
 
@@ -94,7 +94,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         _, name, kw_args = decl
         sr_term = alg.Semiring(name, plus=kw_args['plus'], times=kw_args['times'],
                                zero=kw_args['zero'], one=kw_args['one'],
-                               contraction=kw_args.get('contraction', ''),
+                               contraction=kw_args.get('strategy') or kw_args.get('contraction', ''),
                                residual=kw_args.get('residual', ''))
         semirings[name] = sr_term
 
@@ -114,13 +114,17 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         sr_term = _get_sr(sr_name) if sr_name else None
         is_template = attr_dict.get('template', False)
         is_adjoint = bool(attr_dict.get('adjoint', False))
+        inputs_val = attr_dict.get('inputs', [])
+        if isinstance(inputs_val, str):
+            inputs_val = [inputs_val]
 
         if is_template:
             templates_by_name[name] = (einsum, dom_sort, cod_sort, sr_term, nl)
         else:
             eq_term = alg.Equation(name, einsum, dom_sort, cod_sort,
                                   sr_term, nonlinearity=nl,
-                                  adjoint="true" if is_adjoint else "")
+                                  inputs=tuple(inputs_val),
+                                  adjoint=is_adjoint)
             equations_by_name[name] = eq_term
             equations_list.append(eq_term)
 

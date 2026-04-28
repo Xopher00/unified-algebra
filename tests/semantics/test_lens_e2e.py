@@ -8,53 +8,25 @@ import numpy as np
 import pytest
 
 import hydra.core as core
-from hydra.context import Context
 from hydra.core import Name
-from hydra.dsl.python import FrozenDict, Right
+from hydra.dsl.python import Right
 from hydra.dsl.terms import apply, var
 import hydra.dsl.terms as Terms
-from hydra.reduction import reduce_term
 
 from unialg import (
     NumpyBackend, Semiring, Sort,
     ProductSort, Equation,
-    FoldSpec, LensPathSpec,
+    PathSpec,
 )
-from unialg.terms import tensor_coder
-from unialg.assembly.graph import build_graph, assemble_graph
-from unialg.assembly.compositions import PathComposition, FanComposition
+from unialg.assembly.graph import assemble_graph
 from unialg.algebra.sort import Lens
-from unialg.assembly._primitives import lens_fwd_primitive, lens_bwd_primitive
+
+from conftest import encode_array, decode_term, assert_reduce_ok, build_schema
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def cx():
-    return Context(trace=(), messages=(), other=FrozenDict({}))
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-
-@pytest.fixture
-def tropical_sr():
-    return Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
-
-
-@pytest.fixture
-def hidden(real_sr):
-    return Sort("hidden", real_sr)
-
 
 @pytest.fixture
 def output_sort(real_sr):
@@ -71,32 +43,9 @@ def tropic_sort(tropical_sr):
     return Sort("tropic", tropical_sr)
 
 
-@pytest.fixture
-def coder(backend):
-    return tensor_coder(backend)
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def encode_array(coder, arr):
-    result = coder.decode(None, np.ascontiguousarray(arr, dtype=np.float64))
-    assert isinstance(result, Right)
-    return result.value
-
-
-def decode_term(coder, term):
-    result = coder.encode(None, None, term)
-    assert isinstance(result, Right)
-    return result.value
-
-
-def assert_reduce_ok(cx, graph, term):
-    result = reduce_term(cx, graph, True, term)
-    assert isinstance(result, Right), f"reduce_term returned Left: {result}"
-    return result.value
-
 
 def pair_relu(x):
     """Custom unary: x -> (relu(x), x). Returns a tuple."""
@@ -106,16 +55,6 @@ def pair_relu(x):
 def pair_tanh(x):
     """Custom unary: x -> (tanh(x), x). Returns a tuple."""
     return (np.tanh(x), x)
-
-
-def _schema(eq_by_name, extra_sorts=()):
-    from unialg.algebra.sort import sort_wrap
-    schema = {}
-    for eq in eq_by_name.values():
-        eq.register_sorts(schema)
-    for s in extra_sorts:
-        sort_wrap(s).register_schema(schema)
-    return FrozenDict(schema)
 
 
 # ===========================================================================
@@ -134,7 +73,7 @@ class TestLensEndToEnd:
         graph, *_ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            specs=[LensPathSpec("relu_pipe", ["relu_fwd"], hidden, hidden, bwd_eq_names=["relu_bwd"])],
+            specs=[PathSpec("relu_pipe", ["relu_fwd"], hidden, hidden, bwd_eq_names=["relu_bwd"])],
         )
 
         x = np.array([-1.0, 0.5, -0.3, 2.0])
@@ -154,7 +93,7 @@ class TestLensEndToEnd:
         graph, *_ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            specs=[LensPathSpec("mixed_pipe", ["relu_fwd2"], hidden, hidden, bwd_eq_names=["tanh_bwd2"])],
+            specs=[PathSpec("mixed_pipe", ["relu_fwd2"], hidden, hidden, bwd_eq_names=["tanh_bwd2"])],
         )
 
         x = np.array([1.0, -1.0, 0.0, 2.0])
@@ -178,7 +117,7 @@ class TestLensEndToEnd:
         graph, *_ = assemble_graph(
             [eq_relu_fwd, eq_relu_bwd, eq_tanh_fwd, eq_tanh_bwd], backend,
             lenses=[l_relu, l_tanh],
-            specs=[LensPathSpec("two_lens", ["relu_f", "tanh_f"], hidden, hidden, bwd_eq_names=["relu_b", "tanh_b"])],
+            specs=[PathSpec("two_lens", ["relu_f", "tanh_f"], hidden, hidden, bwd_eq_names=["relu_b", "tanh_b"])],
         )
 
         x = np.array([-1.0, 0.5, 0.0, 2.0])
@@ -202,7 +141,7 @@ class TestLensEndToEnd:
         graph, *_ = assemble_graph(
             [eq_abs_fwd, eq_abs_bwd, eq_relu_fwd, eq_relu_bwd], backend,
             lenses=[l_abs, l_relu],
-            specs=[LensPathSpec("asym_pipe", ["abs_f", "relu_f2"], hidden, hidden, bwd_eq_names=["abs_b", "relu_b2"])],
+            specs=[PathSpec("asym_pipe", ["abs_f", "relu_f2"], hidden, hidden, bwd_eq_names=["abs_b", "relu_b2"])],
         )
 
         x = np.array([1.0, -1.0, 0.5])
@@ -233,8 +172,8 @@ class TestLensSemiringPolymorphism:
         eq_fwd = Equation("tp2_fwd", None, tropic_sort, tropic_sort, nonlinearity="relu")
         eq_bwd = Equation("tp2_bwd", None, tropic_sort, tropic_sort, nonlinearity="relu")
         eq_by_name = {"tp2_fwd": eq_fwd, "tp2_bwd": eq_bwd}
-        spec = LensPathSpec("tropic_id", ["tp2_fwd"], tropic_sort, tropic_sort, bwd_eq_names=["tp2_bwd"])
-        spec.validate(eq_by_name, _schema(eq_by_name))
+        spec = PathSpec("tropic_id", ["tp2_fwd"], tropic_sort, tropic_sort, bwd_eq_names=["tp2_bwd"])
+        spec.validate(eq_by_name, build_schema(eq_by_name))
 
     def test_tropical_lens_end_to_end(self, cx, tropical_sr, tropic_sort, backend, coder):
         """Tropical unary identity lens path executes correctly."""
@@ -245,7 +184,7 @@ class TestLensSemiringPolymorphism:
         graph, *_ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            specs=[LensPathSpec("trp_pipe", ["trp_fwd"], tropic_sort, tropic_sort, bwd_eq_names=["trp_bwd"])],
+            specs=[PathSpec("trp_pipe", ["trp_fwd"], tropic_sort, tropic_sort, bwd_eq_names=["trp_bwd"])],
         )
 
         x = np.array([1.0, 3.0, 2.0])
@@ -272,7 +211,7 @@ class TestLensSemiringPolymorphism:
         graph, *_ = assemble_graph(
             [eq_real_fwd, eq_real_bwd], backend,
             lenses=[l_real],
-            specs=[LensPathSpec("real_pipe", ["real_relu"], real_sort, real_sort, bwd_eq_names=["real_tanh"])],
+            specs=[PathSpec("real_pipe", ["real_relu"], real_sort, real_sort, bwd_eq_names=["real_tanh"])],
         )
 
         x = np.array([-1.0, 0.5, 2.0])
@@ -294,7 +233,7 @@ class TestLensSemiringPolymorphism:
 # ===========================================================================
 
 class TestOpticLensValidation:
-    """LensPathSpec with has_residual enforces product sort constraints."""
+    """PathSpec with has_residual enforces product sort constraints."""
 
     def _make_eq_with_product_codomain(self, hidden, output_sort, residual_sort):
         prod_sort = ProductSort([output_sort, residual_sort])
@@ -309,8 +248,8 @@ class TestOpticLensValidation:
             hidden, output_sort, residual_sort
         )
         eq_by_name = {"optic_fwd": eq_fwd, "optic_bwd": eq_bwd}
-        spec = LensPathSpec("optic", ["optic_fwd"], hidden, prod_sort, bwd_eq_names=["optic_bwd"])
-        spec.validate(eq_by_name, _schema(eq_by_name))
+        spec = PathSpec("optic", ["optic_fwd"], hidden, prod_sort, bwd_eq_names=["optic_bwd"])
+        spec.validate(eq_by_name, build_schema(eq_by_name))
 
     def test_validate_lens_raises_when_codomain_not_product(
         self, hidden, output_sort, residual_sort
@@ -320,16 +259,16 @@ class TestOpticLensValidation:
         eq_bwd = Equation("plain_bwd", None, output_sort, hidden, nonlinearity="relu")
         eq_by_name = {"plain_fwd": eq_fwd, "plain_bwd": eq_bwd}
         # This should pass (valid bidi pair), not raise. Residual checking is a
-        # semantic concern, not enforced structurally by LensPathSpec alone.
-        spec = LensPathSpec("ok_optic", ["plain_fwd"], hidden, output_sort, bwd_eq_names=["plain_bwd"])
-        spec.validate(eq_by_name, _schema(eq_by_name))
+        # semantic concern, not enforced structurally by PathSpec alone.
+        spec = PathSpec("ok_optic", ["plain_fwd"], hidden, output_sort, bwd_eq_names=["plain_bwd"])
+        spec.validate(eq_by_name, build_schema(eq_by_name))
 
     def test_validate_lens_plain_still_works_with_no_residual(self, hidden, output_sort, real_sr):
         eq_fwd = Equation("plain2_fwd", "i->j", hidden, output_sort, real_sr)
         eq_bwd = Equation("plain2_bwd", "j->i", output_sort, hidden, real_sr)
-        spec = LensPathSpec("plain2", ["plain2_fwd"], hidden, output_sort, bwd_eq_names=["plain2_bwd"])
+        spec = PathSpec("plain2", ["plain2_fwd"], hidden, output_sort, bwd_eq_names=["plain2_bwd"])
         ebn = {"plain2_fwd": eq_fwd, "plain2_bwd": eq_bwd}
-        spec.validate(ebn, _schema(ebn))
+        spec.validate(ebn, build_schema(ebn))
 
     def test_optic_lens_forward_produces_pair_end_to_end(self, cx, backend, coder):
         """End-to-end: a lens with a product codomain can be assembled and reduced."""
@@ -348,7 +287,7 @@ class TestOpticLensValidation:
         graph, *_ = assemble_graph(
             [eq_fwd, eq_bwd], backend,
             lenses=[l],
-            specs=[LensPathSpec("optic2_pipe", ["optic2_fwd"], h_sort, prod, bwd_eq_names=["optic2_bwd"])],
+            specs=[PathSpec("optic2_pipe", ["optic2_fwd"], h_sort, prod, bwd_eq_names=["optic2_bwd"])],
         )
 
         x = np.array([-1.0, 0.5, 2.0])
@@ -392,7 +331,7 @@ class TestMultiOpticEndToEnd:
         graph, *_ = assemble_graph(
             [eq_a_fwd, eq_a_bwd, eq_b_fwd, eq_b_bwd], backend,
             lenses=[l_a, l_b],
-            specs=[LensPathSpec("two_optic13", ["a13_fwd", "b13_fwd"], hidden, hidden,
+            specs=[PathSpec("two_optic13", ["a13_fwd", "b13_fwd"], hidden, hidden,
                                 bwd_eq_names=["a13_bwd", "b13_bwd"], has_residual=True)],
             extra_sorts=[prod],
         )
@@ -549,7 +488,7 @@ class TestOpticSemiringPolymorphism:
         graph, *_ = assemble_graph(
             [eq_a_fwd, eq_a_bwd, eq_b_fwd, eq_b_bwd], backend,
             lenses=[l_a, l_b],
-            specs=[LensPathSpec("trop_two_optic", ["at13_fwd", "bt13_fwd"], t_sort, t_sort,
+            specs=[PathSpec("trop_two_optic", ["at13_fwd", "bt13_fwd"], t_sort, t_sort,
                                 bwd_eq_names=["at13_bwd", "bt13_bwd"], has_residual=True)],
             extra_sorts=[prod],
         )

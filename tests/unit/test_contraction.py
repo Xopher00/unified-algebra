@@ -8,11 +8,6 @@ from unialg.algebra.contraction import compile_einsum, semiring_contract
 
 
 @pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
 def real(backend):
     return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0).resolve(backend)
 

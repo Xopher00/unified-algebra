@@ -13,7 +13,7 @@ import hydra.core as core
 from hydra.dsl.python import Right
 
 from unialg import (
-    NumpyBackend, Semiring, Sort,
+    Sort,
     ProductSort,
 )
 
@@ -21,21 +21,6 @@ from unialg import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def backend():
-    return NumpyBackend()
-
-
-@pytest.fixture
-def real_sr():
-    return Semiring("real", plus="add", times="multiply", zero=0.0, one=1.0)
-
-
-@pytest.fixture
-def hidden(real_sr):
-    return Sort("hidden", real_sr)
-
 
 @pytest.fixture
 def output_sort(real_sr):

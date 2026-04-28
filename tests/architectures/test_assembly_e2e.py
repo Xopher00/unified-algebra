@@ -9,10 +9,9 @@ from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
-from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
-    Equation, assemble_graph,
-)
+from unialg import NumpyBackend, Semiring, Sort, Equation
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import assemble_graph
 
 
 @pytest.fixture

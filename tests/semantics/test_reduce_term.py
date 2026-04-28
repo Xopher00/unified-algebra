@@ -10,10 +10,10 @@ from hydra.dsl.python import FrozenDict, Right, Left
 from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
-from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
-    build_graph, Equation,
-)
+from unialg import NumpyBackend, Semiring, Sort, Equation
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph
+from unialg.assembly._equation_resolution import resolve_equation
 
 
 # ---------------------------------------------------------------------------
@@ -90,17 +90,17 @@ class TestParametricEquation:
 
     def test_is_primitive(self, real_sr, hidden, backend):
         eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         assert isinstance(prim, hydra.graph.Primitive)
 
     def test_name(self, real_sr, hidden, backend):
         eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         assert prim.name == Name("ua.equation.linear")
 
     def test_direct_call(self, cx, real_sr, hidden, backend, coder):
         eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         graph = make_graph()
 
         W = np.array([[1.0, 2.0], [3.0, 4.0]])
@@ -114,7 +114,7 @@ class TestParametricEquation:
 
     def test_via_reduce_term(self, cx, real_sr, hidden, backend, coder):
         eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         graph = make_graph(primitives={prim.name: prim})
 
         W = np.array([[1.0, 2.0], [3.0, 4.0]])
@@ -128,7 +128,7 @@ class TestParametricEquation:
 
     def test_non_square(self, cx, real_sr, hidden, backend, coder):
         eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         graph = make_graph()
 
         W = np.array([[1.0, 0.0, 2.0], [0.0, 1.0, 3.0]])
@@ -149,17 +149,17 @@ class TestPointwiseEquation:
 
     def test_is_primitive(self, hidden, backend):
         eq = Equation("relu", None, hidden, hidden, nonlinearity="relu")
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         assert isinstance(prim, hydra.graph.Primitive)
 
     def test_name(self, hidden, backend):
         eq = Equation("relu", None, hidden, hidden, nonlinearity="relu")
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         assert prim.name == Name("ua.equation.relu")
 
     def test_relu(self, cx, hidden, backend, coder):
         eq = Equation("relu", None, hidden, hidden, nonlinearity="relu")
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         graph = make_graph()
 
         x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
@@ -169,7 +169,7 @@ class TestPointwiseEquation:
 
     def test_via_reduce_term(self, cx, hidden, backend, coder):
         eq = Equation("relu", None, hidden, hidden, nonlinearity="relu")
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         graph = make_graph(primitives={prim.name: prim})
 
         x = np.array([-1.0, 0.0, 1.0, 2.0])
@@ -179,7 +179,7 @@ class TestPointwiseEquation:
 
     def test_sigmoid(self, cx, hidden, backend, coder):
         eq = Equation("sigmoid", None, hidden, hidden, nonlinearity="sigmoid")
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         graph = make_graph()
 
         x = np.array([-2.0, 0.0, 2.0])
@@ -200,7 +200,7 @@ class TestCombinedEquation:
     def test_linear_relu(self, cx, real_sr, hidden, backend, coder):
         """Y[i] = relu(W[i,j] X[j]) — one equation, not two."""
         eq = Equation("linear_relu", "ij,j->i", hidden, hidden, real_sr, nonlinearity="relu")
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         graph = make_graph(primitives={prim.name: prim})
 
         W = np.array([[1.0, -2.0], [-3.0, 4.0]])
@@ -224,7 +224,7 @@ class TestSemiringVariants:
         trop_sr = Semiring("tropical", plus="minimum", times="add", zero=float("inf"), one=0.0)
         hidden = Sort("hidden", trop_sr)
         eq = Equation("trop_linear", "ij,j->i", hidden, hidden, trop_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         graph = make_graph(primitives={prim.name: prim})
 
         W = np.array([[1.0, 3.0], [2.0, 0.0]])
@@ -241,7 +241,7 @@ class TestSemiringVariants:
                           bottom=0.0, top=1.0)
         hidden = Sort("hidden", fuz_sr)
         eq = Equation("fuz_linear", "ij,j->i", hidden, hidden, fuz_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         graph = make_graph(primitives={prim.name: prim})
 
         W = np.array([[0.8, 0.3], [0.2, 0.9]])
@@ -262,8 +262,8 @@ class TestEndToEnd:
 
     def test_chain(self, cx, real_sr, hidden, backend, coder):
         """relu(W @ x) — two equations composed through reduce_term."""
-        linear, *_ = Equation("linear", "ij,j->i", hidden, hidden, real_sr).resolve(backend)
-        relu, *_ = Equation("relu", None, hidden, hidden, nonlinearity="relu").resolve(backend)
+        linear, *_ = resolve_equation(Equation("linear", "ij,j->i", hidden, hidden, real_sr), backend)
+        relu, *_ = resolve_equation(Equation("relu", None, hidden, hidden, nonlinearity="relu"), backend)
 
         graph = make_graph(primitives={linear.name: linear, relu.name: relu})
 
@@ -281,8 +281,8 @@ class TestEndToEnd:
 
     def test_two_layers(self, cx, real_sr, hidden, backend, coder):
         """y = W2 @ relu(W1 @ x)"""
-        linear, *_ = Equation("linear", "ij,j->i", hidden, hidden, real_sr).resolve(backend)
-        relu, *_ = Equation("relu", None, hidden, hidden, nonlinearity="relu").resolve(backend)
+        linear, *_ = resolve_equation(Equation("linear", "ij,j->i", hidden, hidden, real_sr), backend)
+        relu, *_ = resolve_equation(Equation("relu", None, hidden, hidden, nonlinearity="relu"), backend)
 
         graph = make_graph(primitives={linear.name: linear, relu.name: relu})
 

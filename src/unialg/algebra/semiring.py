@@ -74,13 +74,16 @@ class Semiring(_RecordView):
         rng = random.Random(seed)
         return [tuple(rng.uniform(self.bottom, self.top) for _ in range(3)) for _ in range(n)]
 
-    def resolve(self, backend: "Backend", *, samples=None) -> "Semiring.Resolved":
-        """Resolve this semiring against a backend, checking laws first.
+    def resolve(self, backend: "Backend", *, samples=None, check_laws: bool = True) -> "Semiring.Resolved":
+        """Resolve this semiring against a backend.
 
+        Law checking runs by default. Pass check_laws=False for semirings that
+        intentionally violate exact semiring laws (e.g. smooth/approximate ops).
         Samples for law checking are drawn uniformly from [bottom, top]
         unless overridden via `samples`.
         """
-        self.check_laws(backend, samples or self._law_check_samples())
+        if check_laws:
+            self.check_laws(backend, samples or self._law_check_samples())
         residual_name = self.residual
         contraction_fn = None
         if self.contraction:

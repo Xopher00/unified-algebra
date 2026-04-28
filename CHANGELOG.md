@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sequential (path) and parallel (fan) composition of tensor operations with unbounded arity list-based fan merges
 - Bidirectional morphisms (lenses) pairing forward and backward equations for gradient computation, path recovery, and likelihood propagation
 - Fold (catamorphism) and unfold (anamorphism) for recursive architectures via Hydra foldl and custom unfold_n
-- Dynamic hyperparameter binding with `rebind_hyperparams` for injectable and rebindable named parameters between reductions
+- Dynamic parameter binding with `rebind_params` for injectable and rebindable named parameters between reductions
 - DAG validation including topological sort and cycle detection for pipeline composition
 - Sort and rank junction checking across morphism compositions to enforce type consistency
 - Hydra-native morphism resolution via `Primitive` terms with full integration into Hydra's reduction engine and standard library

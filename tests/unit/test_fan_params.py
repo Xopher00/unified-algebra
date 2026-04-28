@@ -12,12 +12,14 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
-    build_graph, assemble_graph, rebind_params,
+    NumpyBackend, Semiring, Sort,
     Equation,
     PathSpec, FanSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph, assemble_graph, rebind_params
 from unialg.assembly.compositions import PathComposition, FanComposition
+from unialg.assembly._equation_resolution import resolve_equation
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +279,7 @@ class TestHyperparams:
         eq_scale = Equation("scale", ",i->i", scalar_sort, hidden, real_sr)
 
         # This is a 2-input equation — resolve as normal prim2
-        prim, *_ = eq_scale.resolve(backend)
+        prim, *_ = resolve_equation(eq_scale, backend)
         assert prim.name == core.Name("ua.equation.scale")
 
 
@@ -302,7 +304,7 @@ class TestParamSlots:
         eq = Equation("tsoftplus", None, hidden, hidden,
                       nonlinearity="temp_softplus", param_slots=("temperature",))
 
-        prim, *_ = eq.resolve(temp_backend)
+        prim, *_ = resolve_equation(eq, temp_backend)
         assert prim.name == core.Name("ua.equation.tsoftplus")
 
         # Build graph and test via reduce_term
@@ -330,7 +332,7 @@ class TestParamSlots:
         eq = Equation("tsoftplus", None, hidden, hidden,
                       nonlinearity="temp_softplus", param_slots=("temperature",))
 
-        prim, *_ = eq.resolve(temp_backend)
+        prim, *_ = resolve_equation(eq, temp_backend)
         from hydra.sources.libraries import standard_library
         primitives = dict(standard_library())
         primitives[prim.name] = prim

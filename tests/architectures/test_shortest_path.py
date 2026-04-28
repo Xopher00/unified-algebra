@@ -27,12 +27,11 @@ from hydra.dsl.python import FrozenDict, Right
 from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
-from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
-    Equation,
-    assemble_graph, build_graph, PathSpec,
-)
+from unialg import NumpyBackend, Semiring, Sort, Equation, PathSpec
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import assemble_graph, build_graph
 from unialg.assembly.compositions import PathComposition
+from unialg.assembly._equation_resolution import resolve_equation
 
 
 # ---------------------------------------------------------------------------
@@ -206,8 +205,8 @@ class TestShortestPath:
             params={"sp1": [W_enc], "sp2": [W_enc]},
         ).to_lambda()
 
-        prim_sp1, *_ = eq1.resolve(backend)
-        prim_sp2, *_ = eq2.resolve(backend)
+        prim_sp1, *_ = resolve_equation(eq1, backend)
+        prim_sp2, *_ = resolve_equation(eq2, backend)
         graph2 = build_graph(
             [],
             primitives={
@@ -259,8 +258,8 @@ class TestShortestPath:
             params={"real1": [W_enc], "real2": [W_enc]},
         ).to_lambda()
 
-        prim_real1, *_ = eq1.resolve(backend)
-        prim_real2, *_ = eq2.resolve(backend)
+        prim_real1, *_ = resolve_equation(eq1, backend)
+        prim_real2, *_ = resolve_equation(eq2, backend)
         graph = build_graph(
             [],
             primitives={
@@ -298,7 +297,7 @@ class TestShortestPath:
         We verify both after one hop and after two hops.
         """
         eq = Equation("bfstep", "ij,j->i", node_sort, node_sort, tropical_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
 
         W_enc = enc(coder, W)
         x_enc = enc(coder, x0)

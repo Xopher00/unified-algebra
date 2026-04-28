@@ -38,11 +38,14 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort,
     Equation,
     Lens,
-    assemble_graph, LensPathSpec,
+    LensPathSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import assemble_graph
+from unialg.assembly._equation_resolution import resolve_equation
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +180,7 @@ class TestAutoencoder:
         against input x (input,) to produce z (latent,).
         """
         eq_enc = Equation("ae2_enc", "ij,j->i", input_sort, latent_sort, real_sr)
-        prim, *_ = eq_enc.resolve(backend)
+        prim, *_ = resolve_equation(eq_enc, backend)
 
         # W: 3 x 6,  x: 6  →  z: 3
         W = np.array([
@@ -211,7 +214,7 @@ class TestAutoencoder:
         (input x latent) against latent z (latent,) to reconstruct x_hat (input,).
         """
         eq_dec = Equation("ae3_dec", "ij,j->i", latent_sort, input_sort, real_sr)
-        prim, *_ = eq_dec.resolve(backend)
+        prim, *_ = resolve_equation(eq_dec, backend)
 
         # W_dec: 6 x 3,  z: 3  →  x_hat: 6
         W_dec = np.eye(6, 3)   # first 3 columns of identity

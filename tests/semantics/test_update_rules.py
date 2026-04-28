@@ -22,11 +22,12 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort,
     Equation,
-    assemble_graph, rebind_params,
     PathSpec, UnfoldSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import assemble_graph, rebind_params
 
 
 # ---------------------------------------------------------------------------

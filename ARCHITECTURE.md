@@ -28,15 +28,17 @@ src/unialg/
     algebra/
         semiring.py      Semiring declaration + law validation
         sort.py          Sort (named tensor type), ProductSort, Lens
-        equation.py      Equation (typed tensor morphism) + compilation
+        equation.py      Equation (typed tensor morphism) — pure declaration only
         contraction.py   CompiledEinsum, semiring contraction engine
         expr.py          Expression compiler for inline `define` ops
 
     assembly/
-        graph.py         DAG assembly, topological sort, sort/rank validation
-        compositions.py  Path, Fan, Fold, Unfold, Fixpoint composition objects
-        specs.py         Spec dataclasses (PathSpec, FanSpec, etc.)
-        _primitives.py   Hydra primitive registration
+        graph.py                  DAG assembly, topological sort, sort/rank validation
+        compositions.py           Path, Fan, Fold, Unfold, Fixpoint composition objects
+        specs.py                  Spec dataclasses (PathSpec, FanSpec, etc.)
+        _primitives.py            Hydra primitive registration
+        _validation.py            Type unification helper (unify_or_raise)
+        _equation_resolution.py   Equation lowering to Hydra Primitives
 
     parser/
         _grammar.py      PEG grammar for .ua surface syntax

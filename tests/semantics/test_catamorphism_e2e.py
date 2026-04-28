@@ -11,13 +11,15 @@ from hydra.dsl.terms import apply, var, list_
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort,
     Equation,
-    build_graph, assemble_graph,
     PathSpec, FoldSpec, UnfoldSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph, assemble_graph
 from unialg.assembly.compositions import FoldComposition, UnfoldComposition
 from unialg.assembly._primitives import unfold_n_primitive
+from unialg.assembly._equation_resolution import resolve_equation
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +111,7 @@ class TestFoldReduce:
         FoldComposition([x1, x2, x3]) = x1 * x2 * x3 (elementwise)
         """
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         init = np.ones(3)
         init_term = encode_array(coder, init)
@@ -149,7 +151,7 @@ class TestFoldReduce:
     def test_fold_single_element(self, cx, real_sr, hidden, backend, coder):
         """Fold over length-1 list = single step application."""
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         init = np.ones(2)
         init_term = encode_array(coder, init)
@@ -177,7 +179,7 @@ class TestFoldReduce:
         from a manual loop using the same step.
         """
         eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
@@ -211,7 +213,7 @@ class TestUnfoldReduce:
     def test_unfold_tanh(self, cx, real_sr, hidden, backend, coder):
         """Unfold tanh for 3 steps: s0 → tanh(s0) → tanh(tanh(s0)) → ..."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         unfold_prim = unfold_n_primitive
         u_name, u_term = UnfoldComposition("stream", "step", 3).to_lambda()
@@ -253,7 +255,7 @@ class TestUnfoldReduce:
     def test_unfold_single_step(self, cx, real_sr, hidden, backend, coder):
         """Unfold with n_steps=1."""
         eq_step = Equation("step", None, hidden, hidden, nonlinearity="relu")
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         unfold_prim = unfold_n_primitive
         u_name, u_term = UnfoldComposition("one", "step", 1).to_lambda()

@@ -11,11 +11,14 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
-    build_graph, assemble_graph, Equation,
+    NumpyBackend, Semiring, Sort,
+    Equation,
     PathSpec, FanSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph, assemble_graph
 from unialg.assembly.compositions import PathComposition, FanComposition
+from unialg.assembly._equation_resolution import resolve_equation, resolve_equation_as_merge
 
 
 # ---------------------------------------------------------------------------
@@ -105,8 +108,8 @@ class TestPathReduce:
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
 
-        prim_relu, *_ = eq_relu.resolve(backend)
-        prim_tanh, *_ = eq_tanh.resolve(backend)
+        prim_relu, *_ = resolve_equation(eq_relu, backend)
+        prim_tanh, *_ = resolve_equation(eq_tanh, backend)
 
         p_name, p_term = PathComposition("act", ["relu", "tanh"]).to_lambda()
 
@@ -142,7 +145,7 @@ class TestPathReduce:
 
         prims = {}
         for eq in [eq_relu, eq_tanh, eq_sig]:
-            p, *_ = eq.resolve(backend)
+            p, *_ = resolve_equation(eq, backend)
             prims[p.name] = p
 
         p_name, p_term = PathComposition("deep", ["relu", "tanh", "sigmoid"]).to_lambda()
@@ -170,7 +173,7 @@ class TestPathReduce:
     def test_single_step_path(self, cx, real_sr, hidden, backend, coder):
         """Degenerate path with one equation == calling the equation directly."""
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
-        prim, *_ = eq_relu.resolve(backend)
+        prim, *_ = resolve_equation(eq_relu, backend)
 
         p_name, p_term = PathComposition("just_relu", ["relu"]).to_lambda()
 
@@ -199,7 +202,7 @@ class TestPathReduce:
         All three references resolve to the same Hydra primitive via name lookup.
         """
         eq_tanh = Equation("tanh", None, hidden, hidden, nonlinearity="tanh")
-        prim, *_ = eq_tanh.resolve(backend)
+        prim, *_ = resolve_equation(eq_tanh, backend)
 
         p_name, p_term = PathComposition("triple", ["tanh", "tanh", "tanh"]).to_lambda()
         graph = build_graph(
@@ -217,8 +220,8 @@ class TestPathReduce:
         eq_lin = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
         eq_relu = Equation("relu", None, hidden, hidden, nonlinearity="relu")
 
-        prim_lin, *_ = eq_lin.resolve(backend)
-        prim_relu, *_ = eq_relu.resolve(backend)
+        prim_lin, *_ = resolve_equation(eq_lin, backend)
+        prim_relu, *_ = resolve_equation(eq_relu, backend)
 
         W = np.array([[1.0, -2.0], [-3.0, 4.0]])
         W_enc = encode_array(coder, W)
@@ -268,11 +271,11 @@ class TestFanReduce:
 
         prims = {}
         for eq in [eq_relu, eq_tanh]:
-            p, *_ = eq.resolve(backend)
+            p, *_ = resolve_equation(eq, backend)
             prims[p.name] = p
         # Merge is resolved as list-merge under __merge__ key
         merge_key = core.Name("ua.equation.merge.__merge__")
-        merge_prim, *_ = eq_merge.resolve_as_merge(backend, prim_name_override=merge_key)
+        merge_prim, *_ = resolve_equation_as_merge(eq_merge, backend, prim_name_override=merge_key)
         prims[merge_prim.name] = merge_prim
 
         f_name, f_term = FanComposition("res", ["relu", "tanh"], "merge").to_lambda()
@@ -298,11 +301,11 @@ class TestFanReduce:
         eq_ident = Equation("ident", "i->i", hidden, hidden, real_sr)
 
         prims = {}
-        p, *_ = eq_relu.resolve(backend)
+        p, *_ = resolve_equation(eq_relu, backend)
         prims[p.name] = p
         # Merge is resolved as list-merge under __merge__ key
         merge_key = core.Name("ua.equation.ident.__merge__")
-        p, *_ = eq_ident.resolve_as_merge(backend, prim_name_override=merge_key)
+        p, *_ = resolve_equation_as_merge(eq_ident, backend, prim_name_override=merge_key)
         prims[p.name] = p
 
         f_name, f_term = FanComposition("single", ["relu"], "ident").to_lambda()
@@ -431,11 +434,11 @@ class TestNesting:
 
         prims = {}
         for eq in [eq_relu, eq_tanh, eq_sig]:
-            p, *_ = eq.resolve(backend)
+            p, *_ = resolve_equation(eq, backend)
             prims[p.name] = p
         # Merge resolved as list-merge under __merge__ key
         merge_key = core.Name("ua.equation.merge.__merge__")
-        p, *_ = eq_merge.resolve_as_merge(backend, prim_name_override=merge_key)
+        p, *_ = resolve_equation_as_merge(eq_merge, backend, prim_name_override=merge_key)
         prims[p.name] = p
 
         f_name, f_term = FanComposition("split", ["relu", "tanh"], "merge").to_lambda()
@@ -491,7 +494,7 @@ class TestOrderSensitivity:
 
         prims = {}
         for eq in [eq_relu, eq_sig]:
-            p, *_ = eq.resolve(backend)
+            p, *_ = resolve_equation(eq, backend)
             prims[p.name] = p
 
         # Path A: sigmoid then relu
@@ -536,11 +539,11 @@ class TestThreeBranchFan:
 
         prims = {}
         for eq in [eq_relu, eq_tanh, eq_sig]:
-            p, *_ = eq.resolve(backend)
+            p, *_ = resolve_equation(eq, backend)
             prims[p.name] = p
         # Merge resolved as list-merge under __merge__ key
         merge_key = core.Name("ua.equation.merge3.__merge__")
-        p, *_ = eq_merge3.resolve_as_merge(backend, prim_name_override=merge_key)
+        p, *_ = resolve_equation_as_merge(eq_merge3, backend, prim_name_override=merge_key)
         prims[p.name] = p
 
         f_name, f_term = FanComposition(

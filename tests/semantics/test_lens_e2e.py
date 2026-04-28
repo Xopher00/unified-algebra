@@ -16,11 +16,12 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort,
     ProductSort, Equation,
-    build_graph, assemble_graph,
     FoldSpec, LensPathSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph, assemble_graph
 from unialg.assembly.compositions import PathComposition, FanComposition
 from unialg.algebra.sort import Lens
 from unialg.assembly._primitives import lens_fwd_primitive, lens_bwd_primitive

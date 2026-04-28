@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 
-from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
-    build_graph, Equation,
-)
+from unialg import NumpyBackend, Semiring, Sort, Equation
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph
+from unialg.assembly._equation_resolution import resolve_equation
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ class TestArityPacking:
     def test_four_tensor_inputs_native(self, real_sr, hidden, backend):
         """Einsum 'i,i,i,i->i' (arity 4): native_fn stays variadic."""
         eq = Equation("e4_native", "i,i,i,i->i", hidden, hidden, real_sr)
-        prim, native_fn, *_ = eq.resolve(backend)
+        prim, native_fn, *_ = resolve_equation(eq, backend)
         # Hydra prim is packed to a single list_-coded slot
         assert prim.name.value == "ua.equation.e4_native"
         result = native_fn(
@@ -65,7 +65,7 @@ class TestArityPacking:
         backend.unary_ops["scaled_add"] = lambda x, a, b: a * x + b
         eq = Equation("e5", "i,i,i->i", hidden, hidden, real_sr,
                       nonlinearity="scaled_add", param_slots=("a", "b"))
-        prim, native_fn, *_ = eq.resolve(backend)
+        prim, native_fn, *_ = resolve_equation(eq, backend)
         # Variadic: 2 params then 3 tensors
         result = native_fn(2.0, 1.0, np.array([1.0]), np.array([2.0]), np.array([3.0]))
         # product 1*2*3=6; 2*6+1=13

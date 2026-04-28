@@ -28,10 +28,8 @@ import pytest
 
 from hydra.core import Name
 
-from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
-    Equation, compile_program, PathSpec,
-)
+from unialg import NumpyBackend, Semiring, Sort, Equation, compile_program, PathSpec
+from unialg.terms import tensor_coder
 
 
 # ---------------------------------------------------------------------------

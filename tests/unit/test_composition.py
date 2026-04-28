@@ -11,10 +11,12 @@ from hydra.dsl.terms import apply, var
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
-    build_graph, assemble_graph, Equation,
+    NumpyBackend, Semiring, Sort,
+    Equation,
     PathSpec, FanSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph, assemble_graph
 from unialg.assembly.compositions import PathComposition, FanComposition
 
 

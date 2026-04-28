@@ -25,9 +25,9 @@ from unialg import (
     NumpyBackend, Semiring, Sort, Equation,
     compile_program, Program,
     PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec,
-    tensor_coder,
     parse_ua,
 )
+from unialg.terms import tensor_coder
 from unialg.runtime.program import EMPTY_CX
 
 

@@ -2,9 +2,8 @@
 
 import pytest
 
-from unialg import (
-    Semiring, Sort, Equation, validate_pipeline,
-)
+from unialg import Semiring, Sort, Equation
+from unialg.assembly.graph import validate_pipeline
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,9 @@
 import numpy as np
 import pytest
 
-from unialg import Semiring, Sort, tensor_coder, build_graph, NumpyBackend
+from unialg import Semiring, Sort, NumpyBackend
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph
 from unialg.algebra.sort import check_sort_compatibility
 from hydra.core import Name, TypeVariable, TypeApplication
 

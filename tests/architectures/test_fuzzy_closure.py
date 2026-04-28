@@ -14,7 +14,8 @@ if wired through a product-sort step op.
 
 import numpy as np
 import pytest
-from unialg import NumpyBackend, compile_einsum, semiring_contract
+from unialg import NumpyBackend
+from unialg.algebra.contraction import compile_einsum, semiring_contract
 from unialg.algebra.semiring import Semiring
 
 

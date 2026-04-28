@@ -5,9 +5,10 @@ import pytest
 
 from unialg import (
     compile_program, Program,
-    Semiring, Sort, Equation, NumpyBackend, tensor_coder,
+    Semiring, Sort, Equation, NumpyBackend,
     PathSpec, FanSpec, FoldSpec,
 )
+from unialg.terms import tensor_coder
 from unialg.assembly.compositions import PathComposition, FanComposition
 
 
@@ -58,7 +59,7 @@ class TestSingleEquation:
         from hydra.dsl.python import FrozenDict, Right
         from hydra.dsl.terms import apply, var
         from hydra.reduction import reduce_term
-        from unialg import assemble_graph
+        from unialg.assembly.graph import assemble_graph
 
         eq = Equation("t1_relu", None, hidden, hidden, nonlinearity="relu")
         graph, *_ = assemble_graph([eq], backend)

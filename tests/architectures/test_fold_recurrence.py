@@ -34,13 +34,15 @@ from hydra.dsl.terms import apply, var, list_
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort,
     Equation,
-    build_graph, assemble_graph,
     FoldSpec, UnfoldSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph, assemble_graph
 from unialg.assembly.compositions import FoldComposition, UnfoldComposition
 from unialg.assembly._primitives import unfold_n_primitive
+from unialg.assembly._equation_resolution import resolve_equation
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +142,7 @@ class TestRNN:
             "rnn_fold_step", "i,i->i", hidden, hidden, real_sr,
             nonlinearity="tanh",
         )
-        prim_fold, *_ = eq_fold_step.resolve(backend)
+        prim_fold, *_ = resolve_equation(eq_fold_step, backend)
         assert prim_fold.name == core.Name("ua.equation.rnn_fold_step")
 
         # Unfold step: h -> tanh(h)
@@ -148,7 +150,7 @@ class TestRNN:
             "rnn_unfold_step", None, hidden, hidden,
             nonlinearity="tanh",
         )
-        prim_unfold, *_ = eq_unfold_step.resolve(backend)
+        prim_unfold, *_ = resolve_equation(eq_unfold_step, backend)
         assert prim_unfold.name == core.Name("ua.equation.rnn_unfold_step")
 
         # Fold and unfold lambdas build without error
@@ -194,7 +196,7 @@ class TestRNN:
             "echo_step", None, hidden, hidden,
             nonlinearity="tanh",
         )
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         u_name, u_term = UnfoldComposition("echo3", "echo_step", 3).to_lambda()
 
@@ -233,7 +235,7 @@ class TestRNN:
             "elman_step", "i,i->i", hidden, hidden, real_sr,
             nonlinearity="tanh",
         )
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         h0 = np.ones(3)
         init_term = encode_array(coder, h0)
@@ -286,7 +288,7 @@ class TestRNN:
             "tied_step", None, hidden, hidden,
             nonlinearity="relu",
         )
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         n_steps = 4
         u_name, u_term = UnfoldComposition("tied_rnn", "tied_step", n_steps).to_lambda()
@@ -330,7 +332,7 @@ class TestRNN:
         eq_step = Equation(
             "tied_fold_step", "i,i->i", hidden, hidden, real_sr,
         )
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         init = np.array([1.0, 1.0, 1.0])
         init_term = encode_array(coder, init)
@@ -385,7 +387,7 @@ class TestRNN:
             "trop_echo_step", None, hidden_trop, hidden_trop,
             nonlinearity="tanh",
         )
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         n_steps = 3
         u_name, u_term = UnfoldComposition("trop_echo", "trop_echo_step", n_steps).to_lambda()
@@ -424,7 +426,7 @@ class TestRNN:
         eq_step = Equation(
             "trop_step", "i,i->i", hidden_trop, hidden_trop, tropical_sr,
         )
-        prim_step, *_ = eq_step.resolve(backend)
+        prim_step, *_ = resolve_equation(eq_step, backend)
 
         h0 = np.array([0.0, 0.0, 0.0])
         init_term = encode_array(coder, h0)
@@ -472,7 +474,7 @@ class TestRNN:
         """
         # Real fold: h_t = h_{t-1} * x_t
         eq_real = Equation("poly_real_step", "i,i->i", hidden, hidden, real_sr)
-        prim_real, *_ = eq_real.resolve(backend)
+        prim_real, *_ = resolve_equation(eq_real, backend)
 
         h0_real = np.array([1.0, 1.0, 1.0])
         init_real = encode_array(coder, h0_real)
@@ -480,7 +482,7 @@ class TestRNN:
 
         # Tropical fold: h_t = h_{t-1} + x_t
         eq_trop = Equation("poly_trop_step", "i,i->i", hidden_trop, hidden_trop, tropical_sr)
-        prim_trop, *_ = eq_trop.resolve(backend)
+        prim_trop, *_ = resolve_equation(eq_trop, backend)
 
         h0_trop = np.array([0.0, 0.0, 0.0])
         init_trop = encode_array(coder, h0_trop)

@@ -16,12 +16,15 @@ import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
-    validate_pipeline, Equation,
-    build_graph, assemble_graph, PathSpec, FanSpec,
+    NumpyBackend, Semiring, Sort,
+    Equation,
+    PathSpec, FanSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import validate_pipeline, build_graph, assemble_graph
 from unialg.assembly.compositions import PathComposition, FanComposition
 from unialg.algebra.equation import _prepend_batch_dim
+from unialg.assembly._equation_resolution import resolve_equation
 
 
 # ---------------------------------------------------------------------------
@@ -204,28 +207,28 @@ class TestBatchedEquationResolution:
         """
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("relu_b", None, hidden_b, hidden_b, nonlinearity="relu")
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         assert prim.name == core.Name("ua.equation.relu_b")
 
     def test_batched_unary_einsum_resolves(self, real_sr, backend):
         """Unary einsum on batched sort resolves (the einsum gets prepended)."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("bn_scale", "i->i", hidden_b, hidden_b, real_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         assert prim.name == core.Name("ua.equation.bn_scale")
 
     def test_batched_binary_einsum_resolves(self, real_sr, backend):
         """Binary einsum on batched sort resolves — becomes a 2-input prim2."""
         hidden_b = Sort("hidden", real_sr, batched=True)
         eq = Equation("linear_b", "ij,j->i", hidden_b, hidden_b, real_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         assert prim.name == core.Name("ua.equation.linear_b")
 
     def test_unbatched_still_works(self, real_sr, backend):
         """Sort() with default batched=False is unchanged from pre-Phase9 behaviour."""
         hidden = Sort("hidden", real_sr)  # batched=False by default
         eq = Equation("linear", "ij,j->i", hidden, hidden, real_sr)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         assert prim.name == core.Name("ua.equation.linear")
 
 

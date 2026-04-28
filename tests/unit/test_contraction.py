@@ -3,10 +3,8 @@
 import numpy as np
 import pytest
 
-from unialg import (
-    NumpyBackend, Semiring,
-    compile_einsum, semiring_contract,
-)
+from unialg import NumpyBackend, Semiring
+from unialg.algebra.contraction import compile_einsum, semiring_contract
 
 
 @pytest.fixture

@@ -11,13 +11,15 @@ from hydra.dsl.prims import prim1, float32 as float32_coder
 from hydra.reduction import reduce_term
 
 from unialg import (
-    NumpyBackend, Semiring, Sort, tensor_coder,
+    NumpyBackend, Semiring, Sort,
     Equation,
-    build_graph,
     FixpointSpec,
 )
+from unialg.terms import tensor_coder
+from unialg.assembly.graph import build_graph
 from unialg.assembly.compositions import FixpointComposition
 from unialg.assembly._primitives import fixpoint_primitive
+from unialg.assembly._equation_resolution import resolve_equation
 from unialg.algebra.sort import sort_wrap
 
 
@@ -92,7 +94,7 @@ class TestFixpointEndToEnd:
     def _make_step_prim(self, name, sort_term, nl_name, backend):
         """Resolve a unary endomorphism equation into a Primitive."""
         eq = Equation(name, None, sort_term, sort_term, nonlinearity=nl_name)
-        prim, *_ = eq.resolve(backend)
+        prim, *_ = resolve_equation(eq, backend)
         return prim
 
     def _make_pred_prim(self, name, sort_term, fn, backend):

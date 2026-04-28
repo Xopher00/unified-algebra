@@ -16,6 +16,7 @@ import hydra.substitution as subst
 import hydra.typing
 
 from unialg.algebra.equation import Equation
+from ._equation_resolution import resolve_equation, resolve_equation_as_merge, resolve_semirings
 from ._validation import unify_or_raise
 
 if TYPE_CHECKING:
@@ -100,12 +101,12 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
     primitives: dict = dict(standard_library())
     native_fns: dict = {}
     coder = None
-    resolved_semirings = Equation.resolve_semirings(semirings, backend) if semirings else {}
+    resolved_semirings = resolve_semirings(semirings, backend) if semirings else {}
 
     schema: dict = {}
     for eq in eq_by_name.values():
         eq.register_sorts(schema)
-        prim, native_fn, sr, eq_coder = eq.resolve(backend)
+        prim, native_fn, sr, eq_coder = resolve_equation(eq, backend)
         sr_name = eq.semiring_name
         if sr_name and sr is not None:
             resolved_semirings.setdefault(sr_name, sr)
@@ -115,7 +116,7 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
         native_fns[prim.name] = native_fn
         if eq.name in merge_names:
             merge_key = core.Name(f"ua.equation.{eq.name}.__merge__")
-            merge_prim, merge_fn, _, _ = eq.resolve_as_merge(backend, prim_name_override=merge_key)
+            merge_prim, merge_fn, _, _ = resolve_equation_as_merge(eq, backend, prim_name_override=merge_key)
             primitives[merge_prim.name] = merge_prim
             native_fns[merge_prim.name] = merge_fn
 

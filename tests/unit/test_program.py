@@ -5,9 +5,10 @@ import pytest
 
 from unialg import (
     compile_program, Program,
-    Semiring, Sort, Equation, NumpyBackend, tensor_coder,
+    Semiring, Sort, Equation, NumpyBackend,
     PathSpec, FanSpec, FoldSpec,
 )
+from unialg.terms import tensor_coder
 from unialg.assembly.compositions import PathComposition, FanComposition
 
 

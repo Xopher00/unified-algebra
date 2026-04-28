@@ -3,10 +3,9 @@
 import numpy as np
 import pytest
 
-from unialg import (
-    NumpyBackend, Semiring,
-    compile_einsum, semiring_contract,
-)
+from unialg import NumpyBackend, Semiring
+from unialg.algebra.contraction import compile_einsum, semiring_contract
+from unialg.assembly._equation_resolution import resolve_equation
 
 
 @pytest.fixture
@@ -215,6 +214,6 @@ op viterbi : hidden -> (hidden, indices)
   algebra = tropical
 ''')
         eq = spec.equations[0]
-        prim, native_fn, sr, in_coder = eq.resolve(backend)
+        prim, native_fn, sr, in_coder = resolve_equation(eq, backend)
         assert prim is not None
         assert 'viterbi' in prim.name.value

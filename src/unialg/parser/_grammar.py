@@ -146,10 +146,13 @@ def _build_parser():
         return P.bind(sym(k), lambda _:
                P.bind(sym('='), lambda _: vp))
 
-    _contraction_opt = P.optional(
-        P.bind(_comma, lambda _:
-        P.bind(_kv('contraction', ident), lambda c:
-        P.pure(c))))
+    def _trailing_sr_kv():
+        """Parse a single optional trailing ', key=ident' pair in algebra(...)."""
+        return P.bind(_comma, lambda _:
+               P.bind(ident, lambda k:
+               P.bind(sym('='), lambda _:
+               P.bind(ident, lambda v:
+               P.pure((k, v))))))
 
     _sr_args = P.bind(sym('('), lambda _:
                P.bind(_kv('plus', ident), lambda plus:
@@ -159,10 +162,11 @@ def _build_parser():
                P.bind(_kv('zero', number_lit), lambda zero:
                P.bind(_comma, lambda _:
                P.bind(_kv('one', number_lit), lambda one:
-               P.bind(_contraction_opt, lambda mb_c:
+               P.bind(P.many(_trailing_sr_kv()), lambda trailing:
                P.bind(sym(')'), lambda _:
-               P.pure(dict(plus=plus, times=times, zero=zero, one=one,
-                           contraction=(mb_c.value if not isinstance(mb_c, Nothing) else "")))))))))))))
+               P.pure({**dict(trailing), **dict(plus=plus, times=times, zero=zero, one=one,
+                              contraction=dict(trailing).get('contraction', ''),
+                              residual=dict(trailing).get('residual', ''))})))))))))))
 
     import_decl = P.bind(sym('import'), lambda _:
                   P.bind(ident, lambda name:

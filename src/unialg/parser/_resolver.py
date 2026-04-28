@@ -94,7 +94,8 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         _, name, kw_args = decl
         sr_term = alg.Semiring(name, plus=kw_args['plus'], times=kw_args['times'],
                                zero=kw_args['zero'], one=kw_args['one'],
-                               contraction=kw_args.get('contraction', ''))
+                               contraction=kw_args.get('contraction', ''),
+                               residual=kw_args.get('residual', ''))
         semirings[name] = sr_term
 
     def _handle_spec(decl):
@@ -112,12 +113,14 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         sr_name = attr_dict.get('algebra', None)
         sr_term = _get_sr(sr_name) if sr_name else None
         is_template = attr_dict.get('template', False)
+        is_adjoint = bool(attr_dict.get('adjoint', False))
 
         if is_template:
             templates_by_name[name] = (einsum, dom_sort, cod_sort, sr_term, nl)
         else:
             eq_term = alg.Equation(name, einsum, dom_sort, cod_sort,
-                                  sr_term, nonlinearity=nl)
+                                  sr_term, nonlinearity=nl,
+                                  adjoint="true" if is_adjoint else "")
             equations_by_name[name] = eq_term
             equations_list.append(eq_term)
 

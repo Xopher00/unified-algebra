@@ -130,7 +130,7 @@ import numpy
 Declares a semiring with named binary operations and identity elements.
 
 ```
-algebra <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>[, contraction=<ident>])
+algebra <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>[, contraction=<ident>][, residual=<ident>])
 ```
 
 The backend must provide functions named by `plus` and `times`.
@@ -140,12 +140,15 @@ The optional `contraction` names a registered multi-pass contraction strategy.
 When omitted, single-pass contraction is used (align → ⊗ elementwise → ⊕ reduce).
 Register strategies via `CONTRACTION_REGISTRY` in `unialg.algebra.contraction`.
 
+The optional `residual` names a binary operation that serves as the algebraic residual (right adjoint of `times`). When an `op` with `adjoint = true` is resolved against this algebra, the contraction uses `residual` elementwise and `times_reduce` instead of the forward `times`/`plus_reduce` pair. Both `contraction` and `residual` are optional and independent; a user may supply either, both, or neither.
+
 **Examples:**
 ```
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
 algebra fuzzy(plus=maximum, times=minimum, zero=0.0, one=1.0)
 algebra logprob(plus=logaddexp, times=add, zero=-inf, one=0.0, contraction=stable)
+algebra fuzzy_residuated(plus=maximum, times=minimum, zero=0.0, one=1.0, residual=godel_impl)
 ```
 
 ---
@@ -222,6 +225,7 @@ Attributes are indented key-value pairs. `einsum` and `nonlinearity` are mutuall
 | `einsum` | string | Einsum subscript string |
 | `algebra` | ident | Algebra name (required for einsum ops) |
 | `nonlinearity` | ident | Pointwise operation name |
+| `adjoint` | bool | When `true`, use the adjoint contraction: `times_reduce(residual_elementwise(A, B), dims)` instead of `plus_reduce(times_elementwise(A, B), dims)`. Requires the algebra to declare `residual=`. |
 
 **Examples:**
 ```

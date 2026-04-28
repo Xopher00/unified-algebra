@@ -86,6 +86,13 @@ def compile_equation(eq: "Equation", backend: "Backend") -> EquationCompiled:
         sr = eq.semiring.resolve(backend)
         compiled = compile_einsum(einsum_str)
         n_inputs = len(compiled.input_vars)
+        if eq.adjoint:
+            if sr.residual_elementwise is None:
+                raise ValueError(
+                    f"Op '{eq.name}': adjoint=true requires a residual= op on the semiring")
+            from dataclasses import replace as _replace
+            _res, _red = sr.residual_elementwise, sr.times_reduce
+            sr = _replace(sr, contraction_fn=lambda cs, be, p: cs(_res, _red))
     else:
         sr = compiled = None
         n_inputs = 0

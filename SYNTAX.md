@@ -132,7 +132,7 @@ import numpy
 Declares a semiring with named binary operations and identity elements.
 
 ```
-algebra <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>[, strategy=<ident>][, residual=<ident>])
+algebra <name>(plus=<ident>, times=<ident>, zero=<num>, one=<num>[, strategy=<ident>][, residual=<ident>][, leq=<ident>])
 ```
 
 The backend must provide functions named by `plus` and `times`.
@@ -144,11 +144,13 @@ The legacy `contraction=` key is equivalent and still accepted; `strategy=` take
 
 The optional `residual` names a binary operation that serves as the algebraic residual (right adjoint of `times`). When an `op` with `adjoint = true` is resolved against this algebra, the contraction uses `residual` elementwise and `times_reduce` instead of the forward `times`/`plus_reduce` pair. Both `strategy` and `residual` are optional and independent; a user may supply either, both, or neither.
 
+The optional `leq` names the **meet** of the order induced on the semiring carrier — the binary op `m` such that `a ≤ b iff m(a, b) = a`. For fuzzy `(max, min, 0, 1)` the meet is `minimum`. For tropical `(min, +, inf, 0)` the meet is also `minimum`. When present, `check_laws()` adds reflexivity (`m(a,a) = a`) and transitivity (`a ≤ b ∧ b ≤ c ⇒ a ≤ c`) checks. The resolved semiring exposes `leq_name` and `leq_elementwise` for downstream consumers (e.g. poset-based fixpoints).
+
 **Examples:**
 ```
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
-algebra fuzzy(plus=maximum, times=minimum, zero=0.0, one=1.0)
+algebra tropical(plus=minimum, times=add, zero=inf, one=0.0, leq=minimum)
+algebra fuzzy(plus=maximum, times=minimum, zero=0.0, one=1.0, leq=minimum)
 algebra logprob(plus=logaddexp, times=add, zero=-inf, one=0.0, strategy=my_hook)
 algebra fuzzy_residuated(plus=maximum, times=minimum, zero=0.0, one=1.0, residual=godel_impl)
 ```

@@ -203,7 +203,8 @@ def _build_parser():
                P.bind(sym(')'), lambda _:
                P.pure({**dict(trailing), **dict(plus=plus, times=times, zero=zero, one=one,
                               contraction=dict(trailing).get('contraction', ''),
-                              residual=dict(trailing).get('residual', ''))})))))))))))
+                              residual=dict(trailing).get('residual', ''),
+                              leq=dict(trailing).get('leq', ''))})))))))))))
 
     import_decl = P.bind(sym('import'), lambda _:
                   P.bind(ident, lambda name:

@@ -51,6 +51,7 @@ class Semiring(_RecordView):
     bottom      = _RecordView.Scalar(float, default=-10.0)
     top         = _RecordView.Scalar(float, default=10.0)
     contraction = _RecordView.Scalar(str, default="")
+    leq         = _RecordView.Scalar(str, default="")
 
     @dataclass(frozen=True, slots=True)
     class Resolved:
@@ -67,6 +68,8 @@ class Semiring(_RecordView):
         residual_name: str | None = None
         residual_elementwise: object | None = None
         contraction_fn: object | None = None
+        leq_name: str | None = None
+        leq_elementwise: object | None = None
 
     def _law_check_samples(self, n: int = 5, seed: int = 42) -> list:
         """Draw n triplets uniformly from [bottom, top]."""
@@ -91,6 +94,7 @@ class Semiring(_RecordView):
             contraction_fn = CONTRACTION_REGISTRY.get(self.contraction)
             if contraction_fn is None:
                 raise ValueError(f"Unknown contraction strategy: {self.contraction!r}")
+        leq_name = self.leq
         return Semiring.Resolved(
             name=self.name,
             plus_name=self.plus,
@@ -104,6 +108,8 @@ class Semiring(_RecordView):
             residual_name=residual_name or None,
             residual_elementwise=backend.elementwise(residual_name) if residual_name else None,
             contraction_fn=contraction_fn,
+            leq_name=leq_name or None,
+            leq_elementwise=backend.elementwise(leq_name) if leq_name else None,
         )
 
     def check_laws(self, backend: "Backend", samples, atol: float = 1e-9) -> None:
@@ -142,3 +148,28 @@ class Semiring(_RecordView):
             _check(times(a, one),          a,                                       "⊗ identity",          a, b, c)
             _check(times(a, zero),         zero,                                    "0 annihilates ⊗",     a, b, c)
             _check(times(a, plus(b, c)),   plus(times(a, b), times(a, c)),          "⊗ distributes over ⊕", a, b, c)
+
+        if self.leq:
+            # The named op is the meet of the induced order:
+            #   a ≤ b  iff  meet(a, b) ≈ a  (within atol).
+            # backend.elementwise(name) returns a value, not a bool — so we
+            # derive the boolean relation from the meet.
+            meet = backend.elementwise(self.leq)
+
+            def _le(x, y) -> bool:
+                m = meet(x, y)
+                if math.isnan(m):
+                    return False
+                return abs(m - x) <= atol
+
+            for a, b, c in samples:
+                if not _le(a, a):
+                    raise ValueError(
+                        f"Semiring '{self.name}': leq reflexivity fails at a={a} "
+                        f"(meet(a,a)={meet(a, a)})"
+                    )
+                if _le(a, b) and _le(b, c) and not _le(a, c):
+                    raise ValueError(
+                        f"Semiring '{self.name}': leq transitivity fails at "
+                        f"(a,b,c)=({a},{b},{c})"
+                    )

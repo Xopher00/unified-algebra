@@ -188,7 +188,8 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         sr_term = alg.Semiring(name, plus=kw_args['plus'], times=kw_args['times'],
                                zero=kw_args['zero'], one=kw_args['one'],
                                contraction=kw_args.get('strategy') or kw_args.get('contraction', ''),
-                               residual=kw_args.get('residual', ''))
+                               residual=kw_args.get('residual', ''),
+                               leq=kw_args.get('leq', ''))
         semirings[name] = sr_term
 
     def _handle_spec(decl):

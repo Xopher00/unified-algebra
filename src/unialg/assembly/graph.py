@@ -99,7 +99,11 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
         eq_by_name[eq.name] = eq
 
     primitives: dict = dict(standard_library())
-    native_fns: dict = {}
+    native_fns: dict = {
+        core.Name("ua.equation.fst"):            lambda p: p[0],
+        core.Name("ua.equation.snd"):            lambda p: p[1],
+        core.Name("ua.equation.pair_construct"): lambda a, b: (a, b),
+    }
     coder = None
     resolved_semirings = resolve_semirings(semirings, backend) if semirings else {}
 

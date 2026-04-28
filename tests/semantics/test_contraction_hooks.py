@@ -48,7 +48,7 @@ class TestMultiPassContraction:
 
         expected = semiring_contract(eq, [W, x], real, backend)
 
-        def passthrough_hook(compute_sum, _backend):
+        def passthrough_hook(compute_sum, _backend, _params=()):
             # Re-uses the semiring's own ops — result must be identical to default.
             return compute_sum(real.times_elementwise, real.plus_reduce)
 
@@ -84,7 +84,7 @@ class TestMultiPassContraction:
 
         times_fn = real.times_elementwise
 
-        def two_pass_hook(compute_sum, _backend):
+        def two_pass_hook(compute_sum, _backend, _params=()):
             row_sum = compute_sum(times_fn, backend.reduce("add"))
             row_max = compute_sum(times_fn, backend.reduce("maximum"))
             return row_sum - row_max
@@ -112,7 +112,7 @@ class TestMultiPassContraction:
 
         invocations = [0]
 
-        def counting_passthrough(compute_sum, _backend):
+        def counting_passthrough(compute_sum, _backend, _params=()):
             invocations[0] += 1
             return compute_sum(real.times_elementwise, real.plus_reduce)
 
@@ -169,7 +169,7 @@ class TestWitnessTensors:
                        [2.0, 1.0, 3.0]])
         x = np.array([0.0, 0.0, 0.0])
 
-        def viterbi_hook(compute_sum, _backend):
+        def viterbi_hook(compute_sum, _backend, _params=()):
             product = compute_sum.compute_product(tropical.times_elementwise)
             dims = compute_sum.reduced_dims
             values = tropical.plus_reduce(product, dims)

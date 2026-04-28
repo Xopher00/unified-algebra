@@ -298,6 +298,18 @@ def _build_parser():
 
     lens_branch_decl = _branch_like('lens_branch', _lens_sig, 'lens_branch')
 
+    # parallel name = left | right
+    # Syntax: parallel <name> = <left-op> | <right-op>
+    parallel_decl = P.bind(sym('parallel'), lambda _:
+                    P.bind(ident, lambda name:
+                    P.bind(sym('='), lambda _:
+                    P.bind(ident, lambda left:
+                    P.bind(sym('|'), lambda _:
+                    P.bind(ident, lambda right:
+                    P.bind(_eol, lambda _:
+                    P.pure(('parallel', name, (left, right))))))))))
+
+
     # -------------------------------------------------------------------
     # Expression sub-grammar for `define` declarations
     # -------------------------------------------------------------------
@@ -390,7 +402,7 @@ def _build_parser():
         define_decl,
         import_decl, algebra_decl, spec_decl, op_decl, seq_decl,
         branch_decl, scan_decl, unroll_decl, fixpoint_decl,
-        lens_branch_decl, lens_seq_decl, lens_decl,
+        lens_branch_decl, lens_seq_decl, lens_decl, parallel_decl,
     ])
 
     # -------------------------------------------------------------------

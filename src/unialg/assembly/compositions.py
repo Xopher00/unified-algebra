@@ -249,6 +249,39 @@ def _stack_execute(branch_fns, steps, x):
     return stack[0]
 
 
+class ParallelComposition(Composition):
+    _type_name = core.Name("ua.composition.Parallel")
+    _kind = "parallel"
+    _var_name = "pair"
+
+    left_name  = _RecordView.Scalar(str, key="leftName")
+    right_name = _RecordView.Scalar(str, key="rightName")
+
+    def _body(self):
+        # term fallback — hydra.lib.pairs.bimap left right pair
+        return (var("hydra.lib.pairs.bimap")
+                @ _eq_var(self.left_name)
+                @ _eq_var(self.right_name)
+                @ var(self._var_name))
+
+    def _compile(self, native_fns, coder, backend, bound_terms):
+        left_fn  = _lookup(native_fns, self.left_name)
+        right_fn = _lookup(native_fns, self.right_name)
+        if left_fn is None or right_fn is None:
+            return None
+        return backend.compile(lambda pair: (left_fn(pair[0]), right_fn(pair[1])))
+
+    def resolve(self, native_fns, coder, backend, bound_terms=None):
+        fn = self._compile(native_fns, coder, backend, bound_terms or {})
+        if fn is None:
+            return None, None
+        from hydra.dsl.prims import prim1, pair as pair_coder
+        name = core.Name(f"ua.{self._kind}.{self.name}")
+        in_coder  = pair_coder(coder, coder)
+        out_coder = pair_coder(coder, coder)
+        return prim1(name, fn, [], in_coder, out_coder), fn
+
+
 class FoldComposition(StepComposition):
     _type_name = core.Name("ua.composition.Fold")
     _kind = "fold"

@@ -499,6 +499,39 @@ lens_branch bidi_pair : hidden <-> hidden = backprop1 | backprop2
 
 ---
 
+### `parallel`
+
+Declares a bimap / monoidal product of two morphisms: routes the two components of a pair independently.
+
+Categorical reading: `f ⊗ g : (A, B) → (C, D)`
+
+```
+parallel <name> = <left-op> | <right-op>
+```
+
+`left-op` receives the first component of the input pair; `right-op` receives the second component. Both must be declared ops. The result is a new composed op that takes a Python tuple `(a, b)` and returns `(left-op(a), right-op(b))`.
+
+Both named ops must already be declared before the `parallel` declaration.
+
+The assembled result is a single bound term `ua.parallel.<name>` (native path) or a Hydra primitive that wraps `hydra.lib.pairs.bimap` (term fallback path).
+
+**Example:**
+```
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec feat(real)
+spec label(real)
+
+op encode : feat -> feat
+  nonlinearity = relu
+
+op decode : label -> label
+  nonlinearity = relu
+
+parallel bimap_pair = encode | decode
+```
+
+---
+
 ## Declaration Order
 
 The parser resolves names in dependency order:
@@ -507,7 +540,7 @@ The parser resolves names in dependency order:
 1. `algebra` — may reference define names for plus/times
 2. `spec` — depends on algebras by name
 3. `op` — depends on specs, algebras, and optionally define names for nonlinearity
-4. `seq`, `branch`, `scan`, `unroll`, `fixpoint` — depend on ops by name
+4. `seq`, `branch`, `parallel`, `scan`, `unroll`, `fixpoint` — depend on ops by name
 5. `lens` — depends on ops by name
 6. `lens_seq` — depends on lenses by name
 7. `lens_branch` — depends on lenses by name

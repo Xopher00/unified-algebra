@@ -35,7 +35,7 @@ def _make_smooth_fuzzy_hook(T):
     for reduce, so the contraction computes:
         result[i,k] = smooth_max_j smooth_min(A[i,j], B[j,k])
     """
-    def hook(compute_sum, _backend):
+    def hook(compute_sum, _backend, _params=()):
         def smooth_min(a, b):
             return -T * np.logaddexp(-a / T, -b / T)
 

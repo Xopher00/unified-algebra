@@ -64,6 +64,7 @@ _ENTRY_PREFIXES = (
     "ua.fold.",
     "ua.unfold.",
     "ua.fixpoint.",
+    "ua.parallel.",
     "ua.equation.",
 )
 

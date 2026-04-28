@@ -15,6 +15,7 @@ _SPEC_CLASSES = {
     'seq': sp.PathSpec, 'branch': sp.FanSpec, 'scan': sp.FoldSpec,
     'unroll': sp.UnfoldSpec, 'fixpoint': sp.FixpointSpec,
     'lens_seq': sp.LensPathSpec, 'lens_branch': sp.LensFanSpec,
+    'parallel': sp.ParallelSpec,
 }
 
 

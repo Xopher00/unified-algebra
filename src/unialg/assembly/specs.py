@@ -10,6 +10,7 @@ from hydra.typing import TypeConstraint
 from ._validation import unify_or_raise
 from .compositions import (
     PathComposition, FanComposition, FoldComposition, UnfoldComposition, FixpointComposition,
+    ParallelComposition,
 )
 from ._primitives import (
     unfold_n_primitive, fixpoint_primitive,
@@ -317,6 +318,30 @@ class FixpointSpec(Spec):
     def _primitives(self, **kwargs) -> list[tuple]:
         return [(fixpoint_primitive(self.epsilon, self.max_iter), None)]
 
+
+@dataclass
+class ParallelSpec(Spec):
+    """Bimap / monoidal product: routes pair components independently.
+
+    Categorical reading: f ⊗ g : (A, B) -> (C, D)
+    """
+    COMPOSITION = ParallelComposition
+    _COMPOSE_FIELDS = ('left_name', 'right_name')
+    left_name: str
+    right_name: str
+    domain_sort: object = None    # the ProductSort (A, B)
+    codomain_sort: object = None  # the ProductSort (C, D)
+
+    @classmethod
+    def from_parsed(cls, decl, get_sort, **kw):
+        # decl = ('parallel', name, (left_name, right_name))
+        _, name, (left_name, right_name) = decl
+        return cls(name=name, left_name=left_name, right_name=right_name)
+
+    def constraints(self, eq_by_name: dict) -> list[TypeConstraint]:
+        self._require_eq(eq_by_name, self.left_name,  f"Parallel '{self.name}' left")
+        self._require_eq(eq_by_name, self.right_name, f"Parallel '{self.name}' right")
+        return []
 
 LensPathSpec = PathSpec
 LensFanSpec = FanSpec

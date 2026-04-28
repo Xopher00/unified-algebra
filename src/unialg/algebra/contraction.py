@@ -174,6 +174,7 @@ def semiring_contract(
     sr: Semiring.Resolved,
     backend: Backend,
     block_size: int | None = None,
+    params: tuple = (),
 ):
     """Execute a semiring contraction.
 
@@ -186,6 +187,8 @@ def semiring_contract(
             the block size is computed automatically based on available memory.
             The result is numerically identical to the unblocked version
             because the semiring's plus is associative.
+        params: runtime scalar parameters forwarded to the contraction hook
+            (from param_slots declared on the Equation).
     """
     einsum.validate(args)
 
@@ -196,7 +199,7 @@ def semiring_contract(
         if hook is not None:
             factors = _align_factors(einsum_, args_, backend)
             cs = _make_compute_sum(factors, einsum_.reduced_dims)
-            return hook(cs, backend)
+            return hook(cs, backend, params)
         return _contract_full(einsum_, args_, sr, backend)
 
     if not reduced_vars:
@@ -318,7 +321,7 @@ def _align_tensor(tensor, tensor_vars, target_vars, backend):
 
 def contract_and_apply(compiled, tensor_args, sr, backend, nl_fn=None, params=()):
     """Contract tensors via compiled einsum, then apply optional nonlinearity."""
-    r = semiring_contract(compiled, tensor_args, sr, backend) if compiled else tensor_args[0]
+    r = semiring_contract(compiled, tensor_args, sr, backend, params=params) if compiled else tensor_args[0]
     return nl_fn(r, *params) if nl_fn else r
 
 

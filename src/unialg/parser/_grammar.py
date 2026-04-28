@@ -59,34 +59,6 @@ def _build_parser():
                  P.pure(chr(c) + ''.join(chr(x) for x in cs))))
     ident = _tok(_raw_ident)
 
-    # Op reference: optional ~ prefix, ident, optional [prefix], optional * or + suffix.
-    # ~name        -> ('_fresh', 'name')     fresh instance (unique weights)
-    # name*        -> ('_adj',   'name')     adjoint contraction
-    # name+        -> ('_res',   'name')     skip connection (output ⊕ input)
-    # proj[q]      -> ('_tpl',  'proj', 'q')
-    # ~proj[q]*    -> ('_adj', ('_fresh', ('_tpl', 'proj', 'q')))
-    # plain "name" -> 'name'
-    _bracket_suffix = P.bind(P.char(ord('[')), lambda _:
-                      P.bind(_raw_ident, lambda prefix:
-                      P.bind(_tok(P.char(ord(']'))), lambda _:
-                      P.pure(prefix))))
-    _op_suffix = P.alt(P.bind(P.char(ord('*')), lambda _: P.pure('*')),
-                       P.bind(P.char(ord('+')), lambda _: P.pure('+')))
-
-    def _wrap_ref(name, mb, fresh, suf):
-        base = name if isinstance(mb, Nothing) else ('_tpl', name, mb.value)
-        if fresh:
-            base = ('_fresh', base)
-        if not isinstance(suf, Nothing):
-            base = ('_adj', base) if suf.value == '*' else ('_res', base)
-        return base
-
-    ident_or_tpl = P.bind(P.optional(P.char(ord('~'))), lambda fr:
-                   P.bind(ident, lambda name:
-                   P.bind(P.optional(_bracket_suffix), lambda mb:
-                   P.bind(P.optional(_op_suffix), lambda suf:
-                   P.pure(_wrap_ref(name, mb, not isinstance(fr, Nothing), suf))))))
-
     # String literal  "…"
     _dq = P.char(ord('"'))
     _not_dq = P.satisfy(lambda c: c != ord('"'))
@@ -155,12 +127,6 @@ def _build_parser():
     # Sort type signatures — factored over the separator
     # -------------------------------------------------------------------
 
-    def _sig(sep):
-        return P.bind(ident, lambda dom:
-               P.bind(sep, lambda _:
-               P.bind(ident, lambda cod:
-               P.pure((dom, cod)))))
-
     _product_sort = P.bind(sym('('), lambda _:
                     P.bind(ident, lambda first:
                     P.bind(P.some(P.bind(_comma, lambda _: ident)), lambda rest:
@@ -173,7 +139,6 @@ def _build_parser():
                 P.bind(sym('->'), lambda _:
                 P.bind(_sort_or_product, lambda cod:
                 P.pure((dom, cod)))))
-    _lens_sig  = _sig(sym('<->'))
 
     # -------------------------------------------------------------------
     # Individual declaration parsers
@@ -254,26 +219,13 @@ def _build_parser():
                         mb.value[0] if not isinstance(mb, Nothing) else False,
                         mb.value[1] if not isinstance(mb, Nothing) else ())))))))))
 
-    def _kv_decl(keyword, sig_parser, tag):
-        return P.bind(sym(keyword), lambda _:
-               P.bind(ident, lambda name:
-               P.bind(sym(':'), lambda _:
-               P.bind(sig_parser, lambda sig:
-               P.bind(_eol, lambda _:
-               P.bind(P.many(_indented_kv()), lambda kv_list:
-               P.pure((tag, name, sig, dict(kv_list)))))))))
-
     op_decl = P.bind(sym('op'), lambda _:
-              P.bind(P.optional(sym('~')), lambda tilde:
               P.bind(ident, lambda name:
               P.bind(sym(':'), lambda _:
               P.bind(_sort_sig, lambda sig:
               P.bind(_eol, lambda _:
               P.bind(P.many(_indented_kv_op()), lambda kv_list:
-              P.pure(('op', name, sig,
-                      {**dict(kv_list),
-                       **({"template": True} if not isinstance(tilde, Nothing) else {})}
-                     )))))))))
+              P.pure(('op', name, sig, dict(kv_list)))))))))
 
     def _sep_by(sep_str, p):
         _sep = sym(sep_str)
@@ -281,76 +233,13 @@ def _build_parser():
                P.bind(P.many(P.bind(_sep, lambda _: p)), lambda rest:
                P.pure([first] + list(rest))))
 
-    def _sep_by_gg(p):
-        return _sep_by('>>', p)
-
-    def _sep_by_pipe(p):
-        return _sep_by('|', p)
-
-    def _sep_by_tilde_arrow(p):
-        return _sep_by('~>', p)
-
-    seq_decl = P.bind(sym('seq'), lambda _:
-               P.bind(ident, lambda name:
-               P.bind(P.optional(P.char(ord('+'))), lambda plus:
-               P.bind(sym(':'), lambda _:
-               P.bind(_sort_sig, lambda sig:
-               P.bind(sym('='), lambda _:
-               P.bind(_sep_by_gg(ident_or_tpl), lambda eq_names:
-               P.bind(_eol, lambda _:
-               P.bind(P.many(_indented_kv()), lambda kv_list:
-               P.pure(('seq', name, sig, eq_names,
-                       {**dict(kv_list),
-                        **({"residual": True} if not isinstance(plus, Nothing) else {})}
-                      )))))))))))
-
-    def _indented_merge():
-        return P.bind(_indent, lambda _:
-               P.bind(sym('merge'), lambda _:
-               P.bind(sym('='), lambda _:
-               P.bind(_sep_by_tilde_arrow(ident), lambda chain:
-               P.bind(_eol, lambda _:
-               P.pure(chain))))))
-
-    def _branch_like(keyword, sig_parser, tag):
-        return P.bind(sym(keyword), lambda _:
-               P.bind(ident, lambda name:
-               P.bind(sym(':'), lambda _:
-               P.bind(sig_parser, lambda sig:
-               P.bind(sym('='), lambda _:
-               P.bind(_sep_by_pipe(ident_or_tpl), lambda branches:
-               P.bind(_eol, lambda _:
-               P.bind(_indented_merge(), lambda merge_chain:
-               P.pure((tag, name, sig, branches, merge_chain))))))))))
-
-    branch_decl = _branch_like('branch', _sort_sig, 'branch')
-    scan_decl = _kv_decl('scan', _sort_sig, 'scan')
-    unroll_decl = _kv_decl('unroll', _sort_sig, 'unroll')
-    fixpoint_decl = _kv_decl('fixpoint', ident, 'fixpoint')
-    lens_decl = _kv_decl('lens', _lens_sig, 'lens')
-
-    lens_seq_decl = P.bind(sym('lens_seq'), lambda _:
-                    P.bind(ident, lambda name:
-                    P.bind(sym(':'), lambda _:
-                    P.bind(_lens_sig, lambda sig:
-                    P.bind(sym('='), lambda _:
-                    P.bind(_sep_by_gg(ident), lambda lens_names:
-                    P.bind(_eol, lambda _:
-                    P.pure(('lens_seq', name, sig, lens_names)))))))))
-
-    lens_branch_decl = _branch_like('lens_branch', _lens_sig, 'lens_branch')
-
-    # parallel name : dom -> cod = left & right
-    parallel_decl = P.bind(sym('parallel'), lambda _:
-                    P.bind(ident, lambda name:
-                    P.bind(sym(':'), lambda _:
-                    P.bind(_sort_sig, lambda sig:
-                    P.bind(sym('='), lambda _:
-                    P.bind(ident, lambda left:
-                    P.bind(sym('&'), lambda _:
-                    P.bind(ident, lambda right:
-                    P.bind(_eol, lambda _:
-                    P.pure(('parallel', name, sig, (left, right))))))))))))
+    # share name : op1, op2, ..., opN — 2-cell weight-tying declaration.
+    share_decl = P.bind(sym('share'), lambda _:
+                 P.bind(ident, lambda name:
+                 P.bind(sym(':'), lambda _:
+                 P.bind(_sep_by(',', ident), lambda op_names:
+                 P.bind(_eol, lambda _:
+                 P.pure(('share', name, op_names)))))))
 
 
     # -------------------------------------------------------------------
@@ -441,11 +330,166 @@ def _build_parser():
                   P.bind(_eol, lambda _:
                   P.pure(('define', name, ar, params, body)))))))))))
 
+    def _fold_left_binary(first, rest, tag):
+        result = first
+        for r in rest:
+            result = (tag, result, r)
+        return result
+
+    # -------------------------------------------------------------------
+    # Polynomial-expression sub-grammar — body of `functor` decls
+    #
+    # Atoms:    0  1  X  <sort-ident>  ( poly_expr )
+    # Product:  atom * atom * ...      (level 3, left-assoc)
+    # Sum:      prod + prod + ...      (level 4, left-assoc)
+    # -------------------------------------------------------------------
+
+    _poly_expr_cell = [None]
+    _poly_expr_fwd = P.bind(P.pure(None), lambda _: _poly_expr_cell[0])
+
+    _poly_zero = P.bind(_tok(P.string('0')), lambda _: P.pure(('poly_zero',)))
+    _poly_one  = P.bind(_tok(P.string('1')), lambda _: P.pure(('poly_one',)))
+    # `X` is a reserved sort identifier meaning the recursion variable.
+    _poly_id   = P.bind(_tok(P.string('X')), lambda _: P.pure(('poly_id',)))
+    _poly_const = P.bind(ident, lambda name:
+                  P.pure(('poly_id',) if name == 'X' else ('poly_const', name)))
+    _poly_paren = P.bind(sym('('), lambda _:
+                  P.bind(_poly_expr_fwd, lambda e:
+                  P.bind(sym(')'), lambda _: P.pure(e))))
+
+    # Order matters: 0/1/X must be tried before generic ident, so the keywords
+    # don't get consumed as sort names.
+    _poly_atom = reduce(P.alt, [
+        _poly_zero, _poly_one, _poly_id, _poly_paren, _poly_const,
+    ])
+
+    _poly_prod = P.bind(_poly_atom, lambda first:
+                 P.bind(P.many(P.bind(sym('*'), lambda _:
+                                P.bind(_poly_atom, lambda r: P.pure(r)))), lambda rest:
+                 P.pure(_fold_left_binary(first, rest, 'poly_prod'))))
+
+    _poly_sum = P.bind(_poly_prod, lambda first:
+                P.bind(P.many(P.bind(sym('+'), lambda _:
+                               P.bind(_poly_prod, lambda r: P.pure(r)))), lambda rest:
+                P.pure(_fold_left_binary(first, rest, 'poly_sum'))))
+
+    _poly_expr_cell[0] = _poly_sum
+
+    # functor <name> : <poly_expr>
+    #   [category = (set | poset)]
+    functor_decl = P.bind(sym('functor'), lambda _:
+                   P.bind(ident, lambda name:
+                   P.bind(sym(':'), lambda _:
+                   P.bind(_poly_sum, lambda body:
+                   P.bind(_eol, lambda _:
+                   P.bind(P.many(_indented_kv()), lambda attrs:
+                   P.pure(('functor', name, body, dict(attrs)))))))))
+
+    # -------------------------------------------------------------------
+    # Cell-expression sub-grammar (operator-based DSL)
+    #
+    # Atoms:    <ident>  (...)  ^[A]  ![A]  _[A]  number  >[F](...)  <[F](...)
+    # Tensor:   atom * atom * ...                       (level 3, left-assoc)
+    # Seq:      tensor ; tensor ; ...                   (level 5, left-assoc)
+    # Lens:     seq <-> seq             (height-1, level 6)
+    #           seq <-> seq {R}         (height-2, residual sort R)
+    # -------------------------------------------------------------------
+
+    _cell_expr_cell = [None]
+    _cell_expr_fwd = P.bind(P.pure(None), lambda _: _cell_expr_cell[0])
+
+    # ^[A] / ![A] / _[A] — bracket-applied prefix on a sort identifier
+    def _bracketed_ident(prefix):
+        return P.bind(_tok(P.string(prefix + '[')), lambda _:
+               P.bind(ident, lambda s:
+               P.bind(sym(']'), lambda _:
+               P.pure(s))))
+
+    _cell_copy   = P.bind(_bracketed_ident('^'), lambda s: P.pure(('cell_copy',   s)))
+    _cell_delete = P.bind(_bracketed_ident('!'), lambda s: P.pure(('cell_delete', s)))
+    _cell_iden   = P.bind(_bracketed_ident('_'), lambda s: P.pure(('cell_iden',   s)))
+
+    # >[F](c, c, ...) / <[F](c, c, ...) — bracket holds the functor, parens the cells
+    def _hom_atom(prefix, tag):
+        return P.bind(_tok(P.string(prefix + '[')), lambda _:
+               P.bind(ident, lambda f_name:
+               P.bind(sym(']'), lambda _:
+               P.bind(sym('('), lambda _:
+               P.bind(_cell_expr_fwd, lambda first:
+               P.bind(P.many(P.bind(_comma, lambda _: _cell_expr_fwd)), lambda rest:
+               P.bind(sym(')'), lambda _:
+               P.pure((tag, f_name, [first] + list(rest))))))))))
+
+    _cell_cata = _hom_atom('>', 'cell_cata')
+    _cell_ana  = _hom_atom('<', 'cell_ana')
+
+    # Numeric literal — auto-wraps as lit
+    _cell_numlit = P.bind(number_lit, lambda v: P.pure(('cell_lit', v)))
+
+    # Parens grouping
+    _cell_paren = P.bind(sym('('), lambda _:
+                  P.bind(_cell_expr_fwd, lambda e:
+                  P.bind(sym(')'), lambda _: P.pure(e))))
+
+    # Bare identifier — equation reference
+    _cell_eq_ref = P.bind(ident, lambda name: P.pure(('cell_eq', name)))
+
+    # Atom: try bracket-applied operators first, then number, parens, ident.
+    _cell_atom = reduce(P.alt, [
+        _cell_copy, _cell_delete, _cell_iden,
+        _cell_cata, _cell_ana,
+        _cell_numlit, _cell_paren, _cell_eq_ref,
+    ])
+
+    # Tensor product (level 3): atom * atom * ...
+    _cell_tensor = P.bind(_cell_atom, lambda first:
+                   P.bind(P.many(P.bind(sym('*'), lambda _:
+                                  P.bind(_cell_atom, lambda r: P.pure(r)))), lambda rest:
+                   P.pure(_fold_left_binary(first, rest, 'cell_par'))))
+
+    # Sequential composition (level 5): tensor ; tensor ; ...
+    _cell_seq = P.bind(_cell_tensor, lambda first:
+                P.bind(P.many(P.bind(sym(';'), lambda _:
+                               P.bind(_cell_tensor, lambda r: P.pure(r)))), lambda rest:
+                P.pure(_fold_left_binary(first, rest, 'cell_seq'))))
+
+    # Lens (level 6): seq <-> seq, with optional residual sort {R}
+    _cell_residual_opt = P.optional(P.bind(sym('{'), lambda _:
+                                    P.bind(ident, lambda r:
+                                    P.bind(sym('}'), lambda _:
+                                    P.pure(r)))))
+    _cell_lens_tail = P.optional(P.bind(sym('<->'), lambda _:
+                                  P.bind(_cell_seq, lambda rhs:
+                                  P.bind(_cell_residual_opt, lambda res:
+                                  P.pure((rhs, res))))))
+
+    def _maybe_lens(first, tail):
+        if isinstance(tail, Nothing):
+            return first
+        rhs, residual = tail.value
+        residual_name = None if isinstance(residual, Nothing) else residual.value
+        return ('cell_lens', first, rhs, residual_name)
+
+    _cell_expr = P.bind(_cell_seq, lambda first:
+                 P.bind(_cell_lens_tail, lambda tail:
+                 P.pure(_maybe_lens(first, tail))))
+
+    _cell_expr_cell[0] = _cell_expr
+
+    # cell <name> : <sort_sig> = <cell_expr>
+    cell_decl = P.bind(sym('cell'), lambda _:
+                P.bind(ident, lambda name:
+                P.bind(sym(':'), lambda _:
+                P.bind(_sort_sig, lambda sig:
+                P.bind(sym('='), lambda _:
+                P.bind(_cell_expr, lambda expr:
+                P.bind(_eol, lambda _:
+                P.pure(('cell', name, sig, expr)))))))))
+
     decl = reduce(P.alt, [
         define_decl,
-        import_decl, algebra_decl, spec_decl, op_decl, seq_decl,
-        branch_decl, scan_decl, unroll_decl, fixpoint_decl,
-        lens_branch_decl, lens_seq_decl, lens_decl, parallel_decl,
+        import_decl, algebra_decl, spec_decl, op_decl,
+        share_decl, functor_decl, cell_decl,
     ])
 
     # -------------------------------------------------------------------

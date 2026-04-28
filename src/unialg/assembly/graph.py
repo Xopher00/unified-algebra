@@ -183,8 +183,15 @@ def assemble_graph(
     params: dict[str, core.Term] | None = None,
     lenses: list[core.Term] | None = None,
     semirings: dict[str, core.Term] | None = None,
+    cells: list | None = None,
 ) -> tuple[hydra.graph.Graph, dict, dict]:
-    """Resolve equations, assemble a Hydra Graph, and compile compositions."""
+    """Resolve equations, assemble a Hydra Graph, and compile compositions.
+
+    ``cells`` is a list of ``NamedCell`` (Cell-based composition entries).
+    Each cell is validated against the equation/sort scope, compiled to a
+    Hydra primitive, and registered alongside the legacy Spec-derived
+    primitives.
+    """
     all_specs = list(specs or [])
     merge_names = set()
     for spec in all_specs:
@@ -209,6 +216,10 @@ def assemble_graph(
         all_specs, eq_by_name, primitives, native_fns, bound_terms, schema_types,
         coder=coder, backend=backend, resolved_semirings=resolved_semirings)
 
+    if cells:
+        _register_cells(cells, eq_by_name, extra_sorts,
+                        primitives, native_fns, compiled_fns, coder, backend)
+
     for eq_name in eq_by_name:
         fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{eq_name}"))
         if fn is not None:
@@ -223,6 +234,29 @@ def assemble_graph(
     graph = build_graph(list(seen_sorts.values()) + list(extra_sorts or []),
                         primitives=primitives, bound_terms=bound_terms)
     return graph, native_fns, compiled_fns
+
+
+def _register_cells(named_cells, eq_by_name, extra_sorts,
+                    primitives, native_fns, compiled_fns, coder, backend):
+    """Validate and register each NamedCell into the graph dicts."""
+    from unialg.assembly._para import validate_cell
+    from unialg.assembly._para_graph import register_named_cells
+
+    sorts_by_name: dict = {}
+    for eq in eq_by_name.values():
+        for attr in ("domain_sort", "codomain_sort", "state_sort"):
+            s = getattr(eq, attr, None)
+            if s is not None and getattr(s, "name", None):
+                sorts_by_name.setdefault(s.name, s)
+    for s in (extra_sorts or []):
+        if s is not None and getattr(s, "name", None):
+            sorts_by_name.setdefault(s.name, s)
+
+    for nc in named_cells:
+        validate_cell(nc.cell, eq_by_name, sorts_by_name)
+
+    register_named_cells(named_cells, primitives, native_fns,
+                         compiled_fns, coder, backend)
 
 
 def rebind_params(graph, updates):

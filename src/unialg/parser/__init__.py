@@ -15,10 +15,10 @@ class UASpec:
     semirings: dict[str, Any] = field(default_factory=dict)
     sorts: dict[str, Any] = field(default_factory=dict)
     equations: list[Any] = field(default_factory=list)
-    specs: list[Any] = field(default_factory=list)
-    lenses: list[Any] = field(default_factory=list)
     defines: list[Any] = field(default_factory=list)
     backend_name: str | None = None
+    share_groups: dict[str, list[str]] = field(default_factory=dict)
+    cells: list[Any] = field(default_factory=list)
 
 
 def _source_location(text: str, remainder: str) -> tuple[int, int, str]:
@@ -105,7 +105,6 @@ def parse_ua(text: str, backend=None) -> "Program":
     return compile_program(
         spec.equations,
         backend=backend,
-        specs=spec.specs,
-        lenses=spec.lenses or None,
         semirings=spec.semirings or None,
+        cells=spec.cells or None,
     )

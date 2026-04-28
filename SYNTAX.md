@@ -558,6 +558,42 @@ parallel bimap_pair : feat -> label = encode & decode
 
 ---
 
+### `share`
+
+Declares that a set of ops draw from the same shared parameter tensor — a structural assertion that they instantiate the same parameter space `P` via the copy map `∆P : P → P × P`.
+
+```
+share <name> : <op1>, <op2>, ..., <opN>
+```
+
+At resolution, every named op that appears in a `seq` is patched to consume `var("ua.param.<name>")` as a prepended weight slot via `PathSpec.params`. The runtime tensor is supplied through `compile_program(params={"<name>": <term>})` (or `rebind_params` afterwards). All named ops must:
+
+- already be declared (validated at parse time)
+- share a domain algebra (validated at parse time)
+- appear in at least one `seq` declaration (validated at parse time)
+
+Sharing into `branch`/`fan` branches is not yet supported — `FanSpec` does not currently carry a per-branch params dict. An attempt raises `NotImplementedError`. Move the affected op into a `seq` if you need it shared.
+
+**Example:**
+```
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op ~proj : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+
+seq attn_q : hidden -> hidden = proj[q]
+seq attn_k : hidden -> hidden = proj[k]
+seq attn_v : hidden -> hidden = proj[v]
+
+share proj_weights : q_proj, k_proj, v_proj
+```
+
+After parsing, `q_proj`, `k_proj`, and `v_proj` all reference `ua.param.proj_weights` for their weight tensor. Bind it once via `compile_program(params={"proj_weights": W_term})`.
+
+---
+
 ## Declaration Order
 
 The parser resolves names in dependency order:

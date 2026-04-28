@@ -251,11 +251,15 @@ def compile_program(
     lenses: list | None = None,
     extra_sorts: list | None = None,
     semirings: dict | None = None,
+    cells: list | None = None,
 ) -> Program:
     """Compile a unified-algebra specification to a runnable Program.
 
     This is the single entry point for converting DSL terms into a callable.
-    Parser output (future) and hand-written Python both flow through here.
+    Parser output and hand-written Python both flow through here. ``cells``
+    is the list of ``NamedCell`` entries produced by the operator-based
+    cell-expression DSL; they register alongside legacy Spec-derived
+    primitives during the migration.
     """
     graph, native_fns, compiled_fns = assemble_graph(
         equations,
@@ -265,10 +269,11 @@ def compile_program(
         lenses=lenses,
         extra_sorts=extra_sorts,
         semirings=semirings,
+        cells=cells,
     )
     coder = tensor_coder(backend)
     build_args = dict(equations=equations, specs=specs, lenses=lenses,
                       extra_sorts=extra_sorts, semirings=semirings,
-                      params=params)
+                      params=params, cells=cells)
     return Program(graph, backend, coder, EMPTY_CX, compiled_fns=compiled_fns,
                    _build_args=build_args)

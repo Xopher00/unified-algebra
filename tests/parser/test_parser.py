@@ -10,7 +10,6 @@ import pytest
 
 from unialg import (
     NumpyBackend, parse_ua, parse_ua_spec, UASpec,
-    PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, PathSpec, FanSpec,
 )
 from unialg import Equation
 
@@ -66,14 +65,13 @@ spec hidden(real)
         spec = parse_ua_spec(text)
         assert isinstance(spec, UASpec)
 
-    def test_empty_specs_by_default(self):
+    def test_empty_cells_by_default(self):
         text = """
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 spec hidden(real)
 """
         spec = parse_ua_spec(text)
-        assert spec.specs == []
-        assert spec.lenses == []
+        assert spec.cells == []
 
 
 # ---------------------------------------------------------------------------
@@ -187,96 +185,11 @@ algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 spec hidden(real)
 """
 
-_PROJ_TEMPLATE = _TEMPLATE_BASE + """
-op ~proj : hidden -> hidden
-  einsum = "ij,j->i"
-  algebra = real
-"""
-
-
-class TestTemplateEquations:
-
-    def test_template_equation_not_in_equations(self):
-        """An op with ~ prefix must NOT appear in spec.equations."""
-        spec = parse_ua_spec(_PROJ_TEMPLATE)
-        assert len(spec.equations) == 0
-
-    def test_template_expansion_in_fan(self):
-        """Branch with proj[q], proj[k], proj[v] should expand to 3 concrete equations."""
-        text = _PROJ_TEMPLATE + """
-op merge : hidden -> hidden
-  einsum = "i,i->i"
-  algebra = real
-
-branch kv : hidden -> hidden = proj[q] | proj[k] | proj[v]
-  merge = merge
-"""
-        spec = parse_ua_spec(text)
-        eq_names_in_spec = [eq.name for eq in spec.equations]
-        assert 'q_proj' in eq_names_in_spec
-        assert 'k_proj' in eq_names_in_spec
-        assert 'v_proj' in eq_names_in_spec
-        fan_spec = spec.specs[0]
-        assert fan_spec.branches == ['q_proj', 'k_proj', 'v_proj']
-
-    def test_template_expansion_in_path(self):
-        """Seq with proj[q] >> proj[k] should expand to two concrete equations."""
-        text = _PROJ_TEMPLATE + """
-seq qk : hidden -> hidden = proj[q] >> proj[k]
-"""
-        spec = parse_ua_spec(text)
-        eq_names_in_spec = [eq.name for eq in spec.equations]
-        assert 'q_proj' in eq_names_in_spec
-        assert 'k_proj' in eq_names_in_spec
-        path_spec = spec.specs[0]
-        assert path_spec.eq_names == ['q_proj', 'k_proj']
-
-    def test_template_reuse_same_prefix(self):
-        """Using proj[q] twice in the same seq must produce exactly ONE q_proj equation."""
-        text = _PROJ_TEMPLATE + """
-seq qq : hidden -> hidden = proj[q] >> proj[q]
-"""
-        spec = parse_ua_spec(text)
-        eq_names_in_spec = [eq.name for eq in spec.equations]
-        q_proj_count = eq_names_in_spec.count('q_proj')
-        assert q_proj_count == 1
-
-    def test_template_unknown_raises(self):
-        """Referencing an undeclared template name should raise ValueError."""
-        text = _TEMPLATE_BASE + """
-seq bad : hidden -> hidden = unknown[x]
-"""
-        with pytest.raises(ValueError, match="Unknown template 'unknown'"):
-            parse_ua_spec(text)
-
-    def test_template_mixed_refs(self):
-        """Mix of plain idents and template refs in a seq should both resolve."""
-        text = _TEMPLATE_BASE + """
-op ~proj : hidden -> hidden
-  einsum = "ij,j->i"
-  algebra = real
-
-op relu : hidden -> hidden
-  nonlinearity = relu
-
-seq qr : hidden -> hidden = proj[q] >> relu
-"""
-        spec = parse_ua_spec(text)
-        eq_names_in_spec = [eq.name for eq in spec.equations]
-        assert 'q_proj' in eq_names_in_spec
-        assert 'relu' in eq_names_in_spec
-        path_spec = spec.specs[0]
-        assert path_spec.eq_names == ['q_proj', 'relu']
-
-
-# ---------------------------------------------------------------------------
-# Op inputs attribute
-# ---------------------------------------------------------------------------
-
 _INPUTS_BASE = """
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 spec hidden(real)
 """
+
 
 class TestOpInputsAttribute:
 
@@ -342,8 +255,31 @@ op downstream : hidden -> hidden
 
 
 # ---------------------------------------------------------------------------
-# Integration: full program parsing and execution
+# share declaration
 # ---------------------------------------------------------------------------
+
+_SHARE_BASE = """
+import numpy
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+
+op q_proj : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+
+op k_proj : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+
+op v_proj : hidden -> hidden
+  einsum = "ij,j->i"
+  algebra = real
+
+seq attn_q : hidden -> hidden = q_proj
+seq attn_k : hidden -> hidden = k_proj
+seq attn_v : hidden -> hidden = v_proj
+"""
+
 
 class TestIntegration:
 
@@ -383,36 +319,6 @@ op sigmoid_eq : hidden -> hidden
         expected = 1.0 / (1.0 + np.exp(-x))
         np.testing.assert_allclose(out, expected, rtol=1e-6)
 
-    def test_fan_runs_correctly(self):
-        """Branch: relu and tanh branches, Hadamard-product merge.
-
-        "i,i->i" with real algebra (times=multiply) computes relu(x) * tanh(x).
-        No contracted indices — pure elementwise product of branch outputs.
-        """
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op branch_relu : hidden -> hidden
-  nonlinearity = relu
-
-op branch_tanh : hidden -> hidden
-  nonlinearity = tanh
-
-op hadamard_merge : hidden -> hidden
-  einsum = "i,i->i"
-  algebra = real
-
-branch dual : hidden -> hidden = branch_relu | branch_tanh
-  merge = hadamard_merge
-"""
-        prog = parse_ua(text, NumpyBackend())
-        x = np.array([1.0, -1.0, 0.5])
-        out = prog('dual', x)
-        # "i,i->i" with times=multiply: elementwise product of branch outputs
-        expected = np.maximum(0, x) * np.tanh(x)
-        np.testing.assert_allclose(out, expected, rtol=1e-6)
-
     def test_sized_axes_parse(self):
         text = """
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
@@ -439,89 +345,6 @@ spec hidden(real, axes=[batch:32, feature:128])
 
 # ---------------------------------------------------------------------------
 # Path with >> — compile and run, match numpy oracle
-# ---------------------------------------------------------------------------
-
-class TestPathDeclaration:
-
-    def test_path_spec_created(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op linear : hidden -> hidden
-  einsum = "ij,j->i"
-  algebra = real
-
-op relu : hidden -> hidden
-  nonlinearity = relu
-
-seq layer : hidden -> hidden = linear >> relu
-"""
-        spec = parse_ua_spec(text)
-        assert len(spec.specs) == 1
-        assert isinstance(spec.specs[0], PathSpec)
-        assert spec.specs[0].name == 'layer'
-        assert spec.specs[0].eq_names == ['linear', 'relu']
-
-    def test_path_entry_point_exists(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op linear : hidden -> hidden
-  einsum = "ij,j->i"
-  algebra = real
-
-op relu : hidden -> hidden
-  nonlinearity = relu
-
-seq layer : hidden -> hidden = linear >> relu
-"""
-        prog = parse_ua(text, NumpyBackend())
-        assert 'layer' in prog.entry_points()
-
-    def test_three_step_path(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op a : hidden -> hidden
-  nonlinearity = relu
-
-op b : hidden -> hidden
-  nonlinearity = tanh
-
-op c : hidden -> hidden
-  nonlinearity = sigmoid
-
-seq abc : hidden -> hidden = a >> b >> c
-"""
-        spec = parse_ua_spec(text)
-        assert spec.specs[0].eq_names == ['a', 'b', 'c']
-
-    def test_path_numpy_oracle(self):
-        """seq relu >> tanh should match numpy oracle."""
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op relu : hidden -> hidden
-  nonlinearity = relu
-
-op tanh_eq : hidden -> hidden
-  nonlinearity = tanh
-
-seq rt : hidden -> hidden = relu >> tanh_eq
-"""
-        prog = parse_ua(text, NumpyBackend())
-        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
-        out = prog('rt', x)
-        expected = np.tanh(np.maximum(0.0, x))
-        np.testing.assert_allclose(out, expected, rtol=1e-6)
-
-
-# ---------------------------------------------------------------------------
-# Tropical semiring — Bellman-Ford 1-hop
 # ---------------------------------------------------------------------------
 
 class TestTropicalSemiring:
@@ -565,390 +388,6 @@ spec node(max_plus)
 
 # ---------------------------------------------------------------------------
 # Fan declaration — parse and check spec type
-# ---------------------------------------------------------------------------
-
-class TestFanDeclaration:
-
-    def test_fan_spec_type(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op branch1 : hidden -> hidden
-  nonlinearity = relu
-
-op branch2 : hidden -> hidden
-  nonlinearity = tanh
-
-op add_merge : hidden -> hidden
-  einsum = "i,i->i"
-  algebra = real
-
-branch split : hidden -> hidden = branch1 | branch2
-  merge = add_merge
-"""
-        spec = parse_ua_spec(text)
-        assert len(spec.specs) == 1
-        assert isinstance(spec.specs[0], FanSpec)
-
-    def test_fan_spec_branch_names(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op a : hidden -> hidden
-  nonlinearity = relu
-
-op b : hidden -> hidden
-  nonlinearity = tanh
-
-op c : hidden -> hidden
-  nonlinearity = sigmoid
-
-op add_merge : hidden -> hidden
-  einsum = "i,i->i"
-  algebra = real
-
-branch parallel : hidden -> hidden = a | b | c
-  merge = add_merge
-"""
-        spec = parse_ua_spec(text)
-        fan_spec = spec.specs[0]
-        assert fan_spec.branches == ['a', 'b', 'c']
-        assert fan_spec.merge_names == ['add_merge']
-
-    def test_fan_entry_point_exists(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op branch1 : hidden -> hidden
-  nonlinearity = relu
-
-op branch2 : hidden -> hidden
-  nonlinearity = tanh
-
-op add_merge : hidden -> hidden
-  einsum = "i,i->i"
-  algebra = real
-
-branch split : hidden -> hidden = branch1 | branch2
-  merge = add_merge
-"""
-        prog = parse_ua(text, NumpyBackend())
-        assert 'split' in prog.entry_points()
-
-
-# ---------------------------------------------------------------------------
-# Fold declaration — parse and check spec type
-# ---------------------------------------------------------------------------
-
-class TestFoldDeclaration:
-
-    def test_fold_spec_type(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op step : hidden -> hidden
-  nonlinearity = relu
-
-scan rnn : hidden -> hidden
-  step = step
-"""
-        spec = parse_ua_spec(text)
-        assert len(spec.specs) == 1
-        assert isinstance(spec.specs[0], FoldSpec)
-
-    def test_fold_spec_step_name(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op my_step : hidden -> hidden
-  nonlinearity = tanh
-
-scan rnn : hidden -> hidden
-  step = my_step
-"""
-        spec = parse_ua_spec(text)
-        fold_spec = spec.specs[0]
-        assert fold_spec.step_name == 'my_step'
-        assert fold_spec.name == 'rnn'
-
-
-# ---------------------------------------------------------------------------
-# Unfold declaration — parse and check spec type
-# ---------------------------------------------------------------------------
-
-class TestUnfoldDeclaration:
-
-    def test_unfold_spec_type(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op transition : hidden -> hidden
-  nonlinearity = tanh
-
-unroll stream : hidden -> hidden
-  step = transition
-  steps = 10
-"""
-        spec = parse_ua_spec(text)
-        assert len(spec.specs) == 1
-        assert isinstance(spec.specs[0], UnfoldSpec)
-
-    def test_unfold_spec_fields(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op my_step : hidden -> hidden
-  nonlinearity = relu
-
-unroll gen : hidden -> hidden
-  step = my_step
-  steps = 5
-"""
-        spec = parse_ua_spec(text)
-        us = spec.specs[0]
-        assert us.name == 'gen'
-        assert us.step_name == 'my_step'
-        assert us.n_steps == 5
-
-
-# ---------------------------------------------------------------------------
-# Lens declaration — parse and check lenses list
-# ---------------------------------------------------------------------------
-
-class TestLensDeclaration:
-
-    def test_lens_in_lenses_list(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op fwd : hidden -> hidden
-  einsum = "ij,j->i"
-  algebra = real
-
-op bwd : hidden -> hidden
-  einsum = "ji,j->i"
-  algebra = real
-
-lens backprop : hidden <-> hidden
-  fwd = fwd
-  bwd = bwd
-"""
-        spec = parse_ua_spec(text)
-        assert len(spec.lenses) == 1
-
-    def test_multiple_lenses(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op a_fwd : hidden -> hidden
-  nonlinearity = relu
-
-op a_bwd : hidden -> hidden
-  nonlinearity = relu
-
-op b_fwd : hidden -> hidden
-  nonlinearity = tanh
-
-op b_bwd : hidden -> hidden
-  nonlinearity = tanh
-
-lens lens_a : hidden <-> hidden
-  fwd = a_fwd
-  bwd = a_bwd
-
-lens lens_b : hidden <-> hidden
-  fwd = b_fwd
-  bwd = b_bwd
-"""
-        spec = parse_ua_spec(text)
-        assert len(spec.lenses) == 2
-
-
-# ---------------------------------------------------------------------------
-# Fixpoint declaration — parse and check spec type and fields
-# ---------------------------------------------------------------------------
-
-class TestFixpointDeclaration:
-
-    def test_fixpoint_spec_type(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op step_eq : hidden -> hidden
-  nonlinearity = tanh
-
-op pred_eq : hidden -> hidden
-  nonlinearity = sigmoid
-
-fixpoint converge : hidden
-  step = step_eq
-  predicate = pred_eq
-  epsilon = 0.001
-  max_iter = 50
-"""
-        spec = parse_ua_spec(text)
-        assert len(spec.specs) == 1
-        assert isinstance(spec.specs[0], FixpointSpec)
-
-    def test_fixpoint_spec_fields(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op step_eq : hidden -> hidden
-  nonlinearity = tanh
-
-op pred_eq : hidden -> hidden
-  nonlinearity = sigmoid
-
-fixpoint converge : hidden
-  step = step_eq
-  predicate = pred_eq
-  epsilon = 0.01
-  max_iter = 200
-"""
-        spec = parse_ua_spec(text)
-        fp = spec.specs[0]
-        assert fp.name == 'converge'
-        assert fp.step_name == 'step_eq'
-        assert fp.predicate_name == 'pred_eq'
-        assert fp.epsilon == 0.01
-        assert fp.max_iter == 200
-
-
-# ---------------------------------------------------------------------------
-# Residual (skip connection) paths
-# ---------------------------------------------------------------------------
-
-class TestResidualPath:
-
-    def test_residual_path_spec(self):
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op linear : hidden -> hidden
-  einsum = "ij,j->i"
-  algebra = real
-
-op relu : hidden -> hidden
-  nonlinearity = relu
-
-seq layer+ : hidden -> hidden = linear >> relu
-  algebra = real
-"""
-        spec = parse_ua_spec(text)
-        ps = spec.specs[0]
-        assert isinstance(ps, PathSpec)
-        assert ps.residual is True
-        assert ps.residual_semiring == 'real'
-
-    def test_residual_path_numpy_oracle(self):
-        """residual seq: output = relu(x) + x"""
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op relu : hidden -> hidden
-  nonlinearity = relu
-
-seq skip+ : hidden -> hidden = relu
-  algebra = real
-"""
-        prog = parse_ua(text, NumpyBackend())
-        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
-        out = prog('skip', x)
-        expected = np.maximum(0.0, x) + x  # relu(x) + x
-        np.testing.assert_allclose(out, expected, rtol=1e-6)
-
-    def test_path_without_residual_unchanged(self):
-        """Non-residual seqs still work."""
-        text = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op relu : hidden -> hidden
-  nonlinearity = relu
-
-seq simple : hidden -> hidden = relu
-"""
-        spec = parse_ua_spec(text)
-        ps = spec.specs[0]
-        assert ps.residual is False
-
-
-# ---------------------------------------------------------------------------
-# Lens-fan declaration — parse and check spec (positive test only)
-# ---------------------------------------------------------------------------
-
-_LENS_FAN_BASE = """
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-
-op fwd1 : hidden -> hidden
-  nonlinearity = relu
-
-op bwd1 : hidden -> hidden
-  nonlinearity = relu
-
-op fwd2 : hidden -> hidden
-  nonlinearity = tanh
-
-op bwd2 : hidden -> hidden
-  nonlinearity = tanh
-
-op merge_fwd : hidden -> hidden
-  einsum = "i,i->i"
-  algebra = real
-
-op merge_bwd : hidden -> hidden
-  einsum = "i,i->i"
-  algebra = real
-
-lens backprop1 : hidden <-> hidden
-  fwd = fwd1
-  bwd = bwd1
-
-lens backprop2 : hidden <-> hidden
-  fwd = fwd2
-  bwd = bwd2
-
-lens merge_lens : hidden <-> hidden
-  fwd = merge_fwd
-  bwd = merge_bwd
-"""
-
-
-class TestLensFanDeclaration:
-
-    def test_lens_fan_parse(self):
-        text = _LENS_FAN_BASE + """
-lens_branch attention : hidden <-> hidden = backprop1 | backprop2
-  merge = merge_lens
-"""
-        spec = parse_ua_spec(text)
-        assert len(spec.specs) == 1
-        lfs = spec.specs[0]
-        assert isinstance(lfs, FanSpec)
-        assert lfs.name == 'attention'
-        assert lfs.branches == ['fwd1', 'fwd2']
-        assert lfs.merge_names == ['merge_fwd']
-        assert lfs.domain_sort is not None
-        assert lfs.codomain_sort is not None
-
-
-# ---------------------------------------------------------------------------
-# Define declarations — parse-level tests
 # ---------------------------------------------------------------------------
 
 class TestDefineDeclaration:

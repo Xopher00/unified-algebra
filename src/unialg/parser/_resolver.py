@@ -1,32 +1,24 @@
 """Name resolution pass for parsed .ua declarations.
 
-Resolves algebra/spec/op references, expands template morphisms,
-and builds spec objects.  Pure function: raw tuples in, UASpec out.
+Walks the raw declaration list from the grammar and produces a UASpec.
+Compositions are expressed as `cell` declarations using the operator
+sub-grammar; `share` records 2-cell weight-tying groups; `functor`
+declares polynomial endofunctors used by ``cata``/``ana`` cells.
 """
 from __future__ import annotations
 
 from typing import Any
 
 import unialg.algebra as alg
-import unialg.assembly.specs as sp
 from . import UASpec
-
-_SPEC_CLASSES = {
-    'seq': sp.PathSpec, 'branch': sp.FanSpec, 'scan': sp.FoldSpec,
-    'unroll': sp.UnfoldSpec, 'fixpoint': sp.FixpointSpec,
-    'lens_seq': sp.PathSpec, 'lens_branch': sp.FanSpec,
-    'parallel': sp.ParallelSpec,
-}
 
 
 def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
-    """Second pass: resolve name references, build DSL terms.
+    """Resolve raw declarations into a UASpec.
 
-    Processes declarations in dependency order:
-    1. semirings (no deps)
-    2. sorts (depend on semirings by name)
-    3. equations (depend on sorts + semirings by name)
-    4. compositions (depend on equations and lenses by name)
+    Processes declarations in source order. Lookups (sort, op, functor)
+    work because the user is required to declare a name before referring
+    to it; this is enforced by raising on missing names.
     """
 
     backend_name: str | None = None
@@ -35,12 +27,11 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     defines: list[tuple] = []
     equations_by_name: dict[str, Any] = {}
     equations_list: list[Any] = []
-    templates_by_name: dict[str, tuple] = {}
-    specs: list[Any] = []
-    lenses: list[Any] = []
-    lenses_by_name: dict[str, Any] = {}
+    share_groups: dict[str, list[str]] = {}
+    cells: list[Any] = []
+    functors_by_name: dict[str, Any] = {}
 
-    # --- lookup helpers (closures over shared dicts) ---
+    # --- lookup helpers ---
 
     def _lookup(name: str, d: dict, label: str) -> Any:
         if name not in d:
@@ -52,7 +43,6 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     def _get_sr(name):   return _lookup(name, semirings, 'algebra')
     def _get_sort(name): return _lookup(name, sorts, 'spec')
     def _get_eq(name):   return _lookup(name, equations_by_name, 'op')
-    def _get_lens(name): return _lookup(name, lenses_by_name, 'lens')
 
     def _resolve_sort_ref(ref):
         if isinstance(ref, str):
@@ -62,118 +52,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             return ProductSort([_get_sort(n) for n in ref[1]])
         raise ValueError(f"Invalid sort reference: {ref}")
 
-    _fresh_counters: dict[str, int] = {}
-    compositions_by_name: dict[str, object] = {}
-
-    def _clone_eq(base_name, new_name, *, adjoint=None, skip=None):
-        """Create a named copy of an equation, optionally overriding adjoint/skip."""
-        if new_name not in equations_by_name:
-            base_eq = _get_eq(base_name)
-            copy_eq = alg.Equation(
-                new_name, base_eq.einsum, base_eq.domain_sort, base_eq.codomain_sort,
-                base_eq.semiring, nonlinearity=base_eq.nonlinearity,
-                inputs=tuple(base_eq.inputs),
-                adjoint=base_eq.adjoint if adjoint is None else adjoint,
-                skip=base_eq.skip if skip is None else skip)
-            equations_by_name[new_name] = copy_eq
-            equations_list.append(copy_eq)
-
-    def _clone_composition(comp, new_name, suffix, *, residual=False):
-        """Shallow-clone a PathSpec or FanSpec: fresh equation copies, new composition name."""
-        if isinstance(comp, sp.PathSpec):
-            new_eq_names = []
-            for eq_name in comp.eq_names:
-                if eq_name in equations_by_name:
-                    fresh = f"{eq_name}__{suffix}"
-                    _clone_eq(eq_name, fresh)
-                    new_eq_names.append(fresh)
-                else:
-                    new_eq_names.append(eq_name)
-            infer_sr = None
-            if residual:
-                for n in new_eq_names:
-                    eq = equations_by_name.get(n)
-                    if eq and eq.semiring:
-                        infer_sr = eq.semiring_name
-                        break
-            clone = sp.PathSpec(
-                name=new_name, eq_names=new_eq_names,
-                domain_sort=comp.domain_sort, codomain_sort=comp.codomain_sort,
-                residual=residual or comp.residual,
-                residual_semiring=infer_sr or comp.residual_semiring or "")
-            specs.append(clone)
-            compositions_by_name[new_name] = clone
-            return new_name
-        if isinstance(comp, sp.FanSpec):
-            new_branches = []
-            for br in comp.branches:
-                if br in equations_by_name:
-                    fresh = f"{br}__{suffix}"
-                    _clone_eq(br, fresh)
-                    new_branches.append(fresh)
-                else:
-                    new_branches.append(br)
-            clone = sp.FanSpec(
-                name=new_name, branches=new_branches,
-                merge_names=list(comp.merge_names),
-                domain_sort=comp.domain_sort, codomain_sort=comp.codomain_sort)
-            specs.append(clone)
-            compositions_by_name[new_name] = clone
-            return new_name
-        raise ValueError(
-            f"~{comp.name}: fresh copies are supported for seq and branch compositions only")
-
-    def _expand_template_ref(ref):
-        if isinstance(ref, str):
-            return ref
-        tag = ref[0]
-        if tag == '_fresh':
-            _, inner = ref
-            base_name = _expand_template_ref(inner)
-            n = _fresh_counters.get(base_name, 0)
-            _fresh_counters[base_name] = n + 1
-            fresh_name = f"{base_name}__{n}"
-            if base_name in compositions_by_name:
-                if fresh_name not in compositions_by_name:
-                    _clone_composition(compositions_by_name[base_name], fresh_name, n)
-            else:
-                _clone_eq(base_name, fresh_name)
-            return fresh_name
-        if tag == '_adj':
-            _, inner = ref
-            base_name = _expand_template_ref(inner)
-            adj_name = f"{base_name}__adj"
-            if adj_name not in equations_by_name:
-                _clone_eq(base_name, adj_name, adjoint=True)
-            return adj_name
-        if tag == '_res':
-            _, inner = ref
-            base_name = _expand_template_ref(inner)
-            res_name = f"{base_name}__res"
-            if base_name in compositions_by_name:
-                if res_name not in compositions_by_name:
-                    _clone_composition(compositions_by_name[base_name], res_name, 'res',
-                                       residual=True)
-            else:
-                if res_name not in equations_by_name:
-                    _clone_eq(base_name, res_name, skip=True)
-            return res_name
-        _, tpl_name, prefix = ref
-        concrete_name = f"{prefix}_{tpl_name}"
-        if concrete_name not in equations_by_name:
-            if tpl_name not in templates_by_name:
-                raise ValueError(
-                    f"Unknown template {tpl_name!r} in {tpl_name}[{prefix}] — "
-                    f"declared templates: {list(templates_by_name)}"
-                )
-            einsum, dom_sort, cod_sort, sr_term, nl = templates_by_name[tpl_name]
-            eq_term = alg.Equation(concrete_name, einsum, dom_sort, cod_sort,
-                                  sr_term, nonlinearity=nl)
-            equations_by_name[concrete_name] = eq_term
-            equations_list.append(eq_term)
-        return concrete_name
-
-    # --- per-kind handlers (closures; mutate shared state) ---
+    # --- per-kind handlers ---
 
     def _handle_define(decl):
         _, name, arity, params, expr_ast = decl
@@ -206,40 +85,118 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         nl = attr_dict.get('nonlinearity', None) or None
         sr_name = attr_dict.get('algebra', None)
         sr_term = _get_sr(sr_name) if sr_name else None
-        is_template = attr_dict.get('template', False)
         is_adjoint = bool(attr_dict.get('adjoint', False))
         inputs_val = attr_dict.get('inputs', [])
         if isinstance(inputs_val, str):
             inputs_val = [inputs_val]
+        eq_term = alg.Equation(name, einsum, dom_sort, cod_sort,
+                               sr_term, nonlinearity=nl,
+                               inputs=tuple(inputs_val),
+                               adjoint=is_adjoint)
+        equations_by_name[name] = eq_term
+        equations_list.append(eq_term)
 
-        if is_template:
-            templates_by_name[name] = (einsum, dom_sort, cod_sort, sr_term, nl)
-        else:
-            eq_term = alg.Equation(name, einsum, dom_sort, cod_sort,
-                                  sr_term, nonlinearity=nl,
-                                  inputs=tuple(inputs_val),
-                                  adjoint=is_adjoint)
-            equations_by_name[name] = eq_term
-            equations_list.append(eq_term)
+    def _handle_functor(decl):
+        from unialg.assembly.functor import (
+            Functor, sum_, prod, one, zero, id_, const,
+        )
+        _, name, body_node, attrs = decl
 
-    def _handle_lens(decl):
-        _, name, (_, _), attrs = decl
-        res_name = attrs.get('residual')
-        res_sort = _get_sort(res_name) if res_name else None
-        lens_term = alg.Lens(name, attrs['fwd'], attrs['bwd'],
-                             residual_sort=res_sort)
-        lenses.append(lens_term)
-        lenses_by_name[name] = lens_term
+        def _build_poly(node):
+            tag = node[0]
+            if tag == 'poly_zero':
+                return zero()
+            if tag == 'poly_one':
+                return one()
+            if tag == 'poly_id':
+                return id_()
+            if tag == 'poly_const':
+                return const(_get_sort(node[1]))
+            if tag == 'poly_sum':
+                return sum_(_build_poly(node[1]), _build_poly(node[2]))
+            if tag == 'poly_prod':
+                return prod(_build_poly(node[1]), _build_poly(node[2]))
+            raise ValueError(f"functor: unknown polynomial AST tag {tag!r}")
 
-    def _handle_composition(kind, decl):
-        kw = dict(expand_ref=_expand_template_ref)
-        if kind.startswith('lens_'):
-            kw['get_lens'] = _get_lens
-        spec = _SPEC_CLASSES[kind].from_parsed(decl, _get_sort, **kw)
-        specs.append(spec)
-        compositions_by_name[spec.name] = spec
+        category = attrs.get('category', 'set')
+        if category not in ('set', 'poset'):
+            raise ValueError(
+                f"functor {name!r}: category must be 'set' or 'poset', got {category!r}"
+            )
+        f = Functor(name, _build_poly(body_node), category=category)
+        f.validate()
+        functors_by_name[name] = f
 
-    # --- dispatch loop ---
+    def _handle_cell(decl):
+        from unialg.assembly._para import (
+            eq, lit as cell_lit, iden, seq as cell_seq, par as cell_par,
+            copy as cell_copy, delete as cell_delete, lens as cell_lens,
+            algebra_hom,
+        )
+        from unialg.assembly._para_graph import NamedCell
+        import hydra.core as core
+
+        def _build_cell(node):
+            tag = node[0]
+            if tag == 'cell_eq':
+                return eq(node[1])
+            if tag == 'cell_lit':
+                return cell_lit(core.TermLiteral(value=core.LiteralFloat(value=float(node[1]))))
+            if tag == 'cell_copy':
+                return cell_copy(_get_sort(node[1]))
+            if tag == 'cell_delete':
+                return cell_delete(_get_sort(node[1]))
+            if tag == 'cell_iden':
+                return iden(_get_sort(node[1]))
+            if tag == 'cell_seq':
+                return cell_seq(_build_cell(node[1]), _build_cell(node[2]))
+            if tag == 'cell_par':
+                return cell_par(_build_cell(node[1]), _build_cell(node[2]))
+            if tag == 'cell_lens':
+                _, fwd_node, bwd_node, residual_name = node
+                fwd, bwd = _build_cell(fwd_node), _build_cell(bwd_node)
+                residual = _get_sort(residual_name) if residual_name else None
+                return cell_lens(fwd, bwd, residual=residual)
+            if tag == 'cell_cata':
+                _, f_name, arg_nodes = node
+                if f_name not in functors_by_name:
+                    raise ValueError(
+                        f"cell cata: unknown functor {f_name!r} — declare via 'functor'"
+                    )
+                return algebra_hom(functors_by_name[f_name], "algebra",
+                                   [_build_cell(a) for a in arg_nodes])
+            if tag == 'cell_ana':
+                _, f_name, arg_nodes = node
+                if f_name not in functors_by_name:
+                    raise ValueError(
+                        f"cell ana: unknown functor {f_name!r} — declare via 'functor'"
+                    )
+                return algebra_hom(functors_by_name[f_name], "coalgebra",
+                                   [_build_cell(a) for a in arg_nodes])
+            raise ValueError(f"cell: unknown AST tag {tag!r}")
+
+        _, name, _sig, expr_node = decl
+        cell_term = _build_cell(expr_node)
+        cells.append(NamedCell(name=name, cell=cell_term))
+
+    def _handle_share(decl):
+        _, name, op_names = decl
+        if name in share_groups:
+            raise ValueError(f"share '{name}': already declared")
+        if len(op_names) < 2:
+            raise ValueError(f"share '{name}': must list at least two ops, got {op_names}")
+        for op_name in op_names:
+            _get_eq(op_name)
+        sorts_seen = [equations_by_name[n].domain_sort for n in op_names]
+        first_eq = op_names[0]
+        first_sr = sorts_seen[0].semiring_name
+        for nm, s in zip(op_names[1:], sorts_seen[1:]):
+            if s.semiring_name != first_sr:
+                raise ValueError(
+                    f"share '{name}': ops have incompatible domain algebras "
+                    f"('{first_eq}' is {first_sr}, '{nm}' is {s.semiring_name})"
+                )
+        share_groups[name] = list(op_names)
 
     _handlers = {
         'define':  _handle_define,
@@ -247,22 +204,24 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         'algebra': _handle_algebra,
         'spec':    _handle_spec,
         'op':      _handle_op,
-        'lens':    _handle_lens,
+        'functor': _handle_functor,
+        'share':   _handle_share,
+        'cell':    _handle_cell,
     }
 
     for decl in raw_decls:
         kind = decl[0]
         if kind in _handlers:
             _handlers[kind](decl)
-        elif kind in _SPEC_CLASSES:
-            _handle_composition(kind, decl)
+        else:
+            raise ValueError(f"Unknown declaration kind: {kind!r}")
 
     return UASpec(
         semirings=semirings,
         sorts=sorts,
         equations=equations_list,
-        specs=specs,
-        lenses=lenses,
         defines=defines,
         backend_name=backend_name,
+        share_groups=share_groups,
+        cells=cells,
     )

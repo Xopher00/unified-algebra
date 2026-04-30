@@ -1,29 +1,10 @@
 from __future__ import annotations
 
-from hydra.core import Name
-import hydra.dsl.terms as Terms
-
-from unialg.algebra.sort import ProductSort
-from ._typed_morphism import TypedMorphism
+from ._typed_morphism import TypedMorphism, Terms, Name
 
 _LENS_TYPE = Name("ua.morphism.Lens")
 
 T = TypedMorphism
-
-
-def _split_residual_focus(sort, label: str):
-    """Destructure a 2-element ``ProductSort`` into ``(residual, focus)``."""
-    if not isinstance(sort, ProductSort):
-        raise TypeError(
-            f"{label}: expected ProductSort of (residual, focus), got {sort!r}"
-        )
-    if len(sort.elements) != 2:
-        raise TypeError(
-            f"{label}: expected 2-element ProductSort, got "
-            f"{len(sort.elements)} elements"
-        )
-    return sort.elements[0], sort.elements[1]
-
 
 def _lens_term(forward, backward):
     """Lens record term: ``{forward: <term>, backward: <term>}``.
@@ -36,7 +17,6 @@ def _lens_term(forward, backward):
         Terms.field("forward", forward.term),
         Terms.field("backward", backward.term),
     ])
-
 
 def lens(forward, backward) -> TypedMorphism:
     """Lens morphism ``Lens(S, T; A, B, R) : S → T``.
@@ -56,10 +36,15 @@ def lens(forward, backward) -> TypedMorphism:
     forward = T.require(forward, "lens.forward")
     backward = T.require(backward, "lens.backward")
 
-    fwd_residual, _focus_in = _split_residual_focus(
-        forward.codomain, "lens.forward.codomain")
-    bwd_residual, _focus_out = _split_residual_focus(
-        backward.domain, "lens.backward.domain")
+    fwd_residual, _focus_in = T.split_product2(
+        forward.codomain, "lens.forward.codomain",
+    )
+    bwd_residual, _focus_out = T.split_product2(
+        backward.domain, "lens.backward.domain",
+    )
     T.same_sort(fwd_residual, bwd_residual, "lens.residual")
 
-    return T(_lens_term(forward, backward), forward.domain, backward.codomain)
+    return T(
+        _lens_term(forward, backward),
+        forward.domain, backward.codomain,
+    )

@@ -1,60 +1,33 @@
 """Smart constructor for ``algebra_hom`` typed morphisms.
 
-The constructor emits a Hydra term that wires the per-summand morphisms
-together via registered Hydra stdlib primitive references. The result IS a
-Hydra term — no intermediate ``ua.morphism.AlgHom`` record. Compilation falls
-back to Hydra reduction for stdlib application terms, so Hydra remains the
-owner of stdlib primitive execution.
+Builds the induced (co)algebra morphism over a polynomial functor:
 
-Phase 1 supports two polynomial F shapes plus the trivial coalgebra case:
+- **List** ``F = 1 + B × X``, algebra direction
+  ``cata(init, cons) : List B → C  =  λxs. foldr(curry(cons), init, xs)``
 
-- **List functor** ``F = 1 + Const × Id`` + ``algebra`` direction
-  → ``hydra.lib.lists.foldr``. Per-summand morphisms are
-  ``[init: 1 → carrier, cons: (base × carrier) → carrier]``. ``init`` must
-  be a ``lit`` morphism so its value can be unwrapped at construction.
+- **Maybe** ``F = 1 + X``, algebra direction
+  ``cata(nothing, just) : Maybe C → C  =  λm. cases(m, nothing, just)``
 
-- **Maybe functor** ``F = 1 + Id`` + ``algebra`` direction
-  → ``hydra.lib.maybes.cases``. Per-summand morphisms are
-  ``[nothing: 1 → carrier, just: carrier → carrier]``.
-
-- **Coalgebra direction** with any body shape → return the step morphism
-  unchanged. The step IS the coalgebra; nothing to wire.
-
-Custom recursive F shapes (binary trees, etc.) raise ``NotImplementedError``
-in Phase 1. Phase 2 adds a fallback that registers a Python walker primitive.
+- **Coalgebra** direction: returns the step morphism unchanged.
 """
 from __future__ import annotations
 
-import hydra.core as core
-from hydra.core import Name
-import hydra.dsl.terms as Terms
-
-from unialg.assembly.functor import Functor, PolyExpr
-from ._typed_morphism import TypedMorphism
+from .functor import Functor, PolyExpr
+from ._typed_morphism import TypedMorphism, Terms, Name, core
 
 T = TypedMorphism
+
+_FOLDR = Name("hydra.lib.lists.foldr")
+_CASES = Name("hydra.lib.maybes.cases")
 
 
 def algebra_hom(functor: Functor, direction: str, morphisms: list) -> TypedMorphism:
     """Induced (co)algebra hom over a polynomial Functor.
 
-    Parameters
-    ----------
-    functor:
-        Polynomial endofunctor declaring the F-shape.
-    direction:
-        ``"algebra"`` for an inductive walker (cata-like); ``"coalgebra"`` for
-        a coinductive driver (the step morphism itself).
-    morphisms:
-        For ``algebra`` direction: one ``TypedMorphism`` per summand of
-        ``functor.summands()``, each ``F_summand_args → carrier``. The shared
-        codomain is the carrier.
-        For ``coalgebra`` direction: a single step morphism
-        ``carrier → F(carrier)``; its domain is the carrier.
+    ``algebra``:  one TypedMorphism per summand, all sharing a codomain (the
+    carrier).  Returns ``cata_F(α) : μF → carrier``.
 
-    Returns a ``TypedMorphism`` whose ``.term`` is a Hydra term referencing
-    registered stdlib primitives by name. Compilation is handled by the
-    dispatcher in ``_morphism_compile.py``.
+    ``coalgebra``:  a single step morphism.  Returned unchanged.
     """
     if direction not in ("algebra", "coalgebra"):
         raise ValueError(
@@ -69,16 +42,16 @@ def algebra_hom(functor: Functor, direction: str, morphisms: list) -> TypedMorph
     if not morphisms:
         raise ValueError("algebra_hom: at least one morphism is required")
 
+    # coalgebra: step IS the coalgebra
     if direction == "coalgebra":
         if len(morphisms) != 1:
             raise ValueError(
                 f"coalgebra_hom over {functor.name!r}: expected 1 morphism, "
                 f"got {len(morphisms)}"
             )
-        step = morphisms[0]
-        return T(step.term, step.domain, step.codomain)
+        return morphisms[0]
 
-    # algebra direction
+    # algebra: one morphism per summand, shared codomain = carrier
     n_summands = len(functor.summands())
     if len(morphisms) != n_summands:
         raise ValueError(
@@ -91,101 +64,125 @@ def algebra_hom(functor: Functor, direction: str, morphisms: list) -> TypedMorph
         T.same_sort(m.codomain, carrier, f"algebra_hom.morphisms[{i}].codomain")
 
     body = functor.body
-    if _matches_list_functor(body):
-        term = _build_list_fold_term(body, morphisms)
-    elif _matches_maybe_functor(body):
-        term = _build_maybe_cata_term(body, morphisms)
-    else:
-        raise NotImplementedError(
-            f"algebra_hom over functor {functor.name!r}: polynomial shape "
-            f"not yet supported (Phase 1 supports List = 1 + Const × Id and "
-            f"Maybe = 1 + Id). Body kind={body.kind!r}."
+
+    # List:  F = 1 + B × X  →  cata(init, cons) : List B → C
+    parts = _list_parts(body)
+    if parts is not None:
+        one_idx, base_sort = parts
+        init, cons = morphisms[one_idx], morphisms[1 - one_idx]
+        T.same_sort(init.domain_type, T.unit(), "algebra_hom.init.domain")
+        T.same_sort(cons.domain_type, T.product(base_sort, carrier),
+                    "algebra_hom.cons.domain")
+        return T(
+            Terms.lambda_("xs", Terms.apply_all(
+                Terms.primitive(_FOLDR),
+                [_curry_pair(cons.term), _lit_value(init, "list"), Terms.var("xs")],
+            )),
+            T.list_type(base_sort),
+            carrier,
         )
-    return T(term, carrier, carrier)
+
+    # Maybe:  F = 1 + X  →  cata(nothing, just) : Maybe C → C
+    one_idx = _maybe_parts(body)
+    if one_idx is not None:
+        nothing, just = morphisms[one_idx], morphisms[1 - one_idx]
+        T.same_sort(nothing.domain_type, T.unit(), "algebra_hom.nothing.domain")
+        T.same_sort(just.domain_type, carrier, "algebra_hom.just.domain")
+        return T(
+            Terms.lambda_("m", Terms.apply_all(
+                Terms.primitive(_CASES),
+                [Terms.var("m"), _lit_value(nothing, "maybe"), just.term],
+            )),
+            T.maybe_type(carrier),
+            carrier,
+        )
+
+    raise NotImplementedError(
+        f"algebra_hom over functor {functor.name!r}: polynomial shape "
+        f"not yet supported (Phase 1 supports List = 1 + Const × Id and "
+        f"Maybe = 1 + Id). Body kind={body.kind!r}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Summand-domain computation (used by the resolver to set correct domains)
+# ---------------------------------------------------------------------------
+
+def summand_domain(summand: PolyExpr, carrier) -> object:
+    """Expected domain of the case morphism for a functor summand.
+
+    Given a summand shape and carrier sort, return the domain type:
+    ``one`` → unit, ``id`` → carrier, ``const(S)`` → S,
+    ``prod(A, B)`` → product of sub-domains.
+    """
+    k = summand.kind
+    if k == "one":
+        return T.unit()
+    if k == "id":
+        return carrier
+    if k == "const":
+        return summand.sort
+    if k == "prod":
+        return T.product(
+            summand_domain(summand.left, carrier),
+            summand_domain(summand.right, carrier),
+        )
+    raise NotImplementedError(f"summand_domain: unsupported kind {k!r}")
 
 
 # ---------------------------------------------------------------------------
 # Polynomial-shape recognisers
 # ---------------------------------------------------------------------------
 
-def _matches_list_functor(body: PolyExpr) -> bool:
-    """``F = 1 + Const × Id`` (or its mirror)."""
+def _list_parts(body: PolyExpr) -> tuple[int, object] | None:
+    """Recognise ``F = 1 + Const × Id``.  Returns ``(one_idx, base_sort)``."""
     if body.kind != "sum":
-        return False
+        return None
     branches = (body.left, body.right)
-    if {b.kind for b in branches} != {"one", "prod"}:
-        return False
-    prod = branches[0] if branches[0].kind == "prod" else branches[1]
-    return {prod.left.kind, prod.right.kind} == {"const", "id"}
+    kinds = (branches[0].kind, branches[1].kind)
+    if "one" not in kinds or "prod" not in kinds:
+        return None
+    one_idx = 0 if kinds[0] == "one" else 1
+    prod = branches[1 - one_idx]
+    if prod.left.kind == "const" and prod.right.kind == "id":
+        return one_idx, prod.left.sort
+    if prod.left.kind == "id" and prod.right.kind == "const":
+        raise NotImplementedError(
+            "algebra_hom: Id × Const detected; only Const × Id is supported. "
+            "Reorder the product in the functor declaration."
+        )
+    return None
 
 
-def _matches_maybe_functor(body: PolyExpr) -> bool:
-    """``F = 1 + Id`` (or its mirror)."""
+def _maybe_parts(body: PolyExpr) -> int | None:
+    """Recognise ``F = 1 + Id``.  Returns ``one_idx``."""
     if body.kind != "sum":
-        return False
-    return {body.left.kind, body.right.kind} == {"one", "id"}
+        return None
+    kinds = (body.left.kind, body.right.kind)
+    if set(kinds) != {"one", "id"}:
+        return None
+    return 0 if kinds[0] == "one" else 1
 
 
 # ---------------------------------------------------------------------------
-# Term builders — wire morphisms via Hydra stdlib references
+# Helpers
 # ---------------------------------------------------------------------------
 
-def _build_list_fold_term(body: PolyExpr, morphisms: list) -> object:
-    """Emit ``λxs. foldr((λel. λacc. cons((el, acc))), init, xs)``."""
-    one_idx = 0 if body.left.kind == "one" else 1
-    init_morphism = morphisms[one_idx]
-    cons_morphism = morphisms[1 - one_idx]
-    init_value_term = _unwrap_lit(init_morphism, "list functor")
-    return Terms.lambda_(
-        "xs",
-        Terms.apply_all(
-            Terms.primitive(Name("hydra.lib.lists.foldr")),
-            [_curried_pair_step(cons_morphism.term), init_value_term, Terms.var("xs")],
-        ),
+def _curry_pair(term) -> object:
+    """Adapt a pair-domain morphism ``(A × B) → C`` to curried ``A → B → C``."""
+    return Terms.lambdas(
+        ["el", "acc"],
+        Terms.apply(term, Terms.pair(Terms.var("el"), Terms.var("acc"))),
     )
 
 
-def _build_maybe_cata_term(body: PolyExpr, morphisms: list) -> object:
-    """Emit ``λm. apply_all(hydra.lib.maybes.cases, [m, nothing_value, just])``."""
-    one_idx = 0 if body.left.kind == "one" else 1
-    nothing_morphism = morphisms[one_idx]
-    just_morphism = morphisms[1 - one_idx]
-    nothing_value_term = _unwrap_lit(nothing_morphism, "Maybe functor")
-    return Terms.lambda_(
-        "m",
-        Terms.apply_all(
-            Terms.primitive(Name("hydra.lib.maybes.cases")),
-            [Terms.var("m"), nothing_value_term, just_morphism.term],
-        ),
-    )
-
-
-def _curried_pair_step(term) -> object:
-    """Adapt a tuple-arg morphism ``(a, b) -> c`` to Hydra's ``a -> b -> c``."""
-    return Terms.lambda_(
-        "el",
-        Terms.lambda_(
-            "acc",
-            Terms.apply(term, Terms.pair(Terms.var("el"), Terms.var("acc"))),
-        ),
-    )
-
-
-def _unwrap_lit(morphism: TypedMorphism, context: str) -> object:
-    """Extract ``value_term`` from a ``lit`` morphism whose term is ``λ_. value_term``.
-
-    The One-summand morphism in a list / Maybe catamorphism must be a ``lit``
-    so we can pass its underlying value (not a 0-ary function) to the stdlib
-    primitive's initial-value argument.
-    """
+def _lit_value(morphism: TypedMorphism, context: str) -> object:
+    """Extract the value term from a ``lit`` morphism (shape ``λ_. value``)."""
     term = morphism.term
-    if not (
-        isinstance(term, core.TermLambda)
-        and term.value.parameter.value == "_"
-    ):
+    if not (isinstance(term, core.TermLambda)
+            and term.value.parameter.value == "_"):
         raise ValueError(
-            f"algebra_hom over {context}: One-summand morphism must be "
-            f"constructed via lit (term shape ``λ_. value``); got "
-            f"{type(term).__name__}"
+            f"algebra_hom ({context}): One-summand morphism must be a lit "
+            f"(term shape λ_. value); got {type(term).__name__}"
         )
     return term.value.body

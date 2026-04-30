@@ -19,7 +19,7 @@ from unialg import (
 )
 from unialg.assembly.graph import assemble_graph
 from unialg.assembly.legacy.compositions import FoldComposition, UnfoldComposition
-from unialg.assembly._primitives import unfold_n_primitive
+from unialg.assembly.legacy._primitives import unfold_n_primitive
 from unialg.assembly._equation_resolution import resolve_equation
 
 from conftest import encode_array, decode_term, assert_reduce_ok, make_graph_with_stdlib

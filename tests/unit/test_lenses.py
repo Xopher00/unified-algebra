@@ -16,7 +16,7 @@ from unialg import (
 )
 from unialg.assembly.graph import assemble_graph
 from unialg.algebra.sort import Lens
-from unialg.assembly._primitives import lens_fwd_primitive, lens_bwd_primitive
+from unialg.assembly.legacy._primitives import lens_fwd_primitive, lens_bwd_primitive
 
 
 # ---------------------------------------------------------------------------

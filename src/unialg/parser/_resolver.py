@@ -116,6 +116,10 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                 return sum_(_build_poly(node[1]), _build_poly(node[2]))
             if tag == 'poly_prod':
                 return prod(_build_poly(node[1]), _build_poly(node[2]))
+            if tag == 'poly_compose':
+                raise NotImplementedError(
+                    "functor composition (@) not yet supported"
+                )
             raise ValueError(f"functor: unknown polynomial AST tag {tag!r}")
 
         category = attrs.get('category', 'set')
@@ -129,81 +133,71 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
 
     def _handle_cell(decl):
         from unialg.assembly import morphism
-        from unialg.assembly.para._para_graph import NamedCell
+        from unialg.assembly.graph import NamedCell
         import hydra.core as core
-
-        def _contains_legacy_only(node) -> bool:
-            tag = node[0]
-            if tag in {"cell_seq", "cell_par"}:
-                return _contains_legacy_only(node[1]) or _contains_legacy_only(node[2])
-            if tag in {"cell_cata", "cell_ana"}:
-                return any(_contains_legacy_only(a) for a in node[2])
-            return False
 
         def _literal(node):
             return core.TermLiteral(value=core.LiteralFloat(value=float(node[1])))
 
-        def _build_cell_legacy(node):
-            from unialg.assembly.para._para import (
-                eq as cell_eq,
-                lit as cell_lit,
-                iden as cell_iden,
-                seq as cell_seq,
-                par as cell_par,
-                copy as cell_copy,
-                delete as cell_delete,
-                lens as cell_lens,
-                algebra_hom as cell_algebra_hom,
-            )
-            tag = node[0]
-            if tag == 'cell_eq':
-                return cell_eq(node[1])
-            if tag == 'cell_lit':
-                return cell_lit(_literal(node))
-            if tag == 'cell_copy':
-                return cell_copy(_get_sort(node[1]))
-            if tag == 'cell_delete':
-                return cell_delete(_get_sort(node[1]))
-            if tag == 'cell_iden':
-                return cell_iden(_get_sort(node[1]))
-            if tag == 'cell_seq':
-                return cell_seq(_build_cell_legacy(node[1]), _build_cell_legacy(node[2]))
-            if tag == 'cell_par':
-                return cell_par(_build_cell_legacy(node[1]), _build_cell_legacy(node[2]))
-            if tag == 'cell_lens':
-                _, fwd_node, bwd_node, residual_name = node
-                fwd, bwd = _build_cell_legacy(fwd_node), _build_cell_legacy(bwd_node)
-                residual = _get_sort(residual_name) if residual_name else None
-                return cell_lens(fwd, bwd, residual=residual)
-            if tag == 'cell_cata':
-                _, f_name, arg_nodes = node
-                if f_name not in functors_by_name:
-                    raise ValueError(
-                        f"cell cata: unknown functor {f_name!r} — declare via 'functor'"
-                    )
-                return cell_algebra_hom(functors_by_name[f_name], "algebra",
-                                        [_build_cell_legacy(a) for a in arg_nodes])
-            if tag == 'cell_ana':
-                _, f_name, arg_nodes = node
-                if f_name not in functors_by_name:
-                    raise ValueError(
-                        f"cell ana: unknown functor {f_name!r} — declare via 'functor'"
-                    )
-                return cell_algebra_hom(functors_by_name[f_name], "coalgebra",
-                                        [_build_cell_legacy(a) for a in arg_nodes])
-            raise ValueError(f"cell: unknown AST tag {tag!r}")
-
         _, name, sig, expr_node = decl
         cell_codomain = _resolve_sort_ref(sig[1])
+
+        def _split_modifiers(eq_name: str) -> tuple[str, str]:
+            i = len(eq_name)
+            while i > 0 and eq_name[i - 1] in "'?":
+                i -= 1
+            return eq_name[:i], eq_name[i:]
+
+        def _ensure_adjoint_eq(base_name: str):
+            base = _get_eq(base_name)
+            if not base.einsum:
+                raise NotImplementedError(
+                    f"equation modifier \"'\" on {base_name!r}: adjoint "
+                    "references require an einsum-backed op"
+                )
+            adjoint_name = f"{base_name}__adjoint"
+            if adjoint_name not in equations_by_name:
+                eq = alg.Equation(
+                    adjoint_name,
+                    base.einsum,
+                    base.domain_sort,
+                    base.codomain_sort,
+                    base.semiring,
+                    nonlinearity=base.nonlinearity,
+                    inputs=tuple(base.inputs),
+                    param_slots=tuple(base.param_slots),
+                    adjoint=True,
+                    skip=base.skip,
+                )
+                equations_by_name[adjoint_name] = eq
+                equations_list.append(eq)
+            return adjoint_name
+
+        def _resolve_modified_eq(eq_name: str):
+            base_name, modifiers = _split_modifiers(eq_name)
+            if not base_name:
+                raise ValueError(f"invalid equation reference {eq_name!r}")
+            if base_name not in equations_by_name:
+                raise ValueError(f"unknown equation {base_name!r}")
+            resolved_name = base_name
+            for modifier in modifiers:
+                if modifier == "'":
+                    resolved_name = _ensure_adjoint_eq(resolved_name)
+                elif modifier == "?":
+                    raise NotImplementedError(
+                        f"equation modifier '?' on {resolved_name!r}: masked "
+                        "references are parsed but not implemented"
+                    )
+                else:
+                    raise ValueError(f"unsupported equation modifier {modifier!r}")
+            return resolved_name, _get_eq(resolved_name)
 
         def _build_typed(node):
             tag = node[0]
             if tag == 'cell_eq':
-                if node[1] not in equations_by_name:
-                    raise ValueError(f"unknown equation {node[1]!r}")
-                eq = _get_eq(node[1])
+                resolved_name, eq = _resolve_modified_eq(node[1])
                 return morphism.eq(
-                    node[1],
+                    resolved_name,
                     domain=eq.domain_sort,
                     codomain=eq.codomain_sort,
                 )
@@ -216,12 +210,8 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             if tag == 'cell_iden':
                 return morphism.iden(_get_sort(node[1]))
             if tag == 'cell_seq':
-                if _contains_legacy_only(node):
-                    return _build_cell_legacy(node)
                 return morphism.seq(_build_typed(node[1]), _build_typed(node[2]))
             if tag == 'cell_par':
-                if _contains_legacy_only(node):
-                    return _build_cell_legacy(node)
                 return morphism.par(_build_typed(node[1]), _build_typed(node[2]))
             if tag in {'cell_lens', 'cell_cata', 'cell_ana'}:
                 if tag == 'cell_lens':
@@ -235,12 +225,20 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                     raise ValueError(
                         f"cell {label}: unknown functor {f_name!r} — declare via 'functor'"
                     )
+                functor = functors_by_name[f_name]
                 direction = "algebra" if tag == "cell_cata" else "coalgebra"
-                return morphism.algebra_hom(
-                    functors_by_name[f_name],
-                    direction,
-                    [_build_typed(a) for a in arg_nodes],
-                )
+                if direction == "algebra":
+                    from unialg.assembly._algebra_hom import summand_domain
+                    from unialg.assembly._typed_morphism import TypedMorphism as T
+                    summands = functor.summands()
+                    morphisms = []
+                    for arg_node, summand in zip(arg_nodes, summands):
+                        m = _build_typed(arg_node)
+                        dom = summand_domain(summand, cell_codomain)
+                        morphisms.append(T(m.term, dom, cell_codomain))
+                else:
+                    morphisms = [_build_typed(a) for a in arg_nodes]
+                return morphism.algebra_hom(functor, direction, morphisms)
             raise ValueError(f"cell: unknown AST tag {tag!r}")
 
         cell_obj = _build_typed(expr_node)

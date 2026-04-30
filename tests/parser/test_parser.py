@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from unialg import (
-    NumpyBackend, parse_ua, parse_ua_spec, UASpec,
+    NumpyBackend, ProductSort, parse_ua, parse_ua_spec, UASpec,
 )
 from unialg import Equation
 
@@ -56,6 +56,22 @@ op relu : hidden -> hidden
 """
         spec = parse_ua_spec(text)
         assert len(spec.equations) == 2
+
+    def test_product_domain_in_sort_signature(self):
+        text = """
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec left(real)
+spec right(real)
+spec output(real)
+
+op combine : (left, right) -> output
+  einsum = "i,j->ij"
+  algebra = real
+"""
+        spec = parse_ua_spec(text)
+        eq = spec.equations[0]
+        assert isinstance(eq.domain_sort, ProductSort)
+        assert eq.codomain_sort.name == "output"
 
     def test_returns_uaspec_instance(self):
         text = """
@@ -253,6 +269,24 @@ op downstream : hidden -> hidden
         assert ds_eq.semiring_name == "real"
         assert tuple(ds_eq.inputs) == ('linear',)
 
+    def test_string_attributes_support_json_style_escapes(self):
+        spec = parse_ua_spec(_INPUTS_BASE + """
+op escaped : hidden -> hidden
+  einsum = "i,\\"j\\"\\\\k\\n->i"
+  algebra = real
+""")
+        escaped_eq = spec.equations[0]
+        assert escaped_eq.einsum == 'i,"j"\\k\n->i'
+
+    def test_string_attributes_reject_raw_newlines(self):
+        with pytest.raises(SyntaxError):
+            parse_ua_spec(_INPUTS_BASE + """
+op bad : hidden -> hidden
+  einsum = "i,
+->i"
+  algebra = real
+""")
+
 
 # ---------------------------------------------------------------------------
 # share declaration
@@ -385,6 +419,25 @@ spec node(max_plus)
         spec = parse_ua_spec(text)
         assert 'max_plus' in spec.semirings
 
+    def test_negative_finite_algebra_literals(self):
+        text = """
+algebra shifted(plus=add, times=multiply, zero=-1.0, one=-2)
+spec hidden(shifted)
+"""
+        spec = parse_ua_spec(text)
+        sr = spec.semirings["shifted"]
+        assert sr.zero == -1.0
+        assert sr.one == -2.0
+
+    def test_negative_finite_cell_literal(self):
+        text = """
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+cell bias : hidden -> hidden = -1.0
+"""
+        spec = parse_ua_spec(text)
+        assert len(spec.cells) == 1
+
 
 # ---------------------------------------------------------------------------
 # Fan declaration — parse and check spec type
@@ -443,6 +496,19 @@ spec hidden(real)
         _, _, _, body = spec.defines[0]
         assert body[0] == 'call'
         assert body[1] == 'neg'
+
+    def test_define_negative_literal_uses_unary_minus(self):
+        text = """
+define unary shift(x) = x + -1.0
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+"""
+        spec = parse_ua_spec(text)
+        _, _, _, body = spec.defines[0]
+        assert body == ('call', 'add', [
+            ('var', 'x'),
+            ('call', 'neg', [('lit', 1.0)]),
+        ])
 
     def test_multiple_defines(self):
         text = """

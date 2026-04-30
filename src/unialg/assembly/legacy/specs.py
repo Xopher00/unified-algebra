@@ -14,7 +14,7 @@ from .compositions import (
     PathComposition, FanComposition, FoldComposition, UnfoldComposition, FixpointComposition,
     ParallelComposition, _bind, _eq_var,
 )
-from .._primitives import (
+from ._primitives import (
     unfold_n_primitive, fixpoint_primitive,
     lens_fwd_primitive, lens_bwd_primitive, residual_add_primitive,
 )

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import dataclasses
 from collections import deque
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import hydra.core as core
 import hydra.graph
+from hydra.dsl.prims import prim1
 from hydra.dsl.python import FrozenDict, Nothing
 from hydra.lexical import empty_graph
 from hydra.sources.libraries import standard_library
@@ -17,11 +19,23 @@ import hydra.typing
 
 from unialg.algebra.equation import Equation
 from ._equation_resolution import resolve_equation, resolve_equation_as_merge, resolve_semirings
+from ._morphism_compile import compile_morphism, Matcher
 from ._validation import unify_or_raise
 from .legacy.compositions import _EQ_PREFIX, _MERGE_SUFFIX
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
+
+
+MORPHISM_PRIM_PREFIX = "ua.morphism."
+
+
+@dataclass(frozen=True)
+class NamedCell:
+    """A named morphism expression destined for graph registration."""
+    name: str
+    cell: object
+    matchers: dict[str, Matcher] | None = None
 
 
 def topo_edges(equations: list) -> list:
@@ -129,7 +143,6 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
 
 
 def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, schema_types, coder, backend, **kwargs):
-    from hydra.dsl.prims import prim1
     from unialg.assembly.legacy.compositions import Composition
     compiled_fns = {}
     for spec in specs:
@@ -187,11 +200,9 @@ def assemble_graph(
 ) -> tuple[hydra.graph.Graph, dict, dict]:
     """Resolve equations, assemble a Hydra Graph, and compile compositions.
 
-    ``cells`` is a list of ``NamedCell`` entries. During the Cell-collapse
-    migration, each entry may hold either a legacy Cell or a migrated Hydra
-    morphism term. Legacy Cells are validated against the equation/sort scope;
-    both forms compile to Hydra primitives and register alongside the legacy
-    Spec-derived primitives.
+    ``cells`` is a list of ``NamedCell`` entries whose morphism terms are
+    compiled to Hydra primitives and registered alongside equation-derived
+    primitives. Lenses produce two primitives (forward + backward).
     """
     all_specs = list(specs or [])
     merge_names = set()
@@ -247,19 +258,39 @@ def assemble_graph(
 
 def _register_cells(named_cells, graph,
                     primitives, native_fns, compiled_fns, coder, backend):
-    """Register each NamedCell / morphism into the graph dicts.
+    """Compile each morphism and register its primitive(s) into the graph dicts.
 
-    ``graph`` is the preliminary graph built from resolved equations and sort
-    declarations. It is threaded to ``register_named_cells`` so that
-    graph-aware Hydra extractors are available during compilation.
-
-    Validation of equation references is now folded into compilation:
-    ``compile_morphism`` raises ``ValueError`` when an equation is absent from
-    ``native_fns``, so the old pre-flight validation walk is removed.
+    Lenses produce two primitives (forward + backward). All other morphisms
+    produce one. The ``ua.equation.{name}`` alias points to the forward
+    callable for lenses, the sole callable otherwise.
     """
-    from unialg.assembly.para._para_graph import register_named_cells
-    register_named_cells(named_cells, graph, primitives, native_fns,
-                         compiled_fns, coder, backend)
+    for named in named_cells:
+        fn = compile_morphism(
+            named.cell, graph, native_fns, coder, backend,
+            matchers=named.matchers,
+        )
+        if fn is None:
+            raise ValueError(f"compile_morphism returned None for {named.name!r}")
+
+        if hasattr(fn, "forward") and hasattr(fn, "backward"):
+            fwd_name = core.Name(f"{MORPHISM_PRIM_PREFIX}{named.name}.forward")
+            bwd_name = core.Name(f"{MORPHISM_PRIM_PREFIX}{named.name}.backward")
+            primitives[fwd_name] = prim1(fwd_name, fn.forward, [], coder, coder)
+            primitives[bwd_name] = prim1(bwd_name, fn.backward, [], coder, coder)
+            native_fns[fwd_name] = fn.forward
+            native_fns[bwd_name] = fn.backward
+            compiled_fns[named.name] = fn
+            eq_alias = core.Name(f"ua.equation.{named.name}")
+            primitives.setdefault(eq_alias, prim1(eq_alias, fn.forward, [], coder, coder))
+            native_fns.setdefault(eq_alias, fn.forward)
+        else:
+            prim_name = core.Name(f"{MORPHISM_PRIM_PREFIX}{named.name}")
+            primitives[prim_name] = prim1(prim_name, fn, [], coder, coder)
+            native_fns[prim_name] = fn
+            compiled_fns[named.name] = fn
+            eq_alias = core.Name(f"ua.equation.{named.name}")
+            primitives.setdefault(eq_alias, prim1(eq_alias, fn, [], coder, coder))
+            native_fns.setdefault(eq_alias, fn)
 
 
 def rebind_params(graph, updates):

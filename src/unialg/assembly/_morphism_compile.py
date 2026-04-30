@@ -8,9 +8,9 @@ from typing import TypeAlias
 
 import hydra.core as core
 from hydra.context import Context
-from hydra.core import Name, TermApplication, TermLiteral, TermRecord, TermVariable
+from hydra.core import Name, TermApplication, TermRecord, TermVariable
 from hydra.dsl.python import FrozenDict, Right, Left
-from hydra.dsl.terms import apply
+import hydra.dsl.terms as Terms
 from hydra.reduction import reduce_term
 
 from hydra.extract.core import record as _extract_record
@@ -21,6 +21,8 @@ from unialg.assembly.morphism import (
     _BIMAP_NAME,
 )
 from unialg.assembly.lens import _LENS_TYPE
+
+apply = Terms.apply
 
 # Hydra's ``Terms.compose`` builds ``Lambda(Name("arg_"), …)``. Hydra's
 # ``Terms.constant`` builds ``Lambda(Name("_"), …)`` (matching
@@ -47,7 +49,7 @@ _NO_MATCH = object()
 _EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
 
 
-def _decode_init(coder, init_term):
+def _decode_literal(coder, init_term):
     try:
         match coder.encode(None, None, init_term):
             case Right(value=v): return v, False
@@ -167,35 +169,6 @@ def _compile_via_hydra(
     return runtime
 
 
-def _is_hydra_morphism_term(term):
-    return isinstance(
-        term,
-        (
-            TermApplication,
-            core.TermLambda,
-            TermLiteral,
-            TermRecord,
-            TermVariable,
-        ),
-    )
-
-
-def _compile_legacy_cell(term, graph, native_fns, coder, backend, *, matchers=None):
-    """LEGACY BRIDGE: delegate unresolved ``para.Cell`` terms to the old walker.
-
-    Still needed while `_resolver._contains_legacy_only` routes lens expressions
-    and legacy-only subtrees to ``para._para``.
-    """
-    from unialg.assembly.para._para import CELL_TYPE_NAME, Cell
-    if not isinstance(term, Cell):
-        if (
-            not isinstance(term, core.TermInject)
-            or term.value.type_name != CELL_TYPE_NAME
-        ):
-            return _NO_MATCH
-        term = Cell(term)
-    from unialg.assembly.para._para_runtime import compile_cell
-    return compile_cell(term, native_fns, coder, backend, matchers=matchers)
 
 
 def _compile_binary(term, graph, native_fns, coder, backend, *, matchers=None):
@@ -240,15 +213,6 @@ def _compile_term(term, graph, native_fns, coder, backend, *, matchers=None):
     typed = term if isinstance(term, TypedMorphism) else None
     term = _unwrap_typed_morphism(term)
 
-    if not _is_hydra_morphism_term(term):
-        # LEGACY BRIDGE: migrated seq/par terms can still contain Cell children
-        # until parser lens handling and remaining legacy-only forms move over.
-        compiled = _compile_legacy_cell(
-            term, graph, native_fns, coder, backend, matchers=matchers
-        )
-        if compiled is not _NO_MATCH:
-            return compiled
-
     fn = _try_structural_lambda(term)
     if fn is not None:
         return backend.compile(fn)
@@ -258,7 +222,7 @@ def _compile_term(term, graph, native_fns, coder, backend, *, matchers=None):
         return lens
 
     if isinstance(term, core.TermLambda) and term.value.parameter.value == _LIT_PARAM:
-        value, _ = _decode_init(coder, term.value.body)
+        value, _ = _decode_literal(coder, term.value.body)
         return None if value is None else (lambda *_args, _v=value: _v)
 
     if isinstance(term, TermVariable):
@@ -284,10 +248,17 @@ def _compile_term(term, graph, native_fns, coder, backend, *, matchers=None):
         return compiled
 
     if typed is not None:
+        import warnings
+        warnings.warn(
+            f"compile_morphism: no fast-path matcher for {type(term).__name__}; "
+            f"falling back to Hydra reduce_term",
+            stacklevel=2,
+        )
         return _compile_via_hydra(typed, graph, coder, backend)
 
     raise TypeError(
-        f"compile_morphism: expected Cell, structural lambda "
-        f"(iden/copy/delete), constant lambda (lit), TermVariable, or "
-        f"migrated seq/par term, got {type(term).__name__}"
+        f"compile_morphism: unrecognized term shape {type(term).__name__}. "
+        f"Expected structural lambda (iden/copy/delete), constant lambda "
+        f"(lit), TermVariable (equation ref), lens record, or seq/par "
+        f"application."
     )

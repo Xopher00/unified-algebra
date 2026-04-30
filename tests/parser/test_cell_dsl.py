@@ -1,30 +1,11 @@
-"""Operator-based cell DSL: .ua source with `cell` decls and operator syntax.
-
-The cell-expression sub-grammar uses ASCII operator symbols throughout —
-no `seq` / `parallel` / `branch` keywords. This file exercises:
-
-  ;          sequential composition (level 5, left-assoc)
-  *          monoidal product       (level 3, left-assoc)
-  ^[A]       copy on sort A
-  ![A]       delete on sort A
-  _[A]       identity on sort A
-  >[F](...)  cata
-  <[F](...)  ana
-  <->        lens (height-1)
-  <-> g {R}  lens (height-2 with residual sort R)
-
-`cata` / `ana` aren't reachable from .ua yet — they need a `functor` decl
-which lands in a follow-on; this file covers what the operator grammar
-ships now.
-"""
-import numpy as np
+"""Parser coverage for the current cell and functor expression syntax."""
 import pytest
 
 import hydra.core as core
 
-from unialg.parser import parse_ua, parse_ua_spec
 from unialg.assembly._typed_morphism import TypedMorphism
-from unialg.assembly.para._para_graph import NamedCell
+from unialg.assembly.graph import NamedCell
+from unialg.parser import parse_ua, parse_ua_spec
 
 
 def _assert_var(term, name: str):
@@ -56,12 +37,12 @@ def _par_parts(term):
     return inner.value.argument, term.value.argument
 
 
-# ---------------------------------------------------------------------------
-# Parsing — AST shape from the resolver
-# ---------------------------------------------------------------------------
+def _field_names(record_term):
+    assert isinstance(record_term, core.TermRecord)
+    return [field.name.value for field in record_term.value.fields]
+
 
 class TestCellDSLParse:
-
     _BASE = """
 import numpy
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
@@ -78,54 +59,54 @@ op plus : hidden -> hidden
 """
 
     def test_seq(self):
-        spec = parse_ua_spec(self._BASE + "cell foo : hidden -> hidden = f ; g\n")
+        spec = parse_ua_spec(self._BASE + "cell foo : hidden -> hidden = f > g\n")
         assert len(spec.cells) == 1
         nc = spec.cells[0]
         assert isinstance(nc, NamedCell)
         assert nc.name == "foo"
+        assert isinstance(nc.cell, TypedMorphism)
         f, g, _ = _seq_parts(nc.cell)
         _assert_var(f, "ua.equation.f")
         _assert_var(g, "ua.equation.g")
 
     def test_par(self):
-        spec = parse_ua_spec(self._BASE + "cell bar : hidden -> hidden = f * g\n")
+        spec = parse_ua_spec(self._BASE + "cell bar : hidden -> hidden = f & g\n")
         f, g = _par_parts(spec.cells[0].cell)
         _assert_var(f, "ua.equation.f")
         _assert_var(g, "ua.equation.g")
 
-    def test_copy_iden_delete(self):
+    def test_copy_iden_delete_boundary_error(self):
         src = self._BASE + (
-            "cell c : hidden -> hidden = ^[hidden] ; (f * _[hidden]) ; plus\n"
+            "cell c : hidden -> hidden = copy[hidden] > (f & id[hidden]) > plus\n"
         )
         with pytest.raises(TypeError, match="seq.left.codomain"):
             parse_ua_spec(src)
 
-    def test_lens_height1(self):
-        src = self._BASE + "cell o : hidden -> hidden = f <-> g\n"
-        with pytest.raises(TypeError, match="ProductSort"):
-            parse_ua_spec(src)
-
-    def test_lens_height2(self):
-        src = self._BASE + "cell o : hidden -> hidden = f <-> g {hidden}\n"
-        with pytest.raises(TypeError, match="ProductSort"):
-            parse_ua_spec(src)
-
-    def test_precedence_tensor_tighter_than_seq(self):
-        # f ; g * h should parse as f ; (g * h)
+    def test_symbolic_copy_iden_delete_boundary_error(self):
         src = self._BASE + (
-            "op h : hidden -> hidden\n"
-            "  einsum = \"i,i->i\"\n"
-            "  algebra = real\n"
-            "cell foo : hidden -> hidden = f ; g * h\n"
+            "cell c : hidden -> hidden = ^[hidden] > (f & _[hidden]) > plus\n"
         )
         with pytest.raises(TypeError, match="seq.left.codomain"):
             parse_ua_spec(src)
+
+    def test_lens_height1_syntax_reaches_typed_lens(self):
+        src = self._BASE + "cell o : hidden -> hidden = f ~ g\n"
+        with pytest.raises(TypeError, match="TypePair"):
+            parse_ua_spec(src)
+
+    def test_lens_height2_with_residual_annotation(self):
+        src = self._BASE + (
+            "cell o : hidden -> (hidden, hidden) = "
+            "copy[hidden] ~ (id[hidden] & id[hidden]) *[hidden]\n"
+        )
+        cell = parse_ua_spec(src).cells[0].cell
+        assert isinstance(cell, TypedMorphism)
+        assert _field_names(cell.term) == ["forward", "backward"]
+        assert isinstance(cell.codomain_type, core.TypePair)
 
     def test_left_assoc_seq(self):
-        # f ; g ; plus parses as (f ; g) ; plus
-        src = self._BASE + "cell foo : hidden -> hidden = f ; g ; plus\n"
-        spec = parse_ua_spec(src)
-        cell = spec.cells[0].cell
+        src = self._BASE + "cell foo : hidden -> hidden = f > g > plus\n"
+        cell = parse_ua_spec(src).cells[0].cell
         left, plus, _ = _seq_parts(cell)
         _assert_var(plus, "ua.equation.plus")
         f, g, _ = _seq_parts(left)
@@ -133,10 +114,8 @@ op plus : hidden -> hidden
         _assert_var(g, "ua.equation.g")
 
     def test_paren_grouping(self):
-        # (f ; g) * plus parses as par(seq(f, g), plus)
-        src = self._BASE + "cell foo : hidden -> hidden = (f ; g) * plus\n"
-        spec = parse_ua_spec(src)
-        cell = spec.cells[0].cell
+        src = self._BASE + "cell foo : hidden -> hidden = (f > g) & plus\n"
+        cell = parse_ua_spec(src).cells[0].cell
         seq, plus = _par_parts(cell)
         _assert_var(plus, "ua.equation.plus")
         f, g, _ = _seq_parts(seq)
@@ -144,12 +123,78 @@ op plus : hidden -> hidden
         _assert_var(g, "ua.equation.g")
 
 
-# ---------------------------------------------------------------------------
-# End-to-end — parse + compile + run
-# ---------------------------------------------------------------------------
+class TestCellDSLPrecedence:
+    _BASE = TestCellDSLParse._BASE + """
+op h : hidden -> hidden
+  einsum = "i,i->i"
+  algebra = real
+"""
+
+    def test_product_binds_tighter_than_sequence(self):
+        with pytest.raises(TypeError, match="seq.left.codomain"):
+            parse_ua_spec(
+                self._BASE + "cell foo : hidden -> hidden = f > g & h\n"
+            )
+
+    def test_grouped_sequence_can_be_product_operand(self):
+        spec = parse_ua_spec(
+            self._BASE + "cell foo : hidden -> hidden = (f > g) & h\n"
+        )
+        left, h = _par_parts(spec.cells[0].cell)
+        _assert_var(h, "ua.equation.h")
+        f, g, _ = _seq_parts(left)
+        _assert_var(f, "ua.equation.f")
+        _assert_var(g, "ua.equation.g")
+
+    def test_lens_binds_looser_than_sequence(self):
+        src = self._BASE + "cell o : hidden -> hidden = f > g ~ h\n"
+        with pytest.raises(TypeError, match="TypePair"):
+            parse_ua_spec(src)
+
+
+class TestNamedCellConstructors:
+    _BASE = TestCellDSLParse._BASE
+
+    def test_named_seq(self):
+        spec = parse_ua_spec(self._BASE + "cell foo : hidden -> hidden = seq(f, g)\n")
+        f, g, _ = _seq_parts(spec.cells[0].cell)
+        _assert_var(f, "ua.equation.f")
+        _assert_var(g, "ua.equation.g")
+
+    def test_named_par(self):
+        spec = parse_ua_spec(self._BASE + "cell foo : hidden -> hidden = par(f, g)\n")
+        f, g = _par_parts(spec.cells[0].cell)
+        _assert_var(f, "ua.equation.f")
+        _assert_var(g, "ua.equation.g")
+
+    def test_named_id_copy_drop(self):
+        spec = parse_ua_spec(
+            self._BASE
+            + "cell i : hidden -> hidden = id[hidden]\n"
+            + "cell c : hidden -> (hidden, hidden) = copy[hidden]\n"
+            + "cell d : hidden -> hidden = drop[hidden]\n"
+        )
+        identity, copy, drop = [nc.cell for nc in spec.cells]
+        assert isinstance(identity.term, core.TermLambda)
+        assert isinstance(copy.codomain_type, core.TypePair)
+        assert isinstance(drop.codomain_type, core.TypeUnit)
+
+    def test_named_lens_with_residual_annotation(self):
+        src = self._BASE + (
+            "cell o : hidden -> (hidden, hidden) = "
+            "lens(copy[hidden], id[hidden] & id[hidden]) *[hidden]\n"
+        )
+        cell = parse_ua_spec(src).cells[0].cell
+        assert _field_names(cell.term) == ["forward", "backward"]
+
+    def test_named_constructor_arity_errors(self):
+        with pytest.raises(ValueError, match=r"seq\(\) takes 2 args"):
+            parse_ua_spec(self._BASE + "cell bad : hidden -> hidden = seq(f)\n")
+        with pytest.raises(ValueError, match=r"lens\(\) takes 2 args"):
+            parse_ua_spec(self._BASE + "cell bad : hidden -> hidden = lens(f)\n")
+
 
 class TestCellDSLEndToEnd:
-
     def test_seq_compiles_and_runs(self, backend):
         src = """
 import numpy
@@ -161,25 +206,13 @@ op f : hidden -> hidden
 op g : hidden -> hidden
   einsum = "i,i->i"
   algebra = real
-cell foo : hidden -> hidden = f ; g
+cell foo : hidden -> hidden = f > g
 """
         prog = parse_ua(src, backend=backend)
-        # f ; g on real semiring with einsum 'i,i->i' = elementwise multiply twice.
-        # foo(x, w_f, w_g)? — actually atomic eq f takes two inputs (matrix, vec).
-        # For cell-level call, we go through the ua.cell.foo / ua.equation.foo alias
-        # which is a unary fn taking the input. Here both f and g are (i,i->i)
-        # binary ops — calling them from a unary chain doesn't make sense without
-        # threading params. So we just verify the program is callable; the unary
-        # call here will fail if f/g aren't supplied with weights. Skip the full
-        # numeric assertion for this minimal case.
         assert prog is not None
-        # The cell registered as a primitive, accessible by name through the program.
-        # Just check that the compiled_fn exists.
         assert "foo" in prog._compiled_fns
 
-    def test_residual_decomposition_runs(self, backend):
-        # ^[A] ; (f * _[A]) ; plus — residual layer with f as a unary nonlinearity.
-        # f = halve; plus = elementwise add. Result on x: halve(x) + x.
+    def test_residual_decomposition_boundary_error(self, backend):
         src = """
 import numpy
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
@@ -190,27 +223,13 @@ op f : hidden -> hidden
 op plus : hidden -> hidden
   einsum = "i,i->i"
   algebra = real
+cell residual_layer : hidden -> hidden = copy[hidden] > (f & id[hidden]) > plus
 """
-        # plus is "i,i->i" on real semiring — that's elementwise multiply, not add.
-        # Use the residual_add primitive instead via a custom op... actually for this
-        # test we need a binary op that adds. The semiring's plus = "add", and we
-        # have a registered binary op for it. But we don't have an equation that
-        # exposes it. Let's just test the structural pattern parses + compiles even
-        # if the runtime semantics need a real binary-add op (deferred).
-        src_with_cell = src + (
-            "cell residual_layer : hidden -> hidden = ^[hidden] ; (f * _[hidden]) ; plus\n"
-        )
         with pytest.raises(TypeError, match="seq.left.codomain"):
-            parse_ua(src_with_cell, backend=backend)
+            parse_ua(src, backend=backend)
 
-
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
 
 class TestFunctorDecl:
-    """`functor <name> : <poly_expr> [\\n category = <ident>]`."""
-
     _BASE = """
 import numpy
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
@@ -220,26 +239,55 @@ spec output(real)
 """
 
     def test_simple_functor(self):
-        spec = parse_ua_spec(self._BASE + "functor F_iter : X\n")
-        # Functors are kept in the resolver; we don't expose them on UASpec yet,
-        # but we can verify by attempting to use them in a cell.
+        parse_ua_spec(self._BASE + "functor F_iter : X\n")
 
-    def test_list_functor_with_cata(self):
-        # F = 1 + base * X — list shape
+    def test_functor_product_uses_ampersand(self):
+        src = self._BASE + "functor F_pair : base & X\n"
+        parse_ua_spec(src)
+
+    def test_functor_composition_stub(self):
+        src = self._BASE + "functor F_comp : base @ X\n"
+        with pytest.raises(NotImplementedError, match=r"composition \(@\)"):
+            parse_ua_spec(src)
+
+    def test_list_functor_with_symbolic_cata(self):
         src = self._BASE + (
             "op step : hidden -> hidden\n"
             "  einsum = \"i,i->i\"\n"
             "  algebra = real\n"
-            "functor F_list : 1 + base * X\n"
+            "functor F_list : 1 + base & X\n"
             "cell my_fold : hidden -> hidden = >[F_list](0, step)\n"
         )
-        spec = parse_ua_spec(src)
-        nc = spec.cells[0]
+        nc = parse_ua_spec(src).cells[0]
         assert nc.name == "my_fold"
         assert isinstance(nc.cell, TypedMorphism)
         assert isinstance(nc.cell.term, core.TermLambda)
 
-    def test_tree_functor(self):
+    def test_list_functor_with_named_fold(self):
+        src = self._BASE + (
+            "op step : hidden -> hidden\n"
+            "  einsum = \"i,i->i\"\n"
+            "  algebra = real\n"
+            "functor F_list : 1 + base & X\n"
+            "cell my_fold : hidden -> hidden = fold[F_list](0, step)\n"
+        )
+        cell = parse_ua_spec(src).cells[0].cell
+        assert isinstance(cell, TypedMorphism)
+        assert isinstance(cell.domain_type, core.TypeList)
+
+    def test_unfold_named_constructor_uses_coalgebra_step(self):
+        src = self._BASE + (
+            "op step : hidden -> hidden\n"
+            "  einsum = \"i,i->i\"\n"
+            "  algebra = real\n"
+            "functor F_iter : X\n"
+            "cell my_unfold : hidden -> hidden = unfold[F_iter](step)\n"
+        )
+        cell = parse_ua_spec(src).cells[0].cell
+        assert isinstance(cell, TypedMorphism)
+        _assert_var(cell.term, "ua.equation.step")
+
+    def test_tree_functor_not_supported_by_algebra_hom_yet(self):
         src = self._BASE + (
             "op leaf : hidden -> hidden\n"
             "  einsum = \"i,i->i\"\n"
@@ -247,13 +295,13 @@ spec output(real)
             "op node : hidden -> hidden\n"
             "  einsum = \"i,i->i\"\n"
             "  algebra = real\n"
-            "functor F_tree : base + X * X\n"
+            "functor F_tree : base + X & X\n"
             "cell tree_fold : hidden -> hidden = >[F_tree](leaf, node)\n"
         )
         with pytest.raises(NotImplementedError, match="not yet supported"):
             parse_ua_spec(src)
 
-    def test_poset_category(self):
+    def test_poset_category_not_supported_by_algebra_hom_yet(self):
         src = self._BASE + (
             "op step : hidden -> hidden\n"
             "  einsum = \"i,i->i\"\n"
@@ -267,7 +315,7 @@ spec output(real)
 
     def test_poset_with_non_id_rejected(self):
         src = self._BASE + (
-            "functor F_bad : 1 + base * X\n"
+            "functor F_bad : 1 + base & X\n"
             "  category = poset\n"
         )
         with pytest.raises(ValueError, match="poset requires body=X"):
@@ -293,30 +341,27 @@ spec output(real)
 
 
 class TestCellDSLErrors:
+    def test_old_sequence_operator_rejected(self):
+        src = TestCellDSLParse._BASE + "cell foo : hidden -> hidden = f ; g\n"
+        with pytest.raises(ValueError, match="use '>' not ';'"):
+            parse_ua_spec(src)
+
+    def test_old_product_operator_rejected(self):
+        src = TestCellDSLParse._BASE + "cell foo : hidden -> hidden = f * g\n"
+        with pytest.raises(ValueError, match="use '&' not '\\*'"):
+            parse_ua_spec(src)
+
+    def test_old_functor_product_operator_rejected(self):
+        src = TestFunctorDecl._BASE + "functor F_bad : 1 + base * X\n"
+        with pytest.raises(ValueError, match="use '&' for functor product"):
+            parse_ua_spec(src)
 
     def test_unknown_eq_in_cell_rejected(self, backend):
-        src = """
-import numpy
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-op f : hidden -> hidden
-  einsum = "i,i->i"
-  algebra = real
-cell foo : hidden -> hidden = f ; ghost
-"""
+        src = TestCellDSLParse._BASE + "cell foo : hidden -> hidden = f > ghost\n"
         with pytest.raises(ValueError, match="unknown equation 'ghost'"):
             parse_ua(src, backend=backend)
 
     def test_unknown_sort_in_copy_rejected(self, backend):
-        src = """
-import numpy
-algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-spec hidden(real)
-op f : hidden -> hidden
-  einsum = "i,i->i"
-  algebra = real
-cell foo : hidden -> hidden = ^[ghost_sort] ; f
-"""
-        # _get_sort raises on unknown sort during cell construction.
+        src = TestCellDSLParse._BASE + "cell foo : hidden -> hidden = ^[ghost_sort] > f\n"
         with pytest.raises(ValueError, match="(?i)unknown spec|sort"):
             parse_ua(src, backend=backend)

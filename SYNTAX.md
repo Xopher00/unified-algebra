@@ -692,3 +692,26 @@ Rules:
 
 The canonical test suite for parser/syntax alignment is `tests/unit/test_parser.py` and `tests/negative/test_parser_errors.py`.
 Run them after any parser change: `uv run --python 3.12 --extra dev python -m pytest tests/unit/test_parser.py tests/negative/test_parser_errors.py -v`.
+
+### Known divergence (as of 2026-04-29)
+
+The Hydra-boundary audit (`/home/scanbot/.claude/plans/robust-scribbling-dove.md`) identified a current divergence between this document and the parser. By rule 3 above, this is a known bug and must be resolved.
+
+**Documented in this file but not parsed by `_grammar.py`** (the `decl` dispatcher does not list these as declaration kinds):
+
+- `seq` — sequential composition with `>>` chain
+- `branch` — parallel composition with `|` list and `merge =` attribute
+- `parallel` — bimap / monoidal product with `&`
+- `scan` — catamorphism with `step =` attribute
+- `unroll` — anamorphism with `step =` and `steps =` attributes
+- `fixpoint` — fixpoint iteration with `step`, `predicate`, `epsilon`, `max_iter` attributes
+- `lens` — bidirectional morphism with `fwd`, `bwd`, optional `residual` attributes
+- `lens_seq` — sequential lens composition
+- `lens_branch` — parallel lens composition
+
+**Parsed by `_grammar.py` but not documented above** (the `cell` declaration's operator sub-grammar):
+
+- `cell` declaration with operators: `;` (seq), `*` (par), `<->` (lens), `^[A]` (copy), `![A]` (delete), `_[A]` (identity), `>[F](...)` (cata), `<[F](...)` (ana), `{R}` (residual sort annotation)
+- `functor` declaration with polynomial expression sub-grammar (`0`, `1`, `X`, `+`, `*`, sort constants)
+
+Resolution is gated on `NEW_PROMPT.md` Task 2 (Pratt parser refactor). Do not add new forms to either side until that decision lands.

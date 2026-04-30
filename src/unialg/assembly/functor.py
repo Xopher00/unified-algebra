@@ -34,7 +34,7 @@ Examples (constructed from Python; the .ua surface comes later)::
 from __future__ import annotations
 
 import hydra.dsl.terms as Terms
-from hydra.core import Name
+from hydra.core import Name, TermInject, TermPair
 
 from unialg.terms import _RecordView
 from unialg.algebra.sort import Sort, ProductSort, sort_wrap
@@ -54,6 +54,35 @@ _K_SUM   = Name("sum")
 _K_PROD  = Name("prod")
 _K_EXP   = Name("exp")
 
+unwrap = _RecordView._unwrap
+
+
+def _inject(kind: Name, payload=None):
+    if payload is None:
+        return Terms.inject_unit(POLY_TYPE_NAME, kind)
+    return Terms.inject(POLY_TYPE_NAME, kind, payload)
+
+
+def _pair_payload(left, right):
+    return Terms.pair(unwrap(left), unwrap(right))
+
+
+def _pair_items(term, label: str):
+    if not isinstance(term, TermPair):
+        raise TypeError(
+            f"{label}: expected TermPair payload, got {type(term).__name__}"
+        )
+    return term.value
+
+
+def _poly_term(term):
+    term = unwrap(term)
+    if not isinstance(term, TermInject) or term.value.type_name != POLY_TYPE_NAME:
+        raise TypeError(
+            f"PolyExpr: expected injection of {POLY_TYPE_NAME.value!r}, got {term!r}"
+        )
+    return term
+
 
 # ---------------------------------------------------------------------------
 # PolyExpr — wrapper over a TermInject of the polynomial union
@@ -70,9 +99,7 @@ class PolyExpr(_RecordView):
     __slots__ = ()
 
     def __init__(self, term):
-        if isinstance(term, PolyExpr):
-            term = term._term
-        self._term = term
+        self._term = _poly_term(term)
 
     @property
     def kind(self) -> str:
@@ -83,6 +110,10 @@ class PolyExpr(_RecordView):
     def _payload(self):
         """The injected payload term (unit / sort / pair, depending on kind)."""
         return self._term.value.field.term
+
+    def _pair(self, *kinds: str):
+        self._expect(*kinds)
+        return _pair_items(self._payload, f"PolyExpr.{self.kind}")
 
     def _expect(self, *kinds: str) -> None:
         if self.kind not in kinds:
@@ -100,26 +131,22 @@ class PolyExpr(_RecordView):
     @property
     def left(self) -> "PolyExpr":
         """For ``sum`` / ``prod``: the left operand."""
-        self._expect("sum", "prod")
-        return PolyExpr(self._payload.value[0])
+        return PolyExpr(self._pair("sum", "prod")[0])
 
     @property
     def right(self) -> "PolyExpr":
         """For ``sum`` / ``prod``: the right operand."""
-        self._expect("sum", "prod")
-        return PolyExpr(self._payload.value[1])
+        return PolyExpr(self._pair("sum", "prod")[1])
 
     @property
     def base_sort(self) -> Sort | ProductSort:
         """For ``exp``: the constant base sort of the exponential."""
-        self._expect("exp")
-        return sort_wrap(self._payload.value[0])
+        return sort_wrap(self._pair("exp")[0])
 
     @property
     def body(self) -> "PolyExpr":
         """For ``exp``: the body of the exponential."""
-        self._expect("exp")
-        return PolyExpr(self._payload.value[1])
+        return PolyExpr(self._pair("exp")[1])
 
     def __eq__(self, other) -> bool:
         return isinstance(other, PolyExpr) and self._term == other._term
@@ -137,40 +164,37 @@ class PolyExpr(_RecordView):
 
 def zero() -> PolyExpr:
     """Initial object: ``F(X) = 0``."""
-    return PolyExpr(Terms.inject_unit(POLY_TYPE_NAME, _K_ZERO))
+    return PolyExpr(_inject(_K_ZERO))
 
 
 def one() -> PolyExpr:
     """Terminal object: ``F(X) = 1``."""
-    return PolyExpr(Terms.inject_unit(POLY_TYPE_NAME, _K_ONE))
+    return PolyExpr(_inject(_K_ONE))
 
 
 def id_() -> PolyExpr:
     """Identity functor: ``F(X) = X``."""
-    return PolyExpr(Terms.inject_unit(POLY_TYPE_NAME, _K_ID))
+    return PolyExpr(_inject(_K_ID))
 
 
 def const(sort: Sort | ProductSort) -> PolyExpr:
     """Constant functor: ``F(X) = sort``."""
-    return PolyExpr(Terms.inject(POLY_TYPE_NAME, _K_CONST, _RecordView._unwrap(sort)))
+    return PolyExpr(_inject(_K_CONST, unwrap(sort)))
 
 
 def sum_(left: PolyExpr, right: PolyExpr) -> PolyExpr:
     """Coproduct: ``F(X) + G(X)``."""
-    payload = Terms.pair(_RecordView._unwrap(left), _RecordView._unwrap(right))
-    return PolyExpr(Terms.inject(POLY_TYPE_NAME, _K_SUM, payload))
+    return PolyExpr(_inject(_K_SUM, _pair_payload(left, right)))
 
 
 def prod(left: PolyExpr, right: PolyExpr) -> PolyExpr:
     """Product: ``F(X) * G(X)``."""
-    payload = Terms.pair(_RecordView._unwrap(left), _RecordView._unwrap(right))
-    return PolyExpr(Terms.inject(POLY_TYPE_NAME, _K_PROD, payload))
+    return PolyExpr(_inject(_K_PROD, _pair_payload(left, right)))
 
 
 def exp(base_sort: Sort | ProductSort, body: PolyExpr) -> PolyExpr:
     """Exponential ``A -> F(X)`` with constant base sort ``A``."""
-    payload = Terms.pair(_RecordView._unwrap(base_sort), _RecordView._unwrap(body))
-    return PolyExpr(Terms.inject(POLY_TYPE_NAME, _K_EXP, payload))
+    return PolyExpr(_inject(_K_EXP, _pair_payload(base_sort, body)))
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +209,21 @@ class Functor(_RecordView):
     the ambient category to the thin poset of the carrier's semiring ordering;
     the body must be ``id_()`` and the induced (co)algebra hom is the Tarski
     least fixpoint of the cell morphism.
+
+    Boundary note:
+
+    Functor adds genuine algebraic structure that Hydra does not provide:
+    polynomial body kinds (``zero``/``one``/``id``/``const``/``sum``/``prod``/
+    ``exp``), summand enumeration, recursion-position arity, ``is_recursive``
+    predicate. Hydra has ``hydra.extract.core.unionType`` for type extraction
+    but no polynomial-functor algebra.
+
+    Functor uses Hydra **only as encoding substrate** — body is a Hydra union
+    ``ua.functor.PolyExpr``, sort references are typed Sort terms. Functor
+    does NOT duplicate ordinary function composition; it describes the shape
+    of a recursive type, not a computation path.
+
+    See ``ARCHITECTURE.md`` § "Hydra ↔ unified-algebra boundary".
     """
 
     _type_name = Name("ua.functor.Functor")
@@ -280,8 +319,12 @@ def pretty(expr: PolyExpr) -> str:
     if k == "sum":
         return f"{pretty(expr.left)} + {pretty(expr.right)}"
     if k == "prod":
-        ls = f"({pretty(expr.left)})" if expr.left.kind == "sum" else pretty(expr.left)
-        rs = f"({pretty(expr.right)})" if expr.right.kind == "sum" else pretty(expr.right)
+        left, right = expr.left, expr.right
+        ls, rs = pretty(left), pretty(right)
+        if left.kind == "sum":
+            ls = f"({ls})"
+        if right.kind == "sum":
+            rs = f"({rs})"
         return f"{ls} * {rs}"
     if k == "exp":
         bs = pretty(expr.body)

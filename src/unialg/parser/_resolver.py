@@ -128,33 +128,51 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         functors_by_name[name] = f
 
     def _handle_cell(decl):
-        from unialg.assembly._para import (
-            eq, lit as cell_lit, iden, seq as cell_seq, par as cell_par,
-            copy as cell_copy, delete as cell_delete, lens as cell_lens,
-            algebra_hom,
-        )
-        from unialg.assembly._para_graph import NamedCell
+        from unialg.assembly import morphism
+        from unialg.assembly.para._para_graph import NamedCell
         import hydra.core as core
 
-        def _build_cell(node):
+        def _contains_legacy_only(node) -> bool:
+            tag = node[0]
+            if tag in {"cell_seq", "cell_par"}:
+                return _contains_legacy_only(node[1]) or _contains_legacy_only(node[2])
+            if tag in {"cell_cata", "cell_ana"}:
+                return any(_contains_legacy_only(a) for a in node[2])
+            return False
+
+        def _literal(node):
+            return core.TermLiteral(value=core.LiteralFloat(value=float(node[1])))
+
+        def _build_cell_legacy(node):
+            from unialg.assembly.para._para import (
+                eq as cell_eq,
+                lit as cell_lit,
+                iden as cell_iden,
+                seq as cell_seq,
+                par as cell_par,
+                copy as cell_copy,
+                delete as cell_delete,
+                lens as cell_lens,
+                algebra_hom as cell_algebra_hom,
+            )
             tag = node[0]
             if tag == 'cell_eq':
-                return eq(node[1])
+                return cell_eq(node[1])
             if tag == 'cell_lit':
-                return cell_lit(core.TermLiteral(value=core.LiteralFloat(value=float(node[1]))))
+                return cell_lit(_literal(node))
             if tag == 'cell_copy':
                 return cell_copy(_get_sort(node[1]))
             if tag == 'cell_delete':
                 return cell_delete(_get_sort(node[1]))
             if tag == 'cell_iden':
-                return iden(_get_sort(node[1]))
+                return cell_iden(_get_sort(node[1]))
             if tag == 'cell_seq':
-                return cell_seq(_build_cell(node[1]), _build_cell(node[2]))
+                return cell_seq(_build_cell_legacy(node[1]), _build_cell_legacy(node[2]))
             if tag == 'cell_par':
-                return cell_par(_build_cell(node[1]), _build_cell(node[2]))
+                return cell_par(_build_cell_legacy(node[1]), _build_cell_legacy(node[2]))
             if tag == 'cell_lens':
                 _, fwd_node, bwd_node, residual_name = node
-                fwd, bwd = _build_cell(fwd_node), _build_cell(bwd_node)
+                fwd, bwd = _build_cell_legacy(fwd_node), _build_cell_legacy(bwd_node)
                 residual = _get_sort(residual_name) if residual_name else None
                 return cell_lens(fwd, bwd, residual=residual)
             if tag == 'cell_cata':
@@ -163,21 +181,70 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                     raise ValueError(
                         f"cell cata: unknown functor {f_name!r} — declare via 'functor'"
                     )
-                return algebra_hom(functors_by_name[f_name], "algebra",
-                                   [_build_cell(a) for a in arg_nodes])
+                return cell_algebra_hom(functors_by_name[f_name], "algebra",
+                                        [_build_cell_legacy(a) for a in arg_nodes])
             if tag == 'cell_ana':
                 _, f_name, arg_nodes = node
                 if f_name not in functors_by_name:
                     raise ValueError(
                         f"cell ana: unknown functor {f_name!r} — declare via 'functor'"
                     )
-                return algebra_hom(functors_by_name[f_name], "coalgebra",
-                                   [_build_cell(a) for a in arg_nodes])
+                return cell_algebra_hom(functors_by_name[f_name], "coalgebra",
+                                        [_build_cell_legacy(a) for a in arg_nodes])
             raise ValueError(f"cell: unknown AST tag {tag!r}")
 
-        _, name, _sig, expr_node = decl
-        cell_term = _build_cell(expr_node)
-        cells.append(NamedCell(name=name, cell=cell_term))
+        _, name, sig, expr_node = decl
+        cell_codomain = _resolve_sort_ref(sig[1])
+
+        def _build_typed(node):
+            tag = node[0]
+            if tag == 'cell_eq':
+                if node[1] not in equations_by_name:
+                    raise ValueError(f"unknown equation {node[1]!r}")
+                eq = _get_eq(node[1])
+                return morphism.eq(
+                    node[1],
+                    domain=eq.domain_sort,
+                    codomain=eq.codomain_sort,
+                )
+            if tag == 'cell_lit':
+                return morphism.lit(_literal(node), cell_codomain)
+            if tag == 'cell_copy':
+                return morphism.copy(_get_sort(node[1]))
+            if tag == 'cell_delete':
+                return morphism.delete(_get_sort(node[1]))
+            if tag == 'cell_iden':
+                return morphism.iden(_get_sort(node[1]))
+            if tag == 'cell_seq':
+                if _contains_legacy_only(node):
+                    return _build_cell_legacy(node)
+                return morphism.seq(_build_typed(node[1]), _build_typed(node[2]))
+            if tag == 'cell_par':
+                if _contains_legacy_only(node):
+                    return _build_cell_legacy(node)
+                return morphism.par(_build_typed(node[1]), _build_typed(node[2]))
+            if tag in {'cell_lens', 'cell_cata', 'cell_ana'}:
+                if tag == 'cell_lens':
+                    _, fwd_node, bwd_node, residual_name = node
+                    if residual_name is not None:
+                        _get_sort(residual_name)
+                    return morphism.lens(_build_typed(fwd_node), _build_typed(bwd_node))
+                _, f_name, arg_nodes = node
+                if f_name not in functors_by_name:
+                    label = "cata" if tag == "cell_cata" else "ana"
+                    raise ValueError(
+                        f"cell {label}: unknown functor {f_name!r} — declare via 'functor'"
+                    )
+                direction = "algebra" if tag == "cell_cata" else "coalgebra"
+                return morphism.algebra_hom(
+                    functors_by_name[f_name],
+                    direction,
+                    [_build_typed(a) for a in arg_nodes],
+                )
+            raise ValueError(f"cell: unknown AST tag {tag!r}")
+
+        cell_obj = _build_typed(expr_node)
+        cells.append(NamedCell(name=name, cell=cell_obj))
 
     def _handle_share(decl):
         _, name, op_names = decl

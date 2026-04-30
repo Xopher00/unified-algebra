@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from unialg.assembly._para import Cell
+from ._para import Cell
 
 
 CompileSubcell = Callable[[Cell], Callable | None]

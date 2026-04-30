@@ -6,7 +6,7 @@ import pytest
 import hydra.core as core
 from hydra.core import Name
 
-from unialg.assembly.compositions import FoldComposition, UnfoldComposition
+from unialg.assembly.legacy.compositions import FoldComposition, UnfoldComposition
 from conftest import encode_array
 
 

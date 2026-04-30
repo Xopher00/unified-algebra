@@ -17,7 +17,7 @@ from unialg import (
     Equation,
     FixpointSpec,
 )
-from unialg.assembly.compositions import FixpointComposition
+from unialg.assembly.legacy.compositions import FixpointComposition
 from unialg.assembly._primitives import fixpoint_primitive
 from unialg.assembly._equation_resolution import resolve_equation
 from unialg.algebra.sort import sort_wrap

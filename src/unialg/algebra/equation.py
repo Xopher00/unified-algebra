@@ -35,11 +35,27 @@ def _prepend_batch_dim(einsum_str: str) -> str:
 # ---------------------------------------------------------------------------
 
 class Equation(_RecordView):
-    """A tensor equation declaration.
+    """A tensor equation declaration — the unified-algebra primitive morphism.
 
-    The underlying Hydra record term is the source of truth. Use .term to
-    retrieve it for Hydra interop. Field access reads directly from the term
-    on every call — there is no cached copy.
+    Equation is a declarative spec (name, einsum, domain/codomain sorts,
+    semiring, optional nonlinearity). At resolution time
+    (``unialg.assembly._equation_resolution.resolve_equation``) it lowers to
+    a Hydra ``Primitive`` via ``hydra.dsl.prims.prim1`` / ``prim2`` /
+    ``prim3``, with arity > 3 packed into list-coders.
+
+    Boundary:
+
+    - **unified-algebra owns:** the einsum spec, the semiring resolution,
+      the contraction execution (``unialg.algebra.contraction``).
+    - **Hydra owns:** the ``Primitive`` wrapper, the ``TypeScheme`` (concrete
+      function type — currently monomorphic, ``[]`` variables list), graph
+      registration, dispatch via ``lookup_primitive``.
+
+    The underlying Hydra record term is the source of truth. Use ``.term``
+    to retrieve it for Hydra interop. Field access reads directly from the
+    term on every call — there is no cached copy.
+
+    See ``ARCHITECTURE.md`` § "Hydra ↔ unified-algebra boundary".
 
     Construct:
         eq = Equation("linear", "ij,j->i", hidden, output, real_sr)
@@ -130,5 +146,3 @@ class Equation(_RecordView):
                 raise TypeError(
                     f"Op '{self.name}': einsum last-input rank {len(last_input)} != "
                     f"domain sort '{self.domain_sort.name}' axes {list(dom_axes)} (rank {len(dom_axes)})")
-
-

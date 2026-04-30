@@ -13,7 +13,7 @@ from unialg import (
     PathSpec, FanSpec, ParallelSpec,
 )
 from unialg.assembly.graph import build_graph, assemble_graph
-from unialg.assembly.compositions import PathComposition, FanComposition
+from unialg.assembly.legacy.compositions import PathComposition, FanComposition
 from conftest import encode_array, decode_term, assert_reduce_ok, build_schema
 
 

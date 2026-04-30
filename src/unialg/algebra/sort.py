@@ -89,7 +89,25 @@ class Sort(_RecordView):
 # ---------------------------------------------------------------------------
 
 class ProductSort(_RecordView):
-    """A product sort — a typed pair/tuple of sorts.
+    """A typed monoidal product of sorts.
+
+    ProductSort represents the typed product domain for n-ary einsums and
+    Cell ``par`` codomains. It is **monoidal-only**, not cartesian:
+
+    - No projections (``fst``/``snd``/``π_i``).
+    - No destructuring or pattern matching.
+    - No pairing laws.
+    - No copy/delete semantics (those live on Cell variants ``copy`` / ``delete``).
+
+    The ``type_`` property emits a right-nested ``core.TypePair`` chain;
+    ``coder`` builds a right-nested ``hydra.dsl.prims.pair`` coder. Runtime
+    values are plain Python tuples.
+
+    If projection is needed, lower to ``hydra.lib.pairs.first`` /
+    ``hydra.lib.pairs.second`` (registered Hydra primitives) at the Cell-leaf
+    level. Do not invent Cell-level projection variants.
+
+    See ``ARCHITECTURE.md`` § "Hydra ↔ unified-algebra boundary" for context.
 
     Construct:
         ps = ProductSort([hidden_sort, output_sort])

@@ -62,7 +62,35 @@ _F_RESIDUAL    = Name("residualSort")
 # ---------------------------------------------------------------------------
 
 class Cell(_RecordView):
-    """A 1-cell in 2-category Para — a parametric morphism."""
+    """A 1-cell in 2-category Para — a typed algebraic morphism descriptor.
+
+    Cell is unified-algebra's **algebraic IR**, distinct from generic Hydra
+    terms. Variants are locked at 9: ``eq``, ``lit``, ``iden``, ``copy``,
+    ``delete``, ``seq``, ``par``, ``algebraHom``, ``lens``. No additions, no
+    removals — extensions go through the existing surface or stay out.
+
+    Cell carries categorical structure that polymorphic Hydra terms do not
+    express directly:
+
+    - Monoidal product (``seq`` / ``par``) with comonoid copy/delete laws.
+    - Optic residual threading (``lens``, height-1 and height-2).
+    - Recursion schemes (``algebraHom`` for inductive walker, coinductive
+      driver, Tarski iterator — Hydra has no fixpoint/μ term).
+
+    The Cell payload is encoded as a Hydra union ``ua.para.Cell``. At compile
+    time each variant lowers to one of:
+
+    - A registered Hydra ``Primitive`` via ``prim1`` (atomic eq/lit/iden/
+      copy/delete; composed seq/par for Para children).
+    - A Python closure stored in ``compiled_fns`` (the fast path; bypasses
+      ``reduce_term``).
+    - A ``CompiledLens`` dataclass for lens cells (not graph-registered;
+      lives in ``compiled_fns`` only because forward/backward are
+      JIT-compiled closures, not Hydra terms).
+
+    See ``ARCHITECTURE.md`` § "Hydra ↔ unified-algebra boundary" — Cell is
+    **not** to be collapsed into generic Hydra terms.
+    """
     __slots__ = ()
 
     def __init__(self, term):
@@ -349,7 +377,7 @@ def _validate(cell: Cell, eq_by_name, sorts_by_name, *, path: str) -> None:
 # Re-export the runtime so external imports stay stable
 # ---------------------------------------------------------------------------
 
-from unialg.assembly._para_runtime import (  # noqa: E402
+from ._para_runtime import (  # noqa: E402
     CompiledLens, CompiledMorphism, Matcher, compile_cell,
 )
 

@@ -19,8 +19,8 @@ from typing import TypeAlias
 
 from hydra.lib import pairs as _pairs
 
-from unialg.assembly._para import Cell
-from unialg.assembly._para_alg_hom import compile_algebra_hom
+from ._para import Cell
+from ._para_alg_hom import compile_algebra_hom
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ def _compile(cell, native_fns, coder, backend, matchers) -> CompiledMorphism | N
 # ---------------------------------------------------------------------------
 
 def _compile_lit(cell: Cell, coder) -> Callable | None:
-    from unialg.assembly.compositions import _decode_init
+    from unialg.assembly.legacy.compositions import _decode_init
     value, _ = _decode_init(coder, cell.value_term)
     if value is None:
         return None

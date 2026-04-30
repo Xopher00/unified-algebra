@@ -14,11 +14,11 @@ from unialg import NumpyBackend, Sort, Equation
 from unialg.assembly.functor import (
     Functor, sum_, prod, one, id_, const,
 )
-from unialg.assembly._para import (
+from unialg.assembly.para._para import (
     Cell, eq, lit, seq, par, copy, delete, lens, algebra_hom,
     validate_cell, CompiledLens,
 )
-from unialg.assembly._para_graph import (
+from unialg.assembly.para._para_graph import (
     NamedCell, CELL_PRIM_PREFIX,
     compile_cell_to_primitive, register_named_cells,
 )
@@ -164,9 +164,8 @@ class TestCompileCellToPrimitive:
 
     def test_missing_equation_returns_none(self, backend, coder):
         named = NamedCell(name="dead", cell=eq("nope"))
-        prim, fn = compile_cell_to_primitive(named, {}, coder, backend)
-        assert prim is None
-        assert fn is None
+        with pytest.raises(ValueError, match="unknown equation 'nope'"):
+            compile_cell_to_primitive(named, {}, coder, backend)
 
     def test_seq_compiles(self, hidden, backend, coder):
         backend.unary_ops["bg_halve"]  = lambda x: 0.5 * x
@@ -187,7 +186,7 @@ class TestCompileCellToPrimitive:
 
         named = NamedCell(name="some_lens",
                           cell=lens(eq("bg_id_eq"), eq("bg_id_eq")))
-        with pytest.raises(NotImplementedError, match="Optic Cell"):
+        with pytest.raises(NotImplementedError, match="bidirectional graph registration"):
             compile_cell_to_primitive(named, native_fns, coder, backend)
 
 
@@ -219,15 +218,16 @@ class TestRegisterNamedCells:
 
     def test_failed_compile_skipped(self, backend, coder):
         primitives, compiled_fns = {}, {}
-        # Cell references nothing that exists; compile returns None and we skip.
-        register_named_cells(
-            [NamedCell(name="dead", cell=eq("ghost"))],
-            primitives=primitives,
-            native_fns={},
-            compiled_fns=compiled_fns,
-            coder=coder,
-            backend=backend,
-        )
+        # Missing equation references fail loudly instead of being skipped.
+        with pytest.raises(ValueError, match="unknown equation 'ghost'"):
+            register_named_cells(
+                [NamedCell(name="dead", cell=eq("ghost"))],
+                primitives=primitives,
+                native_fns={},
+                compiled_fns=compiled_fns,
+                coder=coder,
+                backend=backend,
+            )
         assert primitives == {}
         assert compiled_fns == {}
 

@@ -27,7 +27,7 @@ from hydra.dsl.terms import apply, var
 
 from unialg import NumpyBackend, Semiring, Sort, Equation, PathSpec
 from unialg.assembly.graph import assemble_graph, build_graph
-from unialg.assembly.compositions import PathComposition
+from unialg.assembly.legacy.compositions import PathComposition
 from unialg.assembly._equation_resolution import resolve_equation
 from conftest import assert_reduce_ok
 

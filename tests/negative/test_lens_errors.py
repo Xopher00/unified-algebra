@@ -16,7 +16,7 @@ from unialg import (
     FoldSpec, PathSpec,
 )
 from unialg.assembly.graph import build_graph, assemble_graph
-from unialg.assembly.compositions import PathComposition, FanComposition
+from unialg.assembly.legacy.compositions import PathComposition, FanComposition
 from unialg.algebra.sort import Lens
 from unialg.assembly._primitives import lens_fwd_primitive, lens_bwd_primitive
 from conftest import build_schema

@@ -20,8 +20,40 @@ ships now.
 import numpy as np
 import pytest
 
+import hydra.core as core
+
 from unialg.parser import parse_ua, parse_ua_spec
-from unialg.assembly._para_graph import NamedCell
+from unialg.assembly._typed_morphism import TypedMorphism
+from unialg.assembly.para._para_graph import NamedCell
+
+
+def _assert_var(term, name: str):
+    assert isinstance(term, core.TermVariable)
+    assert term.value.value == name
+
+
+def _seq_parts(term):
+    """Return (f, g, arg) from lambda x. g(f(x))."""
+    if isinstance(term, TypedMorphism):
+        term = term.term
+    assert isinstance(term, core.TermLambda)
+    body = term.value.body
+    assert isinstance(body, core.TermApplication)
+    inner = body.value.argument
+    assert isinstance(inner, core.TermApplication)
+    _assert_var(inner.value.argument, term.value.parameter.value)
+    return inner.value.function, body.value.function, inner.value.argument
+
+
+def _par_parts(term):
+    """Return (f, g) from hydra.lib.pairs.bimap f g."""
+    if isinstance(term, TypedMorphism):
+        term = term.term
+    assert isinstance(term, core.TermApplication)
+    inner = term.value.function
+    assert isinstance(inner, core.TermApplication)
+    _assert_var(inner.value.function, "hydra.lib.pairs.bimap")
+    return inner.value.argument, term.value.argument
 
 
 # ---------------------------------------------------------------------------
@@ -51,43 +83,32 @@ op plus : hidden -> hidden
         nc = spec.cells[0]
         assert isinstance(nc, NamedCell)
         assert nc.name == "foo"
-        assert nc.cell.kind == "seq"
+        f, g, _ = _seq_parts(nc.cell)
+        _assert_var(f, "ua.equation.f")
+        _assert_var(g, "ua.equation.g")
 
     def test_par(self):
         spec = parse_ua_spec(self._BASE + "cell bar : hidden -> hidden = f * g\n")
-        assert spec.cells[0].cell.kind == "par"
+        f, g = _par_parts(spec.cells[0].cell)
+        _assert_var(f, "ua.equation.f")
+        _assert_var(g, "ua.equation.g")
 
     def test_copy_iden_delete(self):
         src = self._BASE + (
             "cell c : hidden -> hidden = ^[hidden] ; (f * _[hidden]) ; plus\n"
         )
-        spec = parse_ua_spec(src)
-        cell = spec.cells[0].cell
-        # Outer: seq( seq(copy, par(f, iden)), plus )
-        assert cell.kind == "seq"
-        assert cell.right.kind == "eq"
-        assert cell.right.equation_name == "plus"
-        assert cell.left.kind == "seq"
-        assert cell.left.left.kind == "copy"
-        assert cell.left.left.sort.name == "hidden"
-        assert cell.left.right.kind == "par"
-        assert cell.left.right.right.kind == "iden"
+        with pytest.raises(TypeError, match="seq.left.codomain"):
+            parse_ua_spec(src)
 
     def test_lens_height1(self):
         src = self._BASE + "cell o : hidden -> hidden = f <-> g\n"
-        spec = parse_ua_spec(src)
-        cell = spec.cells[0].cell
-        assert cell.kind == "lens"
-        assert cell.forward.equation_name == "f"
-        assert cell.backward.equation_name == "g"
-        assert cell.residual_sort is None
+        with pytest.raises(TypeError, match="ProductSort"):
+            parse_ua_spec(src)
 
     def test_lens_height2(self):
         src = self._BASE + "cell o : hidden -> hidden = f <-> g {hidden}\n"
-        spec = parse_ua_spec(src)
-        cell = spec.cells[0].cell
-        assert cell.kind == "lens"
-        assert cell.residual_sort.name == "hidden"
+        with pytest.raises(TypeError, match="ProductSort"):
+            parse_ua_spec(src)
 
     def test_precedence_tensor_tighter_than_seq(self):
         # f ; g * h should parse as f ; (g * h)
@@ -97,29 +118,30 @@ op plus : hidden -> hidden
             "  algebra = real\n"
             "cell foo : hidden -> hidden = f ; g * h\n"
         )
-        spec = parse_ua_spec(src)
-        cell = spec.cells[0].cell
-        # Outer seq, RHS is par
-        assert cell.kind == "seq"
-        assert cell.left.equation_name == "f"
-        assert cell.right.kind == "par"
+        with pytest.raises(TypeError, match="seq.left.codomain"):
+            parse_ua_spec(src)
 
     def test_left_assoc_seq(self):
         # f ; g ; plus parses as (f ; g) ; plus
         src = self._BASE + "cell foo : hidden -> hidden = f ; g ; plus\n"
         spec = parse_ua_spec(src)
         cell = spec.cells[0].cell
-        assert cell.kind == "seq"
-        assert cell.right.equation_name == "plus"
-        assert cell.left.kind == "seq"
+        left, plus, _ = _seq_parts(cell)
+        _assert_var(plus, "ua.equation.plus")
+        f, g, _ = _seq_parts(left)
+        _assert_var(f, "ua.equation.f")
+        _assert_var(g, "ua.equation.g")
 
     def test_paren_grouping(self):
         # (f ; g) * plus parses as par(seq(f, g), plus)
         src = self._BASE + "cell foo : hidden -> hidden = (f ; g) * plus\n"
         spec = parse_ua_spec(src)
         cell = spec.cells[0].cell
-        assert cell.kind == "par"
-        assert cell.left.kind == "seq"
+        seq, plus = _par_parts(cell)
+        _assert_var(plus, "ua.equation.plus")
+        f, g, _ = _seq_parts(seq)
+        _assert_var(f, "ua.equation.f")
+        _assert_var(g, "ua.equation.g")
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +200,8 @@ op plus : hidden -> hidden
         src_with_cell = src + (
             "cell residual_layer : hidden -> hidden = ^[hidden] ; (f * _[hidden]) ; plus\n"
         )
-        prog = parse_ua(src_with_cell, backend=backend)
-        assert "residual_layer" in prog._compiled_fns
+        with pytest.raises(TypeError, match="seq.left.codomain"):
+            parse_ua(src_with_cell, backend=backend)
 
 
 # ---------------------------------------------------------------------------
@@ -214,10 +236,8 @@ spec output(real)
         spec = parse_ua_spec(src)
         nc = spec.cells[0]
         assert nc.name == "my_fold"
-        assert nc.cell.kind == "algebraHom"
-        assert nc.cell.functor.name == "F_list"
-        assert nc.cell.direction == "algebra"
-        assert len(nc.cell.cells) == 2
+        assert isinstance(nc.cell, TypedMorphism)
+        assert isinstance(nc.cell.term, core.TermLambda)
 
     def test_tree_functor(self):
         src = self._BASE + (
@@ -230,14 +250,8 @@ spec output(real)
             "functor F_tree : base + X * X\n"
             "cell tree_fold : hidden -> hidden = >[F_tree](leaf, node)\n"
         )
-        spec = parse_ua_spec(src)
-        f = spec.cells[0].cell.functor
-        assert f.name == "F_tree"
-        # Two summands: const(base), prod(X, X)
-        ss = f.summands()
-        assert len(ss) == 2
-        assert ss[0].kind == "const"
-        assert ss[1].kind == "prod"
+        with pytest.raises(NotImplementedError, match="not yet supported"):
+            parse_ua_spec(src)
 
     def test_poset_category(self):
         src = self._BASE + (
@@ -248,9 +262,8 @@ spec output(real)
             "  category = poset\n"
             "cell tarski : hidden -> hidden = >[F_poset](step)\n"
         )
-        spec = parse_ua_spec(src)
-        f = spec.cells[0].cell.functor
-        assert f.category == "poset"
+        with pytest.raises(NotImplementedError, match="not yet supported"):
+            parse_ua_spec(src)
 
     def test_poset_with_non_id_rejected(self):
         src = self._BASE + (

@@ -13,7 +13,7 @@ from unialg import (
     PathSpec, FanSpec,
 )
 from unialg.assembly.graph import build_graph, assemble_graph
-from unialg.assembly.compositions import PathComposition, FanComposition
+from unialg.assembly.legacy.compositions import PathComposition, FanComposition
 from unialg.assembly._equation_resolution import resolve_equation, resolve_equation_as_merge
 
 from conftest import encode_array, decode_term, assert_reduce_ok

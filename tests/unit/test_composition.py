@@ -5,7 +5,7 @@ import pytest
 import hydra.core as core
 from hydra.core import Name
 
-from unialg.assembly.compositions import PathComposition, FanComposition
+from unialg.assembly.legacy.compositions import PathComposition, FanComposition
 
 
 # ---------------------------------------------------------------------------

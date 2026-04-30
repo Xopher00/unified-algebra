@@ -15,7 +15,7 @@ from unialg import NumpyBackend, Sort, Equation
 from unialg.assembly.functor import (
     Functor, sum_, prod, one, id_, const,
 )
-from unialg.assembly._para import (
+from unialg.assembly.para._para import (
     Cell, CELL_TYPE_NAME,
     eq, lit, seq, par, copy, delete, algebra_hom, lens,
     pretty, compile_cell, CompiledLens,

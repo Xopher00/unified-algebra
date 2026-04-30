@@ -7,14 +7,14 @@ from dataclasses import dataclass, field, fields
 import hydra.core as core
 from hydra.typing import TypeConstraint
 
-from ._validation import unify_or_raise
+from .._validation import unify_or_raise
 from hydra.dsl.meta.phantoms import list_, var
 
 from .compositions import (
     PathComposition, FanComposition, FoldComposition, UnfoldComposition, FixpointComposition,
     ParallelComposition, _bind, _eq_var,
 )
-from ._primitives import (
+from .._primitives import (
     unfold_n_primitive, fixpoint_primitive,
     lens_fwd_primitive, lens_bwd_primitive, residual_add_primitive,
 )

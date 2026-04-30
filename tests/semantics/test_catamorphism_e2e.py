@@ -18,7 +18,7 @@ from unialg import (
     PathSpec, FoldSpec, UnfoldSpec,
 )
 from unialg.assembly.graph import assemble_graph
-from unialg.assembly.compositions import FoldComposition, UnfoldComposition
+from unialg.assembly.legacy.compositions import FoldComposition, UnfoldComposition
 from unialg.assembly._primitives import unfold_n_primitive
 from unialg.assembly._equation_resolution import resolve_equation
 

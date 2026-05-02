@@ -132,7 +132,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         functors_by_name[name] = f
 
     def _handle_cell(decl):
-        from unialg.assembly import morphism
+        import unialg.morphism as morphism
         from unialg.assembly.graph import NamedCell
         import hydra.core as core
 

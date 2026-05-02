@@ -3,7 +3,7 @@ from __future__ import annotations
 import hydra.core as core
 import hydra.dsl.types as Types
 
-from unialg.algebra.sort import Sort, ProductSort
+from unialg.algebra import Sort, ProductSort
 from unialg.terms import _RecordView
 
 Name = core.Name

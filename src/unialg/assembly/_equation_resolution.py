@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING
 from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
 from hydra.graph import Primitive
 
-from unialg.algebra.contraction import compile_einsum, contract_and_apply, contract_merge
+from unialg.algebra import compile_einsum, contract_and_apply, contract_merge
 
 if TYPE_CHECKING:
-    from unialg.algebra.equation import Equation
+    from unialg.algebra import Equation
     from unialg.backend import Backend
 
 

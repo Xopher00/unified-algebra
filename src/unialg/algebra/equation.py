@@ -12,15 +12,11 @@ Resolution (compilation to primitives) lives in unialg.assembly._equation_resolu
 from __future__ import annotations
 
 import hydra.core as core
-from typing import TYPE_CHECKING
 
 from unialg.terms import _RecordView
-from .sort import sort_wrap
+from .sort import sort_wrap, ProductSort
 from .semiring import Semiring
 from .contraction import compile_einsum
-
-if TYPE_CHECKING:
-    from unialg.backend import Backend
 
 
 def _prepend_batch_dim(einsum_str: str) -> str:
@@ -115,7 +111,6 @@ class Equation(_RecordView):
         self.codomain_sort.register_schema(schema)
 
     def validate_axes(self) -> None:
-        from unialg.algebra.sort import ProductSort
         if isinstance(self.codomain_sort, ProductSort) or isinstance(self.domain_sort, ProductSort):
             # Axis validation against einsum ranks is not yet implemented for
             # ProductSort.  Raise only if axes are actually declared on any

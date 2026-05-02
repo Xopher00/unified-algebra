@@ -17,7 +17,7 @@ from hydra.typing import TypeConstraint
 import hydra.substitution as subst
 import hydra.typing
 
-from unialg.algebra.equation import Equation
+from unialg.algebra import Equation
 from ._equation_resolution import resolve_equation, resolve_equation_as_merge, resolve_semirings
 from ._morphism_compile import compile_morphism, Matcher
 from ._validation import unify_or_raise
@@ -28,6 +28,21 @@ if TYPE_CHECKING:
 
 
 MORPHISM_PRIM_PREFIX = "ua.morphism."
+
+from hydra.context import Context
+from hydra.dsl.python import FrozenDict, Left
+from hydra.unification import unify_type_constraints
+
+_EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
+
+
+def unify_or_raise(constraints, schema):
+    if constraints:
+        st = schema if isinstance(schema, FrozenDict) else FrozenDict(schema)
+        result = unify_type_constraints(_EMPTY_CX, st, tuple(constraints))
+        if isinstance(result, Left):
+            raise TypeError(result.value.message)
+
 
 
 @dataclass(frozen=True)

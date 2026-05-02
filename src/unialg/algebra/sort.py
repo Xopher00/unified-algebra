@@ -11,17 +11,12 @@ A lens pairs forward and backward equations into a bidirectional morphism.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import hydra.core as core
 import hydra.graph
 from hydra.dsl.python import Nothing
 
 from unialg.terms import _RecordView, tensor_coder
 from .semiring import Semiring
-
-if TYPE_CHECKING:
-    import hydra.errors
 
 
 class Sort(_RecordView):

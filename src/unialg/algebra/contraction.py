@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
-    from unialg.algebra.semiring import Semiring
+    from .semiring import Semiring
 
 CONTRACTION_REGISTRY: dict[str, object] = {}
 

@@ -37,7 +37,7 @@ import hydra.dsl.terms as Terms
 from hydra.core import Name, TermInject, TermPair
 
 from unialg.terms import _RecordView
-from unialg.algebra.sort import Sort, ProductSort, sort_wrap
+from unialg.algebra import Sort, ProductSort, sort_wrap
 
 
 # ---------------------------------------------------------------------------

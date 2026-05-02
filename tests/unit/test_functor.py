@@ -8,7 +8,7 @@ the pattern used by Equation.domain_sort and Lens.residual_sort.
 import pytest
 
 from unialg import Sort, Semiring
-from unialg.assembly.functor import (
+from unialg.morphism.functor import (
     Functor,
     PolyExpr,
     POLY_TYPE_NAME,

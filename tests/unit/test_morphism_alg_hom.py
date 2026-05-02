@@ -5,10 +5,10 @@ import hydra.core as core
 import hydra.dsl.terms as Terms
 
 from unialg import Semiring, Sort
-from unialg.assembly._typed_morphism import TypedMorphism as T
-from unialg.assembly.functor import Functor, sum_, prod, one, id_, const
-from unialg.assembly._algebra_hom import summand_domain
-import unialg.assembly.morphism as morphism
+from unialg.morphism._typed_morphism import TypedMorphism as T
+from unialg.morphism.functor import Functor, sum_, prod, one, id_, const
+from unialg.morphism._algebra_hom import summand_domain
+import unialg.morphism as morphism
 
 
 @pytest.fixture
@@ -125,15 +125,15 @@ class TestValidation:
 class TestSummandDomain:
 
     def test_one_gives_unit(self):
-        from unialg.assembly.functor import one as poly_one
+        from unialg.morphism.functor import one as poly_one
         assert isinstance(summand_domain(poly_one(), "carrier"), core.TypeUnit)
 
     def test_id_gives_carrier(self, carrier):
-        from unialg.assembly.functor import id_ as poly_id
+        from unialg.morphism.functor import id_ as poly_id
         assert summand_domain(poly_id(), carrier) is carrier
 
     def test_const_gives_sort(self, base):
-        from unialg.assembly.functor import const as poly_const
+        from unialg.morphism.functor import const as poly_const
         result = summand_domain(poly_const(base), "unused")
         assert result.name == base.name
 

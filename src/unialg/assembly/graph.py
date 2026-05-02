@@ -292,10 +292,3 @@ def _register_cells(named_cells, graph,
             primitives.setdefault(eq_alias, prim1(eq_alias, fn, [], coder, coder))
             native_fns.setdefault(eq_alias, fn)
 
-
-def rebind_params(graph, updates):
-    param_updates = {core.Name(f"ua.param.{k}"): v for k, v in updates.items()}
-    ts = hydra.typing.TermSubst(FrozenDict(param_updates))
-    new_terms = {name: subst.substitute_in_term(ts, term) for name, term in graph.bound_terms.items()}
-    new_terms.update(param_updates)
-    return dataclasses.replace(graph, bound_terms=FrozenDict(new_terms))

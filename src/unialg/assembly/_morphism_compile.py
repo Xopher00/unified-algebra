@@ -15,12 +15,12 @@ from hydra.reduction import reduce_term
 
 from hydra.extract.core import record as _extract_record
 
-from unialg.assembly._typed_morphism import TypedMorphism
-from unialg.assembly.morphism import (
+from unialg.morphism._typed_morphism import TypedMorphism
+from unialg.morphism import (
     _EQUATION_PREFIX,
     _BIMAP_NAME,
 )
-from unialg.assembly.lens import _LENS_TYPE
+from unialg.morphism.lens import _LENS_TYPE
 
 apply = Terms.apply
 

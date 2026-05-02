@@ -7,11 +7,11 @@ import hydra.core as core
 
 from unialg import NumpyBackend, Semiring, Sort, Equation
 from unialg.terms import tensor_coder
-from unialg.assembly._typed_morphism import TypedMorphism as T
+from unialg.morphism._typed_morphism import TypedMorphism as T
 from unialg.assembly._morphism_compile import compile_morphism, CompiledLens
 from unialg.assembly.graph import build_graph
 from unialg.assembly._equation_resolution import resolve_equation
-import unialg.assembly.morphism as morphism
+import unialg.morphism as morphism
 
 
 @pytest.fixture

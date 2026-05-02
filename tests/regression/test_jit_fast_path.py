@@ -5,7 +5,7 @@ import pytest
 
 from unialg import NumpyBackend, Semiring, Sort, Equation
 from unialg.assembly.graph import assemble_graph, NamedCell
-import unialg.assembly.morphism as morphism
+import unialg.morphism as morphism
 
 
 @pytest.fixture

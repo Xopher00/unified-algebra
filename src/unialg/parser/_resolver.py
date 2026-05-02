@@ -97,7 +97,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         equations_list.append(eq_term)
 
     def _handle_functor(decl):
-        from unialg.assembly.functor import (
+        from unialg.morphism.functor import (
             Functor, sum_, prod, one, zero, id_, const,
         )
         _, name, body_node, attrs = decl
@@ -228,8 +228,8 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                 functor = functors_by_name[f_name]
                 direction = "algebra" if tag == "cell_cata" else "coalgebra"
                 if direction == "algebra":
-                    from unialg.assembly._algebra_hom import summand_domain
-                    from unialg.assembly._typed_morphism import TypedMorphism as T
+                    from unialg.morphism._algebra_hom import summand_domain
+                    from unialg.morphism._typed_morphism import TypedMorphism as T
                     summands = functor.summands()
                     morphisms = []
                     for arg_node, summand in zip(arg_nodes, summands):

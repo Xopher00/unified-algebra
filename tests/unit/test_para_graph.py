@@ -9,8 +9,8 @@ import pytest
 from hydra.core import Name
 
 from unialg import Sort, Equation
-import unialg.assembly.morphism as morphism
-from unialg.assembly._typed_morphism import TypedMorphism as T
+import unialg.morphism as morphism
+from unialg.morphism._typed_morphism import TypedMorphism as T
 from unialg.assembly.graph import (
     NamedCell, MORPHISM_PRIM_PREFIX, _register_cells, build_graph,
 )

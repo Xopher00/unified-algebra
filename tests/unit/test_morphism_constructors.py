@@ -3,8 +3,8 @@ import pytest
 import hydra.core as core
 
 from unialg import NumpyBackend, Semiring, Sort
-from unialg.assembly._typed_morphism import TypedMorphism
-import unialg.assembly.morphism as morphism
+from unialg.morphism._typed_morphism import TypedMorphism
+import unialg.morphism as morphism
 
 
 @pytest.fixture

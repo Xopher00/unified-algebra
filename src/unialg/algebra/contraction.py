@@ -342,3 +342,4 @@ def contract_merge(compiled, tensors, sr, backend, nl_fn=None, n_inputs=2, name=
             f"Merge '{name}' has {n_inputs}-operand einsum but received "
             f"{len(tensors)} tensors — binary fold only works for 2-operand einsums")
     return nl_fn(result) if nl_fn else result
+

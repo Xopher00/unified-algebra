@@ -3,7 +3,7 @@ import pytest
 
 import hydra.core as core
 
-from unialg.assembly._typed_morphism import TypedMorphism
+from unialg.morphism._typed_morphism import TypedMorphism
 from unialg.assembly.graph import NamedCell
 from unialg.parser import parse_ua, parse_ua_spec
 

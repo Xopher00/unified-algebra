@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hydra.core as core
-import hydra.dsl.terms as Terms
 import hydra.dsl.types as Types
 
 from unialg.algebra.sort import Sort, ProductSort

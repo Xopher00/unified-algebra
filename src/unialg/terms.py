@@ -39,14 +39,45 @@ def tensor_coder(backend, type_=None) -> hydra.graph.TermCoder:
 
     return hydra.graph.TermCoder(type=type_, encode=encode, decode=decode)
 
+def float_term(value: float) -> core.TermLiteral:
+    return core.TermLiteral(value=core.LiteralFloat(value=float(value)))
+
+
+def integer_term(value: int) -> core.TermLiteral:
+    return core.TermLiteral(value=core.LiteralInteger(value=int(value)))
+
+
+def literal_term(value) -> core.TermLiteral:
+    if isinstance(value, bool):
+        return core.TermLiteral(value=core.LiteralBoolean(value=value))
+    if isinstance(value, int):
+        return integer_term(value)
+    if isinstance(value, float):
+        return float_term(value)
+    if isinstance(value, str):
+        return core.TermLiteral(value=core.LiteralString(value=value))
+    if isinstance(value, bytes):
+        return core.TermLiteral(value=core.LiteralBinary(value=value))
+    raise TypeError(f"Unsupported literal value: {value!r}")
+
 
 def _literal_value(term):
+    """Return the Python value stored in a Hydra TermLiteral."""
+    if not isinstance(term, core.TermLiteral):
+        raise TypeError(f"Expected TermLiteral, got {type(term).__name__}")
+
     match term.value:
-        case core.LiteralInteger(value=iv): return int(integer_value_to_bigint(iv))
-        case core.LiteralFloat(value=fv): return float(float_value_to_bigfloat(fv))
-        case core.LiteralString(value=s): return s
-        case core.LiteralBoolean(value=b): return b
-        case core.LiteralBinary(value=bs): return bs
+        case core.LiteralInteger(value=iv):
+            return int(integer_value_to_bigint(iv))
+        case core.LiteralFloat(value=fv):
+            return float(float_value_to_bigfloat(fv))
+        case core.LiteralString(value=s):
+            return s
+        case core.LiteralBoolean(value=b):
+            return b
+        case core.LiteralBinary(value=bs):
+            return bs
+
     raise ValueError(f"Unknown literal kind: {type(term.value).__name__}")
 
 

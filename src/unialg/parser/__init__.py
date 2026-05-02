@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from unialg.runtime import compile_program
+from unialg.assembly import compile_program
 from ._types import NamedCell as NamedCell, UASpec as UASpec
 
 if TYPE_CHECKING:
-    from unialg.runtime import Program
+    from unialg.assembly import Program
 
 
 def _source_location(text: str, remainder: str) -> tuple[int, int, str]:

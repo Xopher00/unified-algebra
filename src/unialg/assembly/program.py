@@ -22,10 +22,12 @@ from hydra.checking import type_of_term
 from hydra.context import Context
 from hydra.dsl.python import FrozenDict, Just, Left, Node, Right
 from hydra.dsl.terms import apply, var
+from unialg.terms import float_term, integer_term
 from hydra.lexical import lookup_primitive, lookup_term
 from hydra.reduction import reduce_term
 
-from unialg.assembly import assemble_graph, rebind_params
+from .graph import assemble_graph, rebind_params
+
 from unialg.terms import tensor_coder
 
 EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
@@ -228,9 +230,9 @@ def _wrap_scalar(v):
     if isinstance(v, Node):
         return v
     if isinstance(v, float):
-        return core.TermLiteral(value=core.LiteralFloat(value=v))
+        return float_term(v)
     if isinstance(v, int):
-        return core.TermLiteral(value=core.LiteralInteger(value=v))
+        return integer_term(v)
     raise TypeError(
         f"rebind: cannot wrap value of type {type(v).__name__!r}; "
         f"expected float, int, or hydra.core.Term"

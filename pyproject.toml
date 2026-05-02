@@ -25,3 +25,9 @@ allow-direct-references = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "tests"]
+
+[dependency-groups]
+dev = [
+    "grimp>=3.14",
+    "import-linter>=2.11",
+]

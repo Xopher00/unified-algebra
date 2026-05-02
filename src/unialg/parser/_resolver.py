@@ -9,15 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import hydra.core as core
-
-from unialg.algebra import Sort, ProductSort, Semiring, Equation, register_defines
+from unialg.terms import float_term
+from unialg.algebra import Sort, ProductSort, Semiring, Equation
 from ._types import NamedCell, UASpec
-from unialg.morphism import algebra_hom, summand_domain, lens
 from unialg.morphism import TypedMorphism as T
-from unialg.morphism import eq, lit, iden, copy, delete, seq, par
-
-from . import UASpec
 
 
 def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
@@ -103,30 +98,29 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         equations_list.append(eq_term)
 
     def _handle_functor(decl):
-        from unialg.morphism.functor import (
-            Functor, sum_, prod, one, zero, id_, const,
-        )
+        from unialg.morphism import Functor, sum_, prod, one, zero, id_, const
         _, name, body_node, attrs = decl
 
         def _build_poly(node):
-            tag = node[0]
-            if tag == 'poly_zero':
-                return zero()
-            if tag == 'poly_one':
-                return one()
-            if tag == 'poly_id':
-                return id_()
-            if tag == 'poly_const':
-                return const(_get_sort(node[1]))
-            if tag == 'poly_sum':
-                return sum_(_build_poly(node[1]), _build_poly(node[2]))
-            if tag == 'poly_prod':
-                return prod(_build_poly(node[1]), _build_poly(node[2]))
-            if tag == 'poly_compose':
-                raise NotImplementedError(
-                    "functor composition (@) not yet supported"
-                )
-            raise ValueError(f"functor: unknown polynomial AST tag {tag!r}")
+            match node:
+                case ('poly_zero',):
+                    return zero()
+                case ('poly_one',):
+                    return one()
+                case ('poly_id',):
+                    return id_()
+                case ('poly_const', name):
+                    return const(_get_sort(name))
+                case ('poly_sum', left, right):
+                    return sum_(_build_poly(left), _build_poly(right))
+                case ('poly_prod', left, right):
+                    return prod(_build_poly(left), _build_poly(right))
+                case ('poly_compose', *_):
+                    raise NotImplementedError("functor composition (@) not yet supported")
+                case (tag, *_):
+                    raise ValueError(f"functor: unknown polynomial AST tag {tag!r}")
+                case _:
+                    raise ValueError(f"functor: invalid polynomial AST node {node!r}")
 
         category = attrs.get('category', 'set')
         if category not in ('set', 'poset'):
@@ -140,7 +134,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     def _handle_cell(decl):
 
         def _literal(node):
-            return core.TermLiteral(value=core.LiteralFloat(value=float(node[1])))
+            return float_term(node[1])
 
         _, name, sig, expr_node = decl
         cell_codomain = _resolve_sort_ref(sig[1])
@@ -196,6 +190,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             return resolved_name, _get_eq(resolved_name)
 
         def _build_typed(node):
+            from unialg.morphism import eq, lit, iden, copy, delete, seq, par, lens, algebra_hom, summand_domain
             tag = node[0]
             if tag == 'cell_eq':
                 resolved_name, equation = _resolve_modified_eq(node[1])

@@ -13,8 +13,9 @@ directly — there is no separate AST or translation layer.
 - **Hydra-first** — DSL declarations are Hydra `Term`/`Type`. One AST, no translation layer.
 - **Operation-agnostic** — semantics come from declared semirings and backends. The framework never assumes real arithmetic.
 - **Backend-agnostic** — same program runs on numpy, PyTorch, JAX, or CuPy.
-- **Semiring-parameterised** — swap V to change what contraction means without changing the wiring.
-- **Bidirectional** — lenses pair forward and backward morphisms for any semiring-parameterised adjoint.
+- **Semiring-parameterised** — swap V to change what contraction means without changing the wiring. Algebras optionally declare `leq=` for partial-order semantics (fuzzy, tropical).
+- **Bidirectional** — lenses pair forward and backward morphisms for any semiring-parameterised adjoint. `lens_seq` composes lenses with optic threading.
+- **Compositional IR** — `cell` declarations express seq (`>`), par (`&`), lens (`~`), copy/delete/identity, catamorphism, and anamorphism as a single typed Pratt-parsed expression.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design contract.
 
@@ -80,10 +81,12 @@ Test suite is organised by purpose:
 tests/
   unit/           component isolation (sort, equation, contraction, assembly)
   parser/         DSL grammar and name resolution
-  semantics/      Hydra reduce_term vs compiled equivalence, end-to-end execution
-  architectures/  pattern demonstrations (message passing, shortest path, etc.)
+  semantics/      Hydra reduce_term equivalence, lens/optic threading, end-to-end execution
+  architectures/  pattern demonstrations (message passing, shortest path, attention, etc.)
   negative/       error handling and invalid input
   backend/        multi-backend parity
+  integration/    cross-layer integration tests
+  regression/     regression guards for previously fixed bugs
 ```
 
 ## Module map
@@ -91,9 +94,9 @@ tests/
 ```
 src/unialg/
     algebra/         sorts, semirings (law checking), equations, contraction engine
-    assembly/        DAG assembly, sort/rank validation, composition objects, specs
+    assembly/        graph construction, DAG validation, morphism compilation, Program runtime
+    morphism/        typed morphisms, lenses, lens sequential composition, functors, algebra homomorphisms
     parser/          .ua grammar + name resolution
-    runtime/         compile_program(), Program callable wrapper
     backend.py       Backend ABC + concrete backends (numpy, pytorch, jax, cupy)
     terms.py         Hydra record-view helpers, tensor encoding
 ```

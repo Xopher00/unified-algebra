@@ -101,7 +101,9 @@ op plus : hidden -> hidden
         )
         cell = parse_ua_spec(src).cells[0].cell
         assert isinstance(cell, TypedMorphism)
-        assert _field_names(cell.term) == ["forward", "backward"]
+        assert "forward" in _field_names(cell.term)
+        assert "backward" in _field_names(cell.term)
+        assert "residualSort" in _field_names(cell.term)
         assert isinstance(cell.codomain_type, core.TypePair)
 
     def test_left_assoc_seq(self):
@@ -185,7 +187,9 @@ class TestNamedCellConstructors:
             "lens(copy[hidden], id[hidden] & id[hidden]) *[hidden]\n"
         )
         cell = parse_ua_spec(src).cells[0].cell
-        assert _field_names(cell.term) == ["forward", "backward"]
+        assert "forward" in _field_names(cell.term)
+        assert "backward" in _field_names(cell.term)
+        assert "residualSort" in _field_names(cell.term)
 
     def test_named_constructor_arity_errors(self):
         with pytest.raises(ValueError, match=r"seq\(\) takes 2 args"):
@@ -208,9 +212,10 @@ op g : hidden -> hidden
   algebra = real
 cell foo : hidden -> hidden = f > g
 """
+        import numpy as np
         prog = parse_ua(src, backend=backend)
         assert prog is not None
-        assert "foo" in prog._compiled_fns
+        assert "foo" in prog.entry_points()
 
     def test_residual_decomposition_boundary_error(self, backend):
         src = """

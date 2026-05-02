@@ -7,11 +7,10 @@ from functools import partial
 from typing import TypeAlias
 
 import hydra.core as core
-from hydra.context import Context
 from hydra.core import Name, TermApplication, TermRecord, TermVariable
-from hydra.dsl.python import FrozenDict, Right, Left
+from hydra.dsl.prims import prim1
+from hydra.dsl.python import Right
 import hydra.dsl.terms as Terms
-from hydra.reduction import reduce_term
 
 from hydra.extract.core import record as _extract_record
 
@@ -19,7 +18,8 @@ from unialg.morphism import TypedMorphism
 from unialg.morphism import (
     _EQUATION_PREFIX,
     _BIMAP_NAME,
-    _LENS_TYPE
+    _LENS_TYPE,
+    _LENS_SEQ_TYPE,
 )
 
 apply = Terms.apply
@@ -34,19 +34,19 @@ _LIT_PARAM = "_"
 
 @dataclass(frozen=True, slots=True)
 class CompiledLens:
-    """Compiled lens artifact stored in ``Program._compiled_fns``."""
+    """Compiled lens: forward and backward callables, plus optional residual sort for optic threading."""
     forward: Callable
     backward: Callable
     residual_sort: object | None = None
 
 
 CompiledMorphism: TypeAlias = Callable | CompiledLens
-Matcher: TypeAlias = Callable[[object], tuple[int, list, list]]
 
-__all__ = ["compile_morphism", "CompiledMorphism", "CompiledLens", "Matcher"]
+__all__ = ["compile_morphism", "register_cells", "CompiledMorphism", "CompiledLens"]
+
+MORPHISM_PRIM_PREFIX = "ua.morphism."
 
 _NO_MATCH = object()
-_EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
 
 
 def _decode_literal(coder, init_term):
@@ -72,21 +72,20 @@ def _unwrap_typed_morphism(term):
     return term.term if isinstance(term, TypedMorphism) else term
 
 
-def _boundary_coder(boundary, backend, default_coder):
-    return boundary.coder(backend) if hasattr(boundary, "coder") else default_coder
-
-
 def compile_morphism(
     term,
     graph,
     native_fns: dict,
     coder,
     backend,
-    *,
-    matchers: dict[str, Matcher] | None = None,
 ) -> CompiledMorphism | None:
-    """Compile a morphism term into a callable or ``CompiledLens``."""
-    return _compile_term(term, graph, native_fns, coder, backend, matchers=matchers)
+    """Compile a morphism term into a callable or ``CompiledLens``.
+
+    Returns ``None`` if no structural compiler matches the term shape.
+    The caller should then register the term's Hydra lambda as a ``bound_term``
+    so that ``reduce_term`` evaluates it via the canonical Hydra path.
+    """
+    return _compile_term(term, graph, native_fns, coder, backend)
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +110,7 @@ def _try_structural_lambda(term):
     return None
 
 
-def _try_lens(term, graph, native_fns, coder, backend, *, matchers):
+def _try_lens(term, graph, native_fns, coder, backend):
     """Match the typed lens record shape."""
     if not isinstance(term, TermRecord):
         return None
@@ -122,8 +121,16 @@ def _try_lens(term, graph, native_fns, coder, backend, *, matchers):
             bwd_term = field_map.get(Name("backward"))
             if fwd_term is None or bwd_term is None:
                 return None
-            fwd = _compile_term(fwd_term, graph, native_fns, coder, backend, matchers=matchers)
-            bwd = _compile_term(bwd_term, graph, native_fns, coder, backend, matchers=matchers)
+            residual_term = field_map.get(Name("residualSort"))
+            residual_sort = None
+            if residual_term is not None:
+                from unialg.algebra.sort import sort_wrap
+                try:
+                    residual_sort = sort_wrap(residual_term)
+                except Exception:
+                    pass
+            fwd = _compile_term(fwd_term, graph, native_fns, coder, backend)
+            bwd = _compile_term(bwd_term, graph, native_fns, coder, backend)
             if fwd is None or bwd is None:
                 return None
             if isinstance(fwd, CompiledLens) or isinstance(bwd, CompiledLens):
@@ -131,47 +138,56 @@ def _try_lens(term, graph, native_fns, coder, backend, *, matchers):
                     f"lens: forward and backward must be Para morphisms, "
                     f"got fwd={type(fwd).__name__} bwd={type(bwd).__name__}"
                 )
-            return CompiledLens(forward=fwd, backward=bwd, residual_sort=None)
+            return CompiledLens(forward=fwd, backward=bwd, residual_sort=residual_sort)
         case _:
             return None
 
 
-def _compile_via_hydra(
-    morphism: TypedMorphism,
-    graph,
-    coder,
-    backend,
-):
-    """Compile a typed Hydra term by reducing its application."""
-    term = morphism.term
-    in_coder = _boundary_coder(morphism.domain, backend, coder)
-    out_coder = _boundary_coder(morphism.codomain, backend, coder)
+def _try_lens_seq(term, graph, native_fns, coder, backend):
+    """Match the LensSeq record and build a threaded CompiledLens."""
+    if not isinstance(term, TermRecord):
+        return None
+    match _extract_record(_LENS_SEQ_TYPE, graph, term):
+        case Right(value=fields):
+            field_map = {f.name: f.term for f in fields}
+            first_term = field_map.get(Name("first"))
+            second_term = field_map.get(Name("second"))
+            if first_term is None or second_term is None:
+                return None
+            cl1 = _compile_term(first_term, graph, native_fns, coder, backend)
+            cl2 = _compile_term(second_term, graph, native_fns, coder, backend)
+            if cl1 is None or cl2 is None:
+                return None
+            if not isinstance(cl1, CompiledLens) or not isinstance(cl2, CompiledLens):
+                raise ValueError(
+                    f"lens_seq: both components must compile to CompiledLens, "
+                    f"got cl1={type(cl1).__name__} cl2={type(cl2).__name__}"
+                )
+            def _fwd(s, _cl1=cl1, _cl2=cl2):
+                r1, a = _cl1.forward(s)
+                r2, b = _cl2.forward(a)
+                return (r1, r2), b
 
-    def runtime(value):
-        match in_coder.decode(_EMPTY_CX, value):
-            case Right(value=arg_term):
-                pass
-            case Left(value=err):
-                raise ValueError(f"compile_morphism: failed to encode input: {err}")
+            def _bwd(residual_b_pair, _cl1=cl1, _cl2=cl2):
+                (r1, r2), b_prime = residual_b_pair
+                a_prime = _cl2.backward((r2, b_prime))
+                return _cl1.backward((r1, a_prime))
 
-        match reduce_term(_EMPTY_CX, graph, True, apply(term, arg_term)):
-            case Right(value=reduced):
-                pass
-            case Left(value=err):
-                raise RuntimeError(f"compile_morphism: reduce_term failed: {err}")
-
-        match out_coder.encode(_EMPTY_CX, graph, reduced):
-            case Right(value=result):
-                return result
-            case Left(value=err):
-                raise RuntimeError(f"compile_morphism: failed to decode result: {err}")
-
-    return runtime
+            if cl1.residual_sort is not None and cl2.residual_sort is not None:
+                from unialg.algebra.sort import ProductSort
+                residual_sort = ProductSort([cl1.residual_sort, cl2.residual_sort])
+            else:
+                residual_sort = None
+            return CompiledLens(forward=_fwd, backward=_bwd, residual_sort=residual_sort)
+        case _:
+            return None
 
 
 
 
-def _compile_binary(term, graph, native_fns, coder, backend, *, matchers=None):
+
+
+def _compile_binary(term, graph, native_fns, coder, backend):
     """Compile the Hydra term shapes emitted by ``morphism.seq`` and ``par``."""
 
     def app(t):
@@ -183,8 +199,8 @@ def _compile_binary(term, graph, native_fns, coder, backend, *, matchers=None):
         return isinstance(t, TermVariable) and t.value.value == name
 
     def finish(op, f_term, g_term):
-        f = _compile_term(f_term, graph, native_fns, coder, backend, matchers=matchers)
-        g = _compile_term(g_term, graph, native_fns, coder, backend, matchers=matchers)
+        f = _compile_term(f_term, graph, native_fns, coder, backend)
+        g = _compile_term(g_term, graph, native_fns, coder, backend)
         return None if f is None or g is None else op(f, g)
 
     def nested_app(subject, at, marker_name, op):
@@ -208,7 +224,7 @@ def _compile_binary(term, graph, native_fns, coder, backend, *, matchers=None):
     return _NO_MATCH
 
 
-def _compile_term(term, graph, native_fns, coder, backend, *, matchers=None):
+def _compile_term(term, graph, native_fns, coder, backend):
     """Dispatch a morphism term to its compiled runtime representation."""
     typed = term if isinstance(term, TypedMorphism) else None
     term = _unwrap_typed_morphism(term)
@@ -217,9 +233,13 @@ def _compile_term(term, graph, native_fns, coder, backend, *, matchers=None):
     if fn is not None:
         return backend.compile(fn)
 
-    lens = _try_lens(term, graph, native_fns, coder, backend, matchers=matchers)
+    lens = _try_lens(term, graph, native_fns, coder, backend)
     if lens is not None:
         return lens
+
+    lens_seq = _try_lens_seq(term, graph, native_fns, coder, backend)
+    if lens_seq is not None:
+        return lens_seq
 
     if isinstance(term, core.TermLambda) and term.value.parameter.value == _LIT_PARAM:
         value, _ = _decode_literal(coder, term.value.body)
@@ -243,18 +263,14 @@ def _compile_term(term, graph, native_fns, coder, backend, *, matchers=None):
                 f"Expected a name starting with {_EQUATION_PREFIX!r}."
             )
 
-    compiled = _compile_binary(term, graph, native_fns, coder, backend, matchers=matchers)
+    compiled = _compile_binary(term, graph, native_fns, coder, backend)
     if compiled is not _NO_MATCH:
         return compiled
 
     if typed is not None:
-        import warnings
-        warnings.warn(
-            f"compile_morphism: no fast-path matcher for {type(term).__name__}; "
-            f"falling back to Hydra reduce_term",
-            stacklevel=2,
-        )
-        return _compile_via_hydra(typed, graph, coder, backend)
+        # No structural compiler matched. Return None so the caller
+        # registers the TypedMorphism.term as a bound_term for reduce_term.
+        return None
 
     raise TypeError(
         f"compile_morphism: unrecognized term shape {type(term).__name__}. "
@@ -262,3 +278,41 @@ def _compile_term(term, graph, native_fns, coder, backend, *, matchers=None):
         f"(lit), TermVariable (equation ref), lens record, or seq/par "
         f"application."
     )
+
+
+def register_cells(named_cells, graph, bound_terms, primitives, native_fns, coder, backend):
+    """Compile each morphism and register its primitive(s) into the graph dicts."""
+    for named in named_cells:
+        fn = compile_morphism(named.cell, graph, native_fns, coder, backend)
+
+        if fn is None:
+            cell = named.cell
+            raw_term = cell.term if isinstance(cell, TypedMorphism) else cell
+            bt_name = Name(f"{MORPHISM_PRIM_PREFIX}{named.name}")
+            bound_terms[bt_name] = raw_term
+            bound_terms.setdefault(Name(f"ua.equation.{named.name}"), raw_term)
+            continue
+
+        if isinstance(named.cell, TypedMorphism):
+            cell = named.cell
+            in_c = cell.domain_sort.coder(backend) if hasattr(cell.domain_sort, 'coder') else coder
+            out_c = cell.codomain_sort.coder(backend) if hasattr(cell.codomain_sort, 'coder') else coder
+        else:
+            in_c, out_c = coder, coder
+
+        eq_alias = Name(f"ua.equation.{named.name}")
+        if hasattr(fn, "forward") and hasattr(fn, "backward"):
+            fwd_name = Name(f"{MORPHISM_PRIM_PREFIX}{named.name}.forward")
+            bwd_name = Name(f"{MORPHISM_PRIM_PREFIX}{named.name}.backward")
+            primitives[fwd_name] = prim1(fwd_name, fn.forward, [], in_c, out_c)
+            primitives[bwd_name] = prim1(bwd_name, fn.backward, [], out_c, in_c)
+            native_fns[fwd_name] = fn.forward
+            native_fns[bwd_name] = fn.backward
+            primitives.setdefault(eq_alias, prim1(eq_alias, fn.forward, [], in_c, out_c))
+            native_fns.setdefault(eq_alias, fn.forward)
+        else:
+            prim_name = Name(f"{MORPHISM_PRIM_PREFIX}{named.name}")
+            primitives[prim_name] = prim1(prim_name, fn, [], in_c, out_c)
+            native_fns[prim_name] = fn
+            primitives.setdefault(eq_alias, prim1(eq_alias, fn, [], in_c, out_c))
+            native_fns.setdefault(eq_alias, fn)

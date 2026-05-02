@@ -209,7 +209,7 @@ op viterbi : hidden -> (hidden, indices)
   algebra = tropical
 ''')
         eq = spec.equations[0]
-        prim, native_fn, sr, in_coder = resolve_equation(eq, backend)
+        prim, native_fn, sr, in_coder, *_ = resolve_equation(eq, backend)
         assert prim is not None
         assert 'viterbi' in prim.name.value
 

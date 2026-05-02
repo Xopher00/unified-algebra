@@ -1,75 +1,46 @@
-"""Fixpoint validation error tests: constraint enforcement via FixpointSpec.validate()."""
+"""Fixpoint error tests: parse-time rejection of invalid fixpoint declarations.
+
+FixpointSpec has been removed. Validation now occurs via the parser's
+name-resolution pass and TypedMorphism type constraints.
+These tests check that referencing undeclared ops in cell expressions
+raises errors at parse/compile time.
+"""
 
 import pytest
 
-from unialg import (
-    NumpyBackend, Semiring, Sort,
-    Equation,
-    FixpointSpec,
-)
-from conftest import build_schema
+from unialg import parse_ua, NumpyBackend
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+def test_cell_references_unknown_step_raises():
+    """Referencing an undeclared step op in a cell raises ValueError."""
+    with pytest.raises((ValueError, SyntaxError)):
+        parse_ua(
+            """
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+cell bad_fixpoint : hidden -> hidden = nonexistent_step
+""",
+            NumpyBackend(),
+        )
 
-@pytest.fixture
-def output_sort(real_sr):
-    return Sort("output", real_sr)
 
+def test_cell_seq_wrong_sort_raises():
+    """Sequential composition with incompatible sort raises TypeError."""
+    with pytest.raises(TypeError):
+        from unialg import Semiring, Sort, Equation
+        import unialg.morphism as morphism
+        from unialg.parser import NamedCell
+        from unialg.assembly.graph import assemble_graph
 
-# ===========================================================================
-# Fixpoint validation
-# ===========================================================================
+        real = Semiring("real_fp_err", plus="add", times="multiply", zero=0.0, one=1.0)
+        h1 = Sort("fp_err_h1", real)
+        h2 = Sort("fp_err_h2", real)
 
-class TestFixpointValidation:
-    """validate_fixpoint enforces endomorphism and predicate domain constraints."""
+        eq1 = Equation("fp_err_eq1", None, h1, h1, nonlinearity="relu")
+        eq2 = Equation("fp_err_eq2", None, h2, h2, nonlinearity="relu")
 
-    def test_validate_fixpoint_passes_for_valid_step_and_predicate(
-        self, hidden, output_sort, real_sr
-    ):
-        """validate_fixpoint passes when step is endomorphism and predicate domain matches.
-
-        The predicate codomain must differ from the state sort (it should be a scalar
-        float32, not a tensor). output_sort stands in for a non-state codomain here;
-        full float32 enforcement requires a prim1-level predicate (see TestFixpointEndToEnd).
-        """
-        step_eq = Equation("fp_step", None, hidden, hidden, nonlinearity="relu")
-        pred_eq = Equation("fp_pred", None, hidden, output_sort, nonlinearity="abs")
-        eq_by_name = {"fp_step": step_eq, "fp_pred": pred_eq}
-        FixpointSpec("_", "fp_step", "fp_pred", 0.0, 0, hidden).validate(eq_by_name, build_schema(eq_by_name))
-
-    def test_validate_fixpoint_raises_for_endomorphism_predicate(
-        self, hidden, real_sr
-    ):
-        """validate_fixpoint raises when predicate codomain == state sort (endomorphism)."""
-        step_eq = Equation("endo_step", None, hidden, hidden, nonlinearity="relu")
-        pred_eq = Equation("endo_pred", None, hidden, hidden, nonlinearity="abs")
-        eq_by_name = {"endo_step": step_eq, "endo_pred": pred_eq}
-        with pytest.raises(TypeError, match="scalar residual"):
-            FixpointSpec("_", "endo_step", "endo_pred", 0.0, 0, hidden).validate(eq_by_name, build_schema(eq_by_name))
-
-    def test_validate_fixpoint_raises_for_non_endomorphism_step(
-        self, hidden, output_sort, real_sr
-    ):
-        """validate_fixpoint raises when step maps hidden -> output (not endo)."""
-        step_eq = Equation("bad_step", "i->j", hidden, output_sort, real_sr)
-        pred_eq = Equation("bad_pred", None, hidden, output_sort, nonlinearity="abs")
-        eq_by_name = {"bad_step": step_eq, "bad_pred": pred_eq}
-        with pytest.raises(TypeError):
-            FixpointSpec("_", "bad_step", "bad_pred", 0.0, 0, hidden).validate(eq_by_name, build_schema(eq_by_name))
-
-    def test_validate_fixpoint_raises_for_missing_predicate(self, hidden):
-        """validate_fixpoint raises ValueError when predicate equation is not found."""
-        step_eq = Equation("ms_step", None, hidden, hidden, nonlinearity="relu")
-        eq_by_name = {"ms_step": step_eq}
-        with pytest.raises(ValueError, match="op 'missing_pred' not found"):
-            FixpointSpec("_", "ms_step", "missing_pred", 0.0, 0, hidden).validate(eq_by_name, build_schema(eq_by_name))
-
-    def test_validate_fixpoint_raises_for_missing_step(self, hidden):
-        """validate_fixpoint raises ValueError when step equation is not found."""
-        pred_eq = Equation("ms_pred", None, hidden, hidden, nonlinearity="abs")
-        eq_by_name = {"ms_pred": pred_eq}
-        with pytest.raises(ValueError, match="op 'missing_step' not found"):
-            FixpointSpec("_", "missing_step", "ms_pred", 0.0, 0, hidden).validate(eq_by_name, build_schema(eq_by_name))
+        # h1 != h2 so seq should raise TypeError on sort mismatch
+        morphism.seq(
+            morphism.eq("fp_err_eq1", domain=h1, codomain=h1),
+            morphism.eq("fp_err_eq2", domain=h2, codomain=h2),
+        )

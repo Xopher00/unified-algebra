@@ -4,14 +4,12 @@ This is the single callable surface for unified-algebra programs. It wraps
 a hydra.graph.Graph and provides encode/reduce/decode in a single __call__,
 plus entry point enumeration and parameter rebinding.
 
-Entry points that can be statically compiled (paths, single equations without
-param_slots) bypass reduce_term entirely: the _compute closures are composed
-once at compile_program time and called directly on native arrays, with no
-wire encode/decode between equations. This lets torch.compile or jax.jit fuse
-across equation boundaries.
+All entry points execute via the canonical Hydra path:
+  decode(arg) → reduce_term(graph, term) → encode(result)
 
-Entry points that cannot be statically compiled (fixpoints, fans, folds,
-equations with param_slots) fall back to the reduce_term interpreter.
+Backend callables (equations, morphisms, seq/par compositions) are registered
+as Hydra primitives or bound_terms. reduce_term dispatches through them.
+TermCoder bridges Hydra terms and backend arrays at the program boundary only.
 """
 
 from __future__ import annotations
@@ -19,18 +17,15 @@ from __future__ import annotations
 import hydra.core as core
 import hydra.graph as gr
 from hydra.checking import type_of_term
-from hydra.context import Context
-from hydra.dsl.python import FrozenDict, Just, Left, Node, Right
-from hydra.dsl.terms import apply, var
-from unialg.terms import float_term, integer_term
-from hydra.lexical import lookup_primitive, lookup_term
+from hydra.dsl.python import Just, Left, Node, Right
+from hydra.dsl.terms import apply, var, list_ as term_list
+from unialg.terms import tensor_coder, float_term, integer_term
+from hydra.lexical import empty_context, lookup_primitive, lookup_term
 from hydra.reduction import reduce_term
 
 from .graph import assemble_graph, rebind_params
 
-from unialg.terms import tensor_coder
-
-EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
+EMPTY_CX = empty_context()
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +62,7 @@ _ENTRY_PREFIXES = (
     "ua.fixpoint.",
     "ua.parallel.",
     "ua.equation.",
+    "ua.morphism.",
 )
 
 
@@ -106,14 +102,13 @@ class Program:
     Do not construct directly — use compile_program().
     """
 
-    def __init__(self, graph, backend, coder, cx, compiled_fns: dict | None = None,
-                 *, _build_args: dict | None = None):
+    def __init__(self, graph, backend, coder, cx, *, _build_args: dict | None = None, _list_packed_info: dict | None = None):
         self._graph = graph
         self._backend = backend
         self._coder = coder
         self._cx = cx
-        self._compiled_fns = compiled_fns or {}
         self._build_args = _build_args
+        self._list_packed_info: dict = _list_packed_info or {}
 
     @property
     def graph(self):
@@ -136,18 +131,12 @@ class Program:
     def __call__(self, entry_point: str, *args):
         """Invoke an entry point on numpy/torch arrays.
 
-        For statically compiled entry points (paths, single equations): calls
-        the composed native function directly — no Hydra encode/decode, no
-        wire format between equations, JIT-friendly.
+        Canonical path: decode args → build application term → reduce_term →
+        encode result. Backend callables execute through registered primitives.
 
-        For non-compiled entry points (fixpoints, fans with params, etc.):
-        falls back to encode → reduce_term → decode.
+        List-packed primitives (n_params + n_inputs > 3) receive their arguments
+        as Hydra TermList nodes so reduce_term dispatches correctly.
         """
-        # Fast path: statically compiled — native arrays in, native arrays out
-        if entry_point in self._compiled_fns:
-            return self._compiled_fns[entry_point](*args)
-
-        # Fallback: reduce_term interpreter
         full_name = _resolve_full_name(entry_point, self._graph)
 
         encoded_args = []
@@ -162,9 +151,18 @@ class Program:
                         f"{entry_point!r}: {err}"
                     )
 
+        prim_key = core.Name(full_name)
+        packed = self._list_packed_info.get(prim_key)
         term = var(full_name)
-        for enc in encoded_args:
-            term = apply(term, enc)
+        if packed is not None:
+            n_params, n_inputs = packed
+            if n_params > 0:
+                term = apply(term, term_list(encoded_args[:n_params]))
+            if n_inputs > 0:
+                term = apply(term, term_list(encoded_args[n_params:n_params + n_inputs]))
+        else:
+            for enc in encoded_args:
+                term = apply(term, enc)
 
         red_result = reduce_term(self._cx, self._graph, True, term)
         match red_result:
@@ -197,15 +195,15 @@ class Program:
         if self._build_args is None:
             new_graph = rebind_params(self._graph, wrapped)
             return Program(new_graph, self._backend, self._coder, self._cx,
-                           self._compiled_fns)
+                           _list_packed_info=self._list_packed_info)
         existing_hp = self._build_args.get('params') or {}
         merged_hp = {**existing_hp, **wrapped}
         return compile_program(
             self._build_args['equations'], backend=self._backend,
-            specs=self._build_args['specs'], params=merged_hp,
-            lenses=self._build_args['lenses'],
-            extra_sorts=self._build_args['extra_sorts'],
-            semirings=self._build_args['semirings'],
+            params=merged_hp,
+            extra_sorts=self._build_args.get('extra_sorts'),
+            semirings=self._build_args.get('semirings'),
+            cells=self._build_args.get('cells'),
         )
 
     def type_check(self, entry_point: str):
@@ -247,9 +245,7 @@ def compile_program(
     equations: list,
     *,
     backend,
-    specs: list | None = None,
     params: dict | None = None,
-    lenses: list | None = None,
     extra_sorts: list | None = None,
     semirings: dict | None = None,
     cells: list | None = None,
@@ -258,24 +254,19 @@ def compile_program(
 
     This is the single entry point for converting DSL terms into a callable.
     Parser output and hand-written Python both flow through here. ``cells``
-    is the list of ``NamedCell`` entries produced by the operator-based
-    cell-expression DSL; they register alongside legacy Spec-derived
-    primitives during the migration.
+    is the list of ``NamedCell`` entries produced by the morphism DSL.
     """
-    graph, native_fns, compiled_fns = assemble_graph(
+    graph, native_fns, list_packed_info = assemble_graph(
         equations,
         backend,
-        specs=specs,
         params=params,
-        lenses=lenses,
         extra_sorts=extra_sorts,
         semirings=semirings,
         cells=cells,
     )
     coder = tensor_coder(backend)
-    build_args = dict(equations=equations, specs=specs, lenses=lenses,
-                      extra_sorts=extra_sorts, semirings=semirings,
-                      params=params, cells=cells)
-    return Program(graph, backend, coder, EMPTY_CX, compiled_fns=compiled_fns,
-                   _build_args=build_args)
+    build_args = dict(equations=equations, extra_sorts=extra_sorts,
+                      semirings=semirings, params=params, cells=cells)
+    return Program(graph, backend, coder, EMPTY_CX, _build_args=build_args,
+                   _list_packed_info=list_packed_info)
 

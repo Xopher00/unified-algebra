@@ -9,9 +9,8 @@ from unialg import NumpyBackend, Semiring, Sort, Equation
 from unialg.terms import tensor_coder
 from unialg.morphism._typed_morphism import TypedMorphism as T
 from unialg.assembly._morphism_compile import compile_morphism, CompiledLens
-from unialg.assembly.graph import (
-    MORPHISM_PRIM_PREFIX, _register_cells, build_graph,
-)
+from unialg.assembly._morphism_compile import MORPHISM_PRIM_PREFIX, register_cells
+from unialg.assembly.graph import build_graph
 from unialg.parser import NamedCell
 from unialg.assembly._equation_resolution import resolve_equation
 import unialg.morphism as morphism
@@ -105,17 +104,19 @@ class TestLensCompilation:
         backend.unary_ops["id_op"] = lambda x: x
         eq_id = Equation("id_op", None, hidden, hidden, nonlinearity="id_op")
         native_fns = _native_fns(backend, eq_id)
-        primitives, compiled_fns = {}, {}
+        primitives = {}
+        bound_terms = {}
         graph = build_graph([hidden])
         prod = T.product(hidden, hidden)
         fwd = morphism.eq("id_op", domain=hidden, codomain=prod)
         bwd = morphism.eq("id_op", domain=prod, codomain=hidden)
 
-        _register_cells(
+        register_cells(
             [NamedCell(name="my_lens", cell=morphism.lens(fwd, bwd))],
-            graph, primitives, native_fns, compiled_fns, coder, backend,
+            graph, bound_terms, primitives, native_fns, coder, backend,
         )
 
         assert Name(f"{MORPHISM_PRIM_PREFIX}my_lens.forward") in primitives
         assert Name(f"{MORPHISM_PRIM_PREFIX}my_lens.backward") in primitives
-        assert isinstance(compiled_fns["my_lens"], CompiledLens)
+        fwd_name = Name(f"{MORPHISM_PRIM_PREFIX}my_lens.forward")
+        assert callable(native_fns[fwd_name])

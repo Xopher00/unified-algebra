@@ -5,8 +5,6 @@ import unialg
 _PUBLIC = {
     "Backend", "NumpyBackend", "PytorchBackend", "JaxBackend", "CupyBackend",
     "Semiring", "Equation", "Lens", "Sort", "ProductSort",
-    "PathSpec", "FanSpec", "FoldSpec", "UnfoldSpec",
-    "PathSpec", "FanSpec", "FixpointSpec", "ParallelSpec",
     "Program", "compile_program",
     "parse_ua", "parse_ua_spec", "UASpec",
 }

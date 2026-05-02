@@ -14,7 +14,8 @@ from unialg import (
     Semiring, Sort,
     Equation,
 )
-from unialg.assembly.graph import validate_pipeline, build_graph
+from unialg.assembly._validation import validate_pipeline
+from unialg.assembly.graph import build_graph
 from unialg.algebra.equation import _prepend_batch_dim
 from unialg.assembly._equation_resolution import resolve_equation
 

@@ -6,7 +6,9 @@ from .functor import PolyExpr as PolyExpr
 from .functor import sum_ as sum_, prod as prod, one as one
 from .functor import zero as zero, id_ as id_, const as const
 from .lens import lens as lens
+from .lens import lens_seq as lens_seq
 from .lens import _LENS_TYPE as _LENS_TYPE
+from .lens import _LENS_SEQ_TYPE as _LENS_SEQ_TYPE
 from .morphism import copy as copy
 from .morphism import delete as delete
 from .morphism import eq as eq

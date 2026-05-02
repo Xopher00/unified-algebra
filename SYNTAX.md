@@ -693,9 +693,9 @@ Rules:
 The canonical test suite for parser/syntax alignment is `tests/unit/test_parser.py` and `tests/negative/test_parser_errors.py`.
 Run them after any parser change: `uv run --python 3.12 --extra dev python -m pytest tests/unit/test_parser.py tests/negative/test_parser_errors.py -v`.
 
-### Known divergence (as of 2026-04-29)
+### Known divergence (as of 2026-05-03)
 
-The Hydra-boundary audit (`/home/scanbot/.claude/plans/robust-scribbling-dove.md`) identified a current divergence between this document and the parser. By rule 3 above, this is a known bug and must be resolved.
+A current divergence exists between this document and the parser. By rule 3 above, this is a known bug and must be resolved.
 
 **Documented in this file but not parsed by `_grammar.py`** (the `decl` dispatcher does not list these as declaration kinds):
 
@@ -709,9 +709,49 @@ The Hydra-boundary audit (`/home/scanbot/.claude/plans/robust-scribbling-dove.md
 - `lens_seq` — sequential lens composition
 - `lens_branch` — parallel lens composition
 
-**Parsed by `_grammar.py` but not documented above** (the `cell` declaration's operator sub-grammar):
+**Parsed by `_grammar.py` but not documented above** (the `cell` and `functor` declarations):
 
-- `cell` declaration with operators: `;` (seq), `*` (par), `<->` (lens), `^[A]` (copy), `![A]` (delete), `_[A]` (identity), `>[F](...)` (cata), `<[F](...)` (ana), `{R}` (residual sort annotation)
-- `functor` declaration with polynomial expression sub-grammar (`0`, `1`, `X`, `+`, `*`, sort constants)
+`cell <name> : <sort_sig> = <cell_expr>` — composition IR. Operator grammar (Pratt, infix):
 
-Resolution is gated on `NEW_PROMPT.md` Task 2 (Pratt parser refactor). Do not add new forms to either side until that decision lands.
+| Token | Role | Precedence |
+|---|---|---|
+| `>` | Sequential composition | 60 (left-assoc) |
+| `&` | Parallel (bimap) composition | 70 (left-assoc) |
+| `~` | Lens pairing: `fwd ~ bwd` or `fwd ~ bwd *[Sort]` | 50 (left-assoc) |
+
+Prefix/atom forms:
+
+| Form | Meaning |
+|---|---|
+| `<name>` | Equation reference (`cell_eq`) |
+| `<number>` | Literal constant (`cell_lit`) |
+| `^[Sort]` | Copy morphism |
+| `![Sort]` | Delete morphism |
+| `_[Sort]` | Identity morphism |
+| `>[F](args)` or `fold[F](args)` | Catamorphism |
+| `<[F](args)` or `unfold[F](args)` | Anamorphism |
+| `seq(f, g)` | Named sequential composition |
+| `par(f, g)` | Named parallel composition |
+| `id[Sort]` | Named identity |
+| `copy[Sort]` | Named copy |
+| `drop[Sort]` | Named delete |
+
+Optional residual sort annotation on `~`: `fwd ~ bwd *[Sort]` threads `Sort` as the residual through the lens pairing.
+
+Note: `;` and `*` are explicitly rejected with error messages ("use '>' not ';'", "use '&' not '*'") — these were old operators, do not use them.
+
+`functor <name> : <poly_expr>` — polynomial functor declaration. Body is a polynomial expression:
+
+| Token | Role | Precedence |
+|---|---|---|
+| `+` | Coproduct (sum) | 60 (left-assoc) |
+| `&` | Product | 70 (left-assoc) |
+| `@` | Composition | 80 (right-assoc) |
+| `0` | Initial object | atom |
+| `1` | Terminal object | atom |
+| `X` | Identity functor (the variable) | atom |
+| `<sort-ident>` | Constant functor | atom |
+
+Note: `*` is explicitly rejected ("use '&' for functor product, not '*'").
+
+Resolution of the broader divergence is gated on `NEW_PROMPT.md` Task 2 (Pratt parser refactor). Do not add new forms to either side until that decision lands.

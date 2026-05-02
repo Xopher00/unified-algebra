@@ -11,9 +11,8 @@ from hydra.core import Name
 from unialg import Sort, Equation
 import unialg.morphism as morphism
 from unialg.morphism._typed_morphism import TypedMorphism as T
-from unialg.assembly.graph import (
-    MORPHISM_PRIM_PREFIX, _register_cells, build_graph,
-)
+from unialg.assembly._morphism_compile import MORPHISM_PRIM_PREFIX, register_cells
+from unialg.assembly.graph import build_graph
 from unialg.parser import NamedCell
 from unialg.assembly._morphism_compile import CompiledLens
 from unialg.assembly._equation_resolution import resolve_equation
@@ -45,49 +44,52 @@ class TestRegisterCells:
     def test_registers_morphism_into_dicts(self, hidden, real_sr, backend, coder):
         eq_step = Equation("rg_step", "i,i->i", hidden, hidden, real_sr)
         native_fns = _native_fns(backend, eq_step)
-        primitives, compiled_fns = {}, {}
+        primitives = {}
+        bound_terms = {}
         graph = build_graph([hidden])
 
-        _register_cells(
+        register_cells(
             [NamedCell(name="my_cell",
                        cell=morphism.eq("rg_step", domain=hidden, codomain=hidden))],
-            graph, primitives, native_fns, compiled_fns, coder, backend,
+            graph, bound_terms, primitives, native_fns, coder, backend,
         )
 
         assert Name(f"{MORPHISM_PRIM_PREFIX}my_cell") in primitives
-        assert "my_cell" in compiled_fns
+        assert Name(f"{MORPHISM_PRIM_PREFIX}my_cell") in native_fns
         assert Name("ua.equation.my_cell") in primitives
 
     def test_missing_equation_raises(self, hidden, backend, coder):
-        primitives, compiled_fns = {}, {}
+        primitives = {}
+        bound_terms = {}
         graph = build_graph([])
         with pytest.raises(ValueError):
-            _register_cells(
+            register_cells(
                 [NamedCell(name="dead",
                            cell=morphism.eq("ghost", domain=hidden, codomain=hidden))],
-                graph, primitives, {}, compiled_fns, coder, backend,
+                graph, bound_terms, primitives, {}, coder, backend,
             )
 
     def test_lens_registers_forward_and_backward(self, hidden, backend, coder):
         backend.unary_ops["bg_id"] = lambda x: x
         eq_id = Equation("bg_id_eq", None, hidden, hidden, nonlinearity="bg_id")
         native_fns = _native_fns(backend, eq_id)
-        primitives, compiled_fns = {}, {}
+        primitives = {}
+        bound_terms = {}
         graph = build_graph([hidden])
 
         prod_sort = T.product(hidden, hidden)
         fwd = morphism.eq("bg_id_eq", domain=hidden, codomain=prod_sort)
         bwd = morphism.eq("bg_id_eq", domain=prod_sort, codomain=hidden)
 
-        _register_cells(
+        register_cells(
             [NamedCell(name="some_lens", cell=morphism.lens(fwd, bwd))],
-            graph, primitives, native_fns, compiled_fns, coder, backend,
+            graph, bound_terms, primitives, native_fns, coder, backend,
         )
 
         assert Name(f"{MORPHISM_PRIM_PREFIX}some_lens.forward") in primitives
         assert Name(f"{MORPHISM_PRIM_PREFIX}some_lens.backward") in primitives
-        assert "some_lens" in compiled_fns
-        assert isinstance(compiled_fns["some_lens"], CompiledLens)
+        fwd_key = Name(f"{MORPHISM_PRIM_PREFIX}some_lens.forward")
+        assert isinstance(native_fns[fwd_key], object)
         assert Name("ua.equation.some_lens") in primitives
 
 
@@ -115,12 +117,13 @@ class TestAssembleGraphWithCells:
             ),
         )
 
-        graph, native_fns, compiled_fns = assemble_graph(
+        graph, native_fns, _ = assemble_graph(
             [eq_h, eq_d], backend, cells=[named],
         )
 
-        assert "ident_via_cells" in compiled_fns
-        out = compiled_fns["ident_via_cells"](np.array([4.0]))
+        eq_alias = Name("ua.equation.ident_via_cells")
+        assert eq_alias in native_fns
+        out = native_fns[eq_alias](np.array([4.0]))
         np.testing.assert_allclose(out, np.array([4.0]))
 
         x_enc = encode_array(coder, np.array([4.0]))

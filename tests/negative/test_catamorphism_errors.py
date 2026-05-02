@@ -1,69 +1,39 @@
-"""Catamorphism validation error tests: fold and unfold constraint enforcement."""
+"""Catamorphism error tests: unknown op name raises ValueError.
+
+FoldSpec and UnfoldSpec have been removed. Validation now occurs via the
+TypedMorphism type system and the parser's name-resolution pass.
+These tests check that referencing an undeclared op in a cell expression
+raises ValueError at parse time.
+"""
 
 import pytest
 
-from unialg import (
-    NumpyBackend, Semiring, Sort,
-    Equation,
-    FoldSpec, UnfoldSpec,
-)
-from conftest import build_schema
+from unialg import parse_ua, NumpyBackend
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def output_sort(real_sr):
-    return Sort("output", real_sr)
-
-
-# ---------------------------------------------------------------------------
-# Fold validation
-# ---------------------------------------------------------------------------
-
-class TestFoldValidation:
-
-    def test_valid_fold(self, real_sr, hidden):
-        eq_step = Equation("step", "i,i->i", hidden, hidden, real_sr)
-        ebn = {"step": eq_step}
-        FoldSpec("_", "step", None, hidden, hidden).validate(ebn, build_schema(ebn))
-
-    def test_fold_step_not_found(self, hidden):
-        with pytest.raises(ValueError, match="not found"):
-            FoldSpec("_", "missing", None, hidden, hidden).validate({}, build_schema({}))
-
-    def test_fold_state_recurrence_mismatch(self, real_sr, hidden, output_sort):
-        eq_step = Equation("step", "i,i->i", hidden, output_sort, real_sr)
-        ebn = {"step": eq_step}
-        with pytest.raises(TypeError, match="codomain.*state sort"):
-            FoldSpec("_", "step", None, hidden, hidden).validate(ebn, build_schema(ebn, [hidden]))
+def test_cell_references_unknown_op_raises():
+    """Referencing an undeclared op in a cell expression raises ValueError."""
+    with pytest.raises((ValueError, SyntaxError)):
+        parse_ua(
+            """
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+cell bad_cell : hidden -> hidden = nonexistent_op
+""",
+            NumpyBackend(),
+        )
 
 
-# ---------------------------------------------------------------------------
-# Unfold validation
-# ---------------------------------------------------------------------------
-
-class TestUnfoldValidation:
-
-    def test_valid_unfold(self, real_sr, hidden):
-        eq_step = Equation("step", None, hidden, hidden, nonlinearity="tanh")
-        ebn = {"step": eq_step}
-        UnfoldSpec("_", "step", 0, hidden, hidden).validate(ebn, build_schema(ebn))
-
-    def test_unfold_step_not_found(self, hidden):
-        with pytest.raises(ValueError, match="not found"):
-            UnfoldSpec("_", "missing", 0, hidden, hidden).validate({}, build_schema({}))
-
-    def test_unfold_domain_mismatch(self, real_sr, hidden, output_sort):
-        eq_step = Equation("step", None, output_sort, hidden, nonlinearity="tanh")
-        ebn = {"step": eq_step}
-        with pytest.raises(TypeError, match="domain.*state sort"):
-            UnfoldSpec("_", "step", 0, hidden, hidden).validate(ebn, build_schema(ebn, [hidden]))
-
-    def test_unfold_codomain_mismatch(self, real_sr, hidden, output_sort):
-        eq_step = Equation("step", None, hidden, output_sort, nonlinearity="tanh")
-        with pytest.raises(TypeError, match="codomain.*state sort"):
-            ebn = {"step": eq_step}
-            UnfoldSpec("_", "step", 0, hidden, hidden).validate(ebn, build_schema(ebn))
+def test_cell_references_missing_functor_for_cata_raises():
+    """Referencing an undeclared functor in fold[F](...) raises ValueError."""
+    with pytest.raises((ValueError, SyntaxError)):
+        parse_ua(
+            """
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+op step : hidden -> hidden
+  nonlinearity = relu
+cell bad_cata : hidden -> hidden = >[MissingFunctor](step)
+""",
+            NumpyBackend(),
+        )

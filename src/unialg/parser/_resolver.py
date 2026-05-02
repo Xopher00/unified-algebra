@@ -214,9 +214,8 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
             if tag in {'cell_lens', 'cell_cata', 'cell_ana'}:
                 if tag == 'cell_lens':
                     _, fwd_node, bwd_node, residual_name = node
-                    if residual_name is not None:
-                        _get_sort(residual_name)
-                    return lens(_build_typed(fwd_node), _build_typed(bwd_node))
+                    residual_sort = _get_sort(residual_name) if residual_name is not None else None
+                    return lens(_build_typed(fwd_node), _build_typed(bwd_node), residual_sort)
                 _, f_name, arg_nodes = node
                 if f_name not in functors_by_name:
                     label = "cata" if tag == "cell_cata" else "ana"

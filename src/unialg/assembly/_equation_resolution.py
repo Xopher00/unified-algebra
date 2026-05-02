@@ -112,7 +112,11 @@ def compile_equation(eq: "Equation", backend: "Backend") -> EquationCompiled:
 
 
 def resolve_equation(eq: "Equation", backend: "Backend"):
-    """Compile an Equation to a Hydra Primitive."""
+    """Compile an Equation to a Hydra Primitive.
+
+    Returns (prim, native_fn, sr, in_coder, n_params, n_inputs, is_list_packed).
+    is_list_packed is True when n_params + n_inputs > 3.
+    """
     ctx = compile_equation(eq, backend)
     if not ctx.has_einsum and not ctx.has_nl:
         raise ValueError(f"Equation '{eq.name}' has neither einsum nor nonlinearity")
@@ -121,7 +125,8 @@ def resolve_equation(eq: "Equation", backend: "Backend"):
         ctx.in_coder, ctx.n_params, n_inputs, ctx.sr, ctx.compiled, backend, ctx.nl_fn,
         skip_fn=ctx.skip_fn)
     prim = _make_prim(ctx.prim_name, hydra_compute, coders, ctx.out_coder)
-    return prim, native_fn, ctx.sr, ctx.in_coder
+    is_list_packed = (ctx.n_params + n_inputs) > 3
+    return prim, native_fn, ctx.sr, ctx.in_coder, ctx.n_params, n_inputs, is_list_packed
 
 
 def resolve_equation_as_merge(eq: "Equation", backend: "Backend", prim_name_override=None):

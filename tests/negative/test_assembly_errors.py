@@ -3,7 +3,7 @@
 import pytest
 
 from unialg import Semiring, Sort, Equation
-from unialg.assembly.graph import validate_pipeline
+from unialg.assembly._validation import validate_pipeline
 
 
 # ---------------------------------------------------------------------------

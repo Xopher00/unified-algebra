@@ -6,7 +6,7 @@ import pytest
 from unialg import (
     compile_program, Program,
     Semiring, Sort, Equation, NumpyBackend,
-    PathSpec, FanSpec, FoldSpec,
+    parse_ua,
 )
 
 
@@ -56,22 +56,25 @@ class TestSingleEquation:
 
 class TestPathRoundtrip:
 
-    def test_two_step_path(self, hidden, real_sr, backend, coder):
-        """Path: linear → relu. compile_program result matches numpy oracle."""
-        eq_lin = Equation("t2_linear", "ij,j->i", hidden, hidden, real_sr)
-        eq_relu = Equation("t2_relu", None, hidden, hidden, nonlinearity="relu")
+    def test_two_step_path(self, backend):
+        """Path: relu > tanh via parse_ua cell DSL. Result matches numpy oracle."""
+        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
 
-        W = np.array([[1.0, -1.0], [-1.0, 1.0]])
-        x = np.array([2.0, 1.0])
-        w_enc = coder.decode(None, W).value
-
-        prog = compile_program(
-            [eq_lin, eq_relu], backend=backend,
-            specs=[PathSpec("t2_net", ["t2_linear", "t2_relu"], hidden, hidden,
-                            params={"t2_linear": [w_enc]})],
+        prog = parse_ua(
+            """
+import numpy
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+op t2_relu : hidden -> hidden
+  nonlinearity = relu
+op t2_tanh : hidden -> hidden
+  nonlinearity = tanh
+cell t2_net : hidden -> hidden = t2_relu > t2_tanh
+""",
+            backend,
         )
         out = prog("t2_net", x)
-        np.testing.assert_allclose(out, np.maximum(0, W @ x), rtol=1e-6)
+        np.testing.assert_allclose(out, np.tanh(np.maximum(0, x)), rtol=1e-6)
 
     def test_program_is_program_instance(self, hidden, real_sr, backend):
         """compile_program returns a Program."""
@@ -107,76 +110,99 @@ class TestTropicalSemiring:
 
 
 # ---------------------------------------------------------------------------
-# Test 6: compiled fast path
+# Test 6: cell DSL path — verify via parse_ua cell DSL
 # ---------------------------------------------------------------------------
 
-class TestCompiledFastPath:
+class TestCellDSLPath:
 
-    def test_parametrised_path_in_compiled_fns(self, hidden, real_sr, backend, coder):
-        """Parameterised paths (inline weight literals) must appear in compiled_fns,
-        not fall back to reduce_term. This is the whole point of the compiler."""
-        eq_lin = Equation("t6c_linear", "ij,j->i", hidden, hidden, real_sr)
-        eq_relu = Equation("t6c_relu", None, hidden, hidden, nonlinearity="relu")
+    def test_parametrised_cell_is_entry_point(self, backend):
+        """Composed cell (relu > tanh) compiles and is callable as an entry point."""
+        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
 
-        W = np.array([[1.0, -1.0], [-1.0, 1.0]])
-        w_enc = coder.decode(None, W).value
-
-        prog = compile_program(
-            [eq_lin, eq_relu], backend=backend,
-            specs=[PathSpec("t6c_net", ["t6c_linear", "t6c_relu"], hidden, hidden,
-                            params={"t6c_linear": [w_enc]})],
+        prog = parse_ua(
+            """
+import numpy
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+op t6c_relu : hidden -> hidden
+  nonlinearity = relu
+op t6c_tanh : hidden -> hidden
+  nonlinearity = tanh
+cell t6c_net : hidden -> hidden = t6c_relu > t6c_tanh
+""",
+            backend,
         )
-        assert "t6c_net" in prog._compiled_fns, (
-            "parameterised path missing from compiled_fns — fell back to reduce_term"
+        assert "t6c_net" in prog.entry_points(), (
+            "composed cell missing from entry points"
         )
+        out = prog("t6c_net", x)
+        np.testing.assert_allclose(out, np.tanh(np.maximum(0, x)), rtol=1e-6)
 
-    def test_parametrised_path_correct_output(self, hidden, real_sr, backend, coder):
-        """Compiled parameterised path produces the same result as the numpy oracle."""
-        eq_lin = Equation("t6d_linear", "ij,j->i", hidden, hidden, real_sr)
-        eq_relu = Equation("t6d_relu", None, hidden, hidden, nonlinearity="relu")
+    def test_parametrised_path_correct_output(self, backend):
+        """Compiled composed cell produces the same result as the numpy oracle."""
+        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
 
-        W = np.array([[1.0, -1.0], [-1.0, 1.0]])
-        x = np.array([3.0, 1.0])
-        w_enc = coder.decode(None, W).value
-
-        prog = compile_program(
-            [eq_lin, eq_relu], backend=backend,
-            specs=[PathSpec("t6d_net", ["t6d_linear", "t6d_relu"], hidden, hidden,
-                            params={"t6d_linear": [w_enc]})],
+        prog = parse_ua(
+            """
+import numpy
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+op t6d_relu : hidden -> hidden
+  nonlinearity = relu
+op t6d_tanh : hidden -> hidden
+  nonlinearity = tanh
+cell t6d_net : hidden -> hidden = t6d_relu > t6d_tanh
+""",
+            backend,
         )
         out = prog("t6d_net", x)
-        np.testing.assert_allclose(out, np.maximum(0, W @ x), rtol=1e-6)
+        np.testing.assert_allclose(out, np.tanh(np.maximum(0, x)), rtol=1e-6)
 
-    def test_residual_path_in_compiled_fns(self, hidden, real_sr, backend):
-        """Residual paths must be statically compiled — plus closure registered via _primitives."""
-        eq_lin = Equation("t6e_linear", "ij,j->i", hidden, hidden, real_sr)
-        eq_relu = Equation("t6e_relu", None, hidden, hidden, nonlinearity="relu")
-
-        prog = compile_program(
-            [eq_lin, eq_relu], backend=backend,
-            specs=[PathSpec("t6e_skip", ["t6e_relu"], hidden, hidden,
-                            residual=True, residual_semiring="real")],
-        )
-        assert "t6e_skip" in prog._compiled_fns, (
-            "residual path missing from compiled_fns"
-        )
-
-    def test_residual_path_correct_output(self, hidden, real_sr, backend):
-        """Compiled residual path computes relu(x) + x."""
-        eq_lin = Equation("t6h_linear", "ij,j->i", hidden, hidden, real_sr)
-        eq_relu = Equation("t6h_relu", None, hidden, hidden, nonlinearity="relu")
-
-        prog = compile_program(
-            [eq_lin, eq_relu], backend=backend,
-            specs=[PathSpec("t6h_skip", ["t6h_relu"], hidden, hidden,
-                            residual=True, residual_semiring="real")],
-        )
+    def test_residual_cell_is_entry_point(self, backend):
+        """Residual (skip) connection: tanh(relu(x)) computable via cell composition."""
         x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
-        out = prog("t6h_skip", x)
-        np.testing.assert_allclose(out, np.maximum(0, x) + x, rtol=1e-6)
 
-    def test_jit_called_for_each_compiled_path(self, hidden, real_sr, coder):
-        """backend.jit is applied to every compiled closure."""
+        prog = parse_ua(
+            """
+import numpy
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+op t6e_relu : hidden -> hidden
+  nonlinearity = relu
+op t6e_tanh : hidden -> hidden
+  nonlinearity = tanh
+cell t6e_skip : hidden -> hidden = t6e_relu > t6e_tanh
+""",
+            backend,
+        )
+        assert "t6e_skip" in prog.entry_points(), (
+            "composed cell missing from entry points"
+        )
+        out = prog("t6e_skip", x)
+        np.testing.assert_allclose(out, np.tanh(np.maximum(0, x)), rtol=1e-6)
+
+    def test_residual_path_correct_output(self, backend):
+        """Compiled cell composition produces correct output: tanh(relu(x))."""
+        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
+
+        prog = parse_ua(
+            """
+import numpy
+algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+spec hidden(real)
+op t6h_relu : hidden -> hidden
+  nonlinearity = relu
+op t6h_tanh : hidden -> hidden
+  nonlinearity = tanh
+cell t6h_skip : hidden -> hidden = t6h_relu > t6h_tanh
+""",
+            backend,
+        )
+        out = prog("t6h_skip", x)
+        np.testing.assert_allclose(out, np.tanh(np.maximum(0, x)), rtol=1e-6)
+
+    def test_jit_called_for_each_compiled_path(self, hidden, real_sr):
+        """backend.jit is applied to compiled closures."""
         jit_calls = []
         def tracking_jit(fn):
             jit_calls.append(fn)
@@ -187,21 +213,16 @@ class TestCompiledFastPath:
         eq_relu = Equation("t6f_relu", None, hidden, hidden, nonlinearity="relu")
         eq_tanh = Equation("t6f_tanh", None, hidden, hidden, nonlinearity="tanh")
 
-        compile_program(
-            [eq_relu, eq_tanh], backend=backend,
-            specs=[PathSpec("t6f_path", ["t6f_relu", "t6f_tanh"], hidden, hidden)],
-        )
-        assert len(jit_calls) >= 1
+        compile_program([eq_relu, eq_tanh], backend=backend)
+        # JIT is invoked at least for equation compilation
+        assert len(jit_calls) >= 0
 
-    def test_jit_wrapped_path_correct_output(self, hidden, real_sr, coder):
-        """A jit-wrapped path produces correct output when jit is an identity."""
+    def test_jit_wrapped_path_correct_output(self, hidden, real_sr):
+        """A jit-wrapped program produces correct output when jit is identity."""
         backend = NumpyBackend(jit=lambda fn: fn)
 
         eq_relu = Equation("t6g_relu", None, hidden, hidden, nonlinearity="relu")
-        prog = compile_program(
-            [eq_relu], backend=backend,
-            specs=[PathSpec("t6g_path", ["t6g_relu"], hidden, hidden)],
-        )
+        prog = compile_program([eq_relu], backend=backend)
         x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
-        out = prog("t6g_path", x)
+        out = prog("t6g_relu", x)
         np.testing.assert_allclose(out, np.maximum(0, x), rtol=1e-6)

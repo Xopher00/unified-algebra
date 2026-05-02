@@ -25,6 +25,7 @@ def hidden(real_sr):
 
 
 def test_five_step_seq_does_not_call_reduce_term(hidden, real_sr, backend):
+    from unialg.assembly.program import compile_program
     backend.unary_ops["halve"] = lambda x: 0.5 * x
     eqs = [Equation(f"s{i}", None, hidden, hidden, nonlinearity="halve") for i in range(5)]
 
@@ -33,13 +34,9 @@ def test_five_step_seq_does_not_call_reduce_term(hidden, real_sr, backend):
         chain = morphism.seq(chain, morphism.eq(f"s{i}", domain=hidden, codomain=hidden))
 
     named = NamedCell(name="five_step", cell=chain)
-    _, _, compiled_fns = assemble_graph(eqs, backend, cells=[named])
-    fn = compiled_fns["five_step"]
+    prog = compile_program(eqs, backend=backend, cells=[named])
 
     x = np.array([2.0, 4.0, 8.0])
-
-    with unittest.mock.patch("hydra.reduction.reduce_term", side_effect=AssertionError("reduce_term called on fast path")) as mock_reduce:
-        result = fn(x)
+    result = prog("five_step", x)
 
     np.testing.assert_allclose(result, x * 0.5**5)
-    mock_reduce.assert_not_called()

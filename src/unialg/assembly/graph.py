@@ -3,112 +3,28 @@
 from __future__ import annotations
 
 import dataclasses
-from collections import deque
 from typing import TYPE_CHECKING
 
 import hydra.core as core
 import hydra.graph
-from hydra.context import Context
-from hydra.dsl.prims import prim1
-from hydra.dsl.python import FrozenDict, Left
-from hydra.lexical import empty_graph
+from hydra.dsl.python import FrozenDict, Nothing
+from hydra.lexical import elements_to_graph, graph_with_primitives
 from hydra.sources.libraries import standard_library
-from hydra.typing import TypeConstraint
-from hydra.unification import unify_type_constraints
 import hydra.substitution as subst
 import hydra.typing
 
 from unialg.algebra import Equation
 from unialg.terms import register_tensor_schema
-from ._equation_resolution import resolve_equation, resolve_equation_as_merge, resolve_semirings
-from ._morphism_compile import compile_morphism
-from .legacy.compositions import _EQ_PREFIX, _MERGE_SUFFIX
+from ._equation_resolution import resolve_equation, resolve_semirings
+from ._morphism_compile import register_cells
+from ._validation import validate_pipeline
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
 
 
-MORPHISM_PRIM_PREFIX = "ua.morphism."
-
-_EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
-
-
-def unify_or_raise(constraints, schema):
-    if constraints:
-        st = schema if isinstance(schema, FrozenDict) else FrozenDict(schema)
-        result = unify_type_constraints(_EMPTY_CX, st, tuple(constraints))
-        if isinstance(result, Left):
-            raise TypeError(result.value.message)
-
-
-def topo_edges(equations: list) -> list:
-    """Return (upstream, downstream, slot) triples in topological order."""
-    by_name = {eq.name: eq for eq in equations}
-    edges, in_degree, children = [], {eq.name: 0 for eq in equations}, {eq.name: [] for eq in equations}
-    for eq in equations:
-        for slot, inp in enumerate(eq.inputs):
-            if inp in by_name:
-                edges.append((by_name[inp], eq, slot))
-                children[inp].append(eq.name)
-                in_degree[eq.name] += 1
-    queue = deque(n for n, d in in_degree.items() if d == 0)
-    order = []
-    while queue:
-        node = queue.popleft()
-        order.append(node)
-        for child in children[node]:
-            in_degree[child] -= 1
-            if in_degree[child] == 0:
-                queue.append(child)
-    if len(order) != len(equations):
-        raise ValueError("Cycle detected in equation DAG")
-    return edges
-
-
-def _build_schema(equations: list) -> FrozenDict:
-    schema: dict = {}
-    for eq in equations:
-        eq.register_sorts(schema)
-    return FrozenDict(schema)
-
-
-def validate_pipeline(equations: list, schema_types=None) -> None:
-    """Check sort and rank junctions across all equations."""
-    if schema_types is None:
-        schema_types = _build_schema(equations)
-    cs = []
-    for u, d, slot in topo_edges(equations):
-        cs.append(TypeConstraint(
-            u.codomain_sort.type_,
-            d.domain_sort.type_,
-            f"'{u.name}' codomain != '{d.name}' domain",
-        ))
-        out_rank = u.output_rank
-        in_rank = d.input_rank(slot)
-        if out_rank is not None and in_rank is not None and out_rank != in_rank:
-            raise TypeError(
-                f"Rank mismatch: '{u.name}' output rank {out_rank} != "
-                f"'{d.name}' input rank {in_rank} at slot {slot}")
-        cod_axes = u.codomain_sort.axes
-        dom_axes = d.domain_sort.axes
-        if cod_axes and dom_axes:
-            cod_names = u.codomain_sort.axis_names
-            dom_names = d.domain_sort.axis_names
-            if tuple(cod_names) != tuple(dom_names):
-                raise TypeError(
-                    f"Axis mismatch: '{u.name}' codomain axes {cod_names} != "
-                    f"'{d.name}' domain axes {dom_names}")
-            for i, (cd, dd) in enumerate(zip(u.codomain_sort.axis_dims,
-                                              d.domain_sort.axis_dims)):
-                if cd is not None and dd is not None and cd != dd:
-                    raise TypeError(
-                        f"Dimension mismatch: '{u.name}' axis '{cod_names[i]}' "
-                        f"size {cd} != '{d.name}' size {dd}")
-    unify_or_raise(cs, schema_types)
-
-
-def _resolve_equations(eq_terms, backend, merge_names, semirings):
-    """Parse, dedupe, and resolve equations. Returns (eq_by_name, primitives, native_fns, resolved_semirings, coder, schema_types)."""
+def _resolve_equations(eq_terms, backend, semirings):
+    """Returns (eq_by_name, primitives, native_fns, coder, schema, list_packed_info)."""
     eq_by_name: dict[str, Equation] = {}
     for i, t in enumerate(eq_terms):
         eq = Equation.from_term(t)
@@ -116,66 +32,32 @@ def _resolve_equations(eq_terms, backend, merge_names, semirings):
             raise ValueError(f"Duplicate equation name '{eq.name}' (positions {list(eq_by_name).index(eq.name)} and {i})")
         eq_by_name[eq.name] = eq
 
-    primitives: dict = dict(standard_library())
+    primitives: dict = {}
     native_fns: dict = {
         core.Name("ua.equation.fst"):            lambda p: p[0],
         core.Name("ua.equation.snd"):            lambda p: p[1],
         core.Name("ua.equation.pair_construct"): lambda a, b: (a, b),
     }
+    list_packed_info: dict = {}
     coder = None
-    resolved_semirings = resolve_semirings(semirings, backend) if semirings else {}
+    resolved_sr = resolve_semirings(semirings, backend) if semirings else {}
 
     schema: dict = {}
     for eq in eq_by_name.values():
         eq.register_sorts(schema)
-        prim, native_fn, sr, eq_coder = resolve_equation(eq, backend)
+        prim, native_fn, sr, eq_coder, n_params, n_inputs, is_list_packed = resolve_equation(eq, backend)
         sr_name = eq.semiring_name
         if sr_name and sr is not None:
-            resolved_semirings.setdefault(sr_name, sr)
+            resolved_sr.setdefault(sr_name, sr)
         if coder is None:
             coder = eq_coder
         primitives[prim.name] = prim
         native_fns[prim.name] = native_fn
-        if eq.name in merge_names:
-            merge_key = core.Name(f"{_EQ_PREFIX}{eq.name}{_MERGE_SUFFIX}")
-            merge_prim, merge_fn, _, _ = resolve_equation_as_merge(eq, backend, prim_name_override=merge_key)
-            primitives[merge_prim.name] = merge_prim
-            native_fns[merge_prim.name] = merge_fn
+        if is_list_packed:
+            list_packed_info[prim.name] = (n_params, n_inputs)
 
-    return eq_by_name, primitives, native_fns, resolved_semirings, coder, schema
+    return eq_by_name, primitives, native_fns, coder, schema, list_packed_info
 
-
-def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, schema_types, coder, backend, **kwargs):
-    from unialg.assembly.legacy.compositions import Composition
-    compiled_fns = {}
-    for spec in specs:
-        spec.validate(eq_by_name, schema_types)
-        first_term = None
-        for entry in spec.build(primitives, native_fns, coder=coder, **kwargs):
-            if isinstance(entry, Composition):
-                prim, fn = entry.resolve(native_fns, coder, backend, bound_terms)
-                if prim is not None:
-                    primitives[prim.name] = prim
-                    compiled_fns[spec.name] = fn
-                else:
-                    name, term = entry.to_lambda()
-                    bound_terms[name] = term
-                    if fn is not None:
-                        compiled_fns[spec.name] = fn
-                    if first_term is None:
-                        first_term = term
-            else:
-                name, term = entry
-                bound_terms[name] = term
-        eq_key = core.Name(f"{_EQ_PREFIX}{spec.name}")
-        if spec.name in compiled_fns:
-            alias_prim = prim1(eq_key, compiled_fns[spec.name], [], coder, coder)
-            primitives[eq_key] = alias_prim
-            native_fns[eq_key] = compiled_fns[spec.name]
-        elif first_term is not None:
-            bound_terms[eq_key] = first_term
-        eq_by_name[spec.name] = spec
-    return compiled_fns
 
 
 def build_graph(sort_terms, primitives=None, bound_terms=None):
@@ -183,38 +65,34 @@ def build_graph(sort_terms, primitives=None, bound_terms=None):
     register_tensor_schema(schema)
     for st in sort_terms:
         st.register_schema(schema)
-    return dataclasses.replace(
-        empty_graph(),
-        bound_terms=FrozenDict(bound_terms or {}),
-        primitives=FrozenDict(primitives or {}),
-        schema_types=FrozenDict(schema),
+    schema_types = FrozenDict(schema)
+    parent = graph_with_primitives(
+        tuple(standard_library().values()),
+        tuple((primitives or {}).values()),
     )
+    bindings = tuple(
+        core.Binding(name, term, Nothing())
+        for name, term in (bound_terms or {}).items()
+    )
+    return elements_to_graph(parent, schema_types, bindings)
 
 
 def assemble_graph(
     eq_terms: list[core.Term],
     backend: Backend,
     extra_sorts: list[core.Term] | None = None,
-    specs: list | None = None,
     params: dict[str, core.Term] | None = None,
-    lenses: list[core.Term] | None = None,
     semirings: dict[str, core.Term] | None = None,
     cells: list | None = None,
 ) -> tuple[hydra.graph.Graph, dict, dict]:
-    """Resolve equations, assemble a Hydra Graph, and compile compositions.
+    """Resolve equations, assemble a Hydra Graph, and register morphism cells.
 
     ``cells`` is a list of ``NamedCell`` entries whose morphism terms are
-    compiled to Hydra primitives and registered alongside equation-derived
-    primitives. Lenses produce two primitives (forward + backward).
+    compiled to Hydra primitives or bound_terms. Lenses produce two primitives
+    (forward + backward).
     """
-    all_specs = list(specs or [])
-    merge_names = set()
-    for spec in all_specs:
-        if hasattr(spec, 'merge_names'):
-            merge_names.update(spec.merge_names)
-
-    eq_by_name, primitives, native_fns, resolved_semirings, coder, schema = \
-        _resolve_equations(eq_terms, backend, merge_names, semirings)
+    eq_by_name, primitives, native_fns, coder, schema, list_packed_info = \
+        _resolve_equations(eq_terms, backend, semirings)
 
     for st in (extra_sorts or []):
         if st is not None:
@@ -227,10 +105,6 @@ def assemble_graph(
         for param_name, param_term in params.items():
             bound_terms[core.Name(f"ua.param.{param_name}")] = param_term
 
-    compiled_fns = _build_compositions(
-        all_specs, eq_by_name, primitives, native_fns, bound_terms, schema_types,
-        coder=coder, backend=backend, resolved_semirings=resolved_semirings)
-
     seen_sorts: dict[str, core.Term] = {}
     for eq in eq_by_name.values():
         for attr in ("domain_sort", "codomain_sort", "state_sort"):
@@ -240,60 +114,13 @@ def assemble_graph(
     sort_list = list(seen_sorts.values()) + list(extra_sorts or [])
 
     if cells:
-        # Build a preliminary graph so that graph-aware Hydra extractors
-        # (``hydra.extract.core.record``, ``lambda_``, etc.) are available
-        # during morphism compilation. ``_register_cells`` mutates
-        # ``primitives`` and ``bound_terms`` further; the final ``build_graph``
-        # call below captures the post-registration dict state into FrozenDicts.
         preliminary = build_graph(sort_list, primitives=primitives, bound_terms=bound_terms)
-        _register_cells(cells, preliminary,
-                        primitives, native_fns, compiled_fns, coder, backend)
-
-    for eq_name in eq_by_name:
-        fn = native_fns.get(core.Name(f"{_EQ_PREFIX}{eq_name}"))
-        if fn is not None:
-            compiled_fns[eq_name] = fn
+        register_cells(cells, preliminary, bound_terms, primitives, native_fns, coder, backend)
 
     # Final graph captures the post-registration dict state into FrozenDicts.
     graph = build_graph(sort_list, primitives=primitives, bound_terms=bound_terms)
-    return graph, native_fns, compiled_fns
+    return graph, native_fns, list_packed_info
 
-
-def _register_cells(named_cells, graph,
-                    primitives, native_fns, compiled_fns, coder, backend):
-    """Compile each morphism and register its primitive(s) into the graph dicts.
-
-    Lenses produce two primitives (forward + backward). All other morphisms
-    produce one. The ``ua.equation.{name}`` alias points to the forward
-    callable for lenses, the sole callable otherwise.
-    """
-    for named in named_cells:
-        fn = compile_morphism(
-            named.cell, graph, native_fns, coder, backend,
-            matchers=named.matchers,
-        )
-        if fn is None:
-            raise ValueError(f"compile_morphism returned None for {named.name!r}")
-
-        if hasattr(fn, "forward") and hasattr(fn, "backward"):
-            fwd_name = core.Name(f"{MORPHISM_PRIM_PREFIX}{named.name}.forward")
-            bwd_name = core.Name(f"{MORPHISM_PRIM_PREFIX}{named.name}.backward")
-            primitives[fwd_name] = prim1(fwd_name, fn.forward, [], coder, coder)
-            primitives[bwd_name] = prim1(bwd_name, fn.backward, [], coder, coder)
-            native_fns[fwd_name] = fn.forward
-            native_fns[bwd_name] = fn.backward
-            compiled_fns[named.name] = fn
-            eq_alias = core.Name(f"ua.equation.{named.name}")
-            primitives.setdefault(eq_alias, prim1(eq_alias, fn.forward, [], coder, coder))
-            native_fns.setdefault(eq_alias, fn.forward)
-        else:
-            prim_name = core.Name(f"{MORPHISM_PRIM_PREFIX}{named.name}")
-            primitives[prim_name] = prim1(prim_name, fn, [], coder, coder)
-            native_fns[prim_name] = fn
-            compiled_fns[named.name] = fn
-            eq_alias = core.Name(f"ua.equation.{named.name}")
-            primitives.setdefault(eq_alias, prim1(eq_alias, fn, [], coder, coder))
-            native_fns.setdefault(eq_alias, fn)
 
 
 def rebind_params(graph, updates):

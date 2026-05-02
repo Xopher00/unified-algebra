@@ -11,7 +11,6 @@ class NamedCell:
     """A named morphism expression destined for graph registration."""
     name: str
     cell: object
-    matchers: dict | None = None
 
 
 @dataclass

@@ -14,7 +14,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import hydra.core as core
+from hydra.core import Name
 
 from unialg.terms import _RecordView
 
@@ -40,7 +40,7 @@ class Semiring(_RecordView):
         fuzzy    = Semiring("fuzzy",    "maximum", "minimum",  0.0,          1.0)
     """
 
-    _type_name = core.Name("ua.semiring.Semiring")
+    _type_name = Name("ua.semiring.Semiring")
 
     name     = _RecordView.Scalar(str)
     plus     = _RecordView.Scalar(str)

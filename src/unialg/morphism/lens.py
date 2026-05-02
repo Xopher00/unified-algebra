@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from ._typed_morphism import TypedMorphism, Terms, Name
+import hydra.dsl.terms as Terms
+
+from ._typed_morphism import TypedMorphism, Name
 
 _LENS_TYPE = Name("ua.morphism.Lens")
 

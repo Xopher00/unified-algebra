@@ -11,7 +11,7 @@ Resolution (compilation to primitives) lives in unialg.assembly._equation_resolu
 
 from __future__ import annotations
 
-import hydra.core as core
+from hydra.core import Name
 
 from unialg.terms import _RecordView
 from .sort import sort_wrap, ProductSort
@@ -60,7 +60,7 @@ class Equation(_RecordView):
         eq = Equation.from_term(term)
     """
 
-    _type_name = core.Name("ua.equation.Equation")
+    _type_name = Name("ua.equation.Equation")
 
     name          = _RecordView.Scalar(str)
     einsum        = _RecordView.Scalar(str, default="")
@@ -79,8 +79,8 @@ class Equation(_RecordView):
         return sr.name if sr is not None else None
 
     @property
-    def prim_name(self) -> core.Name:
-        return core.Name(f"ua.equation.{self.name}")
+    def prim_name(self) -> Name:
+        return Name(f"ua.equation.{self.name}")
 
     @property
     def output_rank(self) -> int | None:

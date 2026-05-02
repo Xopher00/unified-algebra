@@ -10,8 +10,9 @@ from unialg.terms import tensor_coder
 from unialg.morphism._typed_morphism import TypedMorphism as T
 from unialg.assembly._morphism_compile import compile_morphism, CompiledLens
 from unialg.assembly.graph import (
-    NamedCell, MORPHISM_PRIM_PREFIX, _register_cells, build_graph,
+    MORPHISM_PRIM_PREFIX, _register_cells, build_graph,
 )
+from unialg.parser import NamedCell
 from unialg.assembly._equation_resolution import resolve_equation
 import unialg.morphism as morphism
 

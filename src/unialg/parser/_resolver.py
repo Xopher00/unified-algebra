@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from typing import Any
 
-import unialg.algebra as alg
+import hydra.core as core
+
+from unialg.algebra import Sort, ProductSort, Semiring, Equation, register_defines
+from ._types import NamedCell, UASpec
+from unialg.morphism import algebra_hom, summand_domain, lens
+from unialg.morphism import TypedMorphism as T
+from unialg.morphism import eq, lit, iden, copy, delete, seq, par
+
 from . import UASpec
 
 
@@ -48,7 +55,6 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         if isinstance(ref, str):
             return _get_sort(ref)
         if isinstance(ref, tuple) and ref[0] == '_product':
-            from unialg.algebra.sort import ProductSort
             return ProductSort([_get_sort(n) for n in ref[1]])
         raise ValueError(f"Invalid sort reference: {ref}")
 
@@ -64,7 +70,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
 
     def _handle_algebra(decl):
         _, name, kw_args = decl
-        sr_term = alg.Semiring(name, plus=kw_args['plus'], times=kw_args['times'],
+        sr_term = Semiring(name, plus=kw_args['plus'], times=kw_args['times'],
                                zero=kw_args['zero'], one=kw_args['one'],
                                contraction=kw_args.get('strategy') or kw_args.get('contraction', ''),
                                residual=kw_args.get('residual', ''),
@@ -74,7 +80,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     def _handle_spec(decl):
         _, name, sr_name, batched, axes = decl
         sr_term = _get_sr(sr_name)
-        sort_term = alg.Sort(name, sr_term, batched=batched, axes=axes)
+        sort_term = Sort(name, sr_term, batched=batched, axes=axes)
         sorts[name] = sort_term
 
     def _handle_op(decl):
@@ -89,7 +95,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         inputs_val = attr_dict.get('inputs', [])
         if isinstance(inputs_val, str):
             inputs_val = [inputs_val]
-        eq_term = alg.Equation(name, einsum, dom_sort, cod_sort,
+        eq_term = Equation(name, einsum, dom_sort, cod_sort,
                                sr_term, nonlinearity=nl,
                                inputs=tuple(inputs_val),
                                adjoint=is_adjoint)
@@ -132,9 +138,6 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         functors_by_name[name] = f
 
     def _handle_cell(decl):
-        import unialg.morphism as morphism
-        from unialg.assembly.graph import NamedCell
-        import hydra.core as core
 
         def _literal(node):
             return core.TermLiteral(value=core.LiteralFloat(value=float(node[1])))
@@ -157,7 +160,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                 )
             adjoint_name = f"{base_name}__adjoint"
             if adjoint_name not in equations_by_name:
-                eq = alg.Equation(
+                eq = Equation(
                     adjoint_name,
                     base.einsum,
                     base.domain_sort,
@@ -195,30 +198,30 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
         def _build_typed(node):
             tag = node[0]
             if tag == 'cell_eq':
-                resolved_name, eq = _resolve_modified_eq(node[1])
-                return morphism.eq(
+                resolved_name, equation = _resolve_modified_eq(node[1])
+                return eq(
                     resolved_name,
-                    domain=eq.domain_sort,
-                    codomain=eq.codomain_sort,
+                    domain=equation.domain_sort,
+                    codomain=equation.codomain_sort,
                 )
             if tag == 'cell_lit':
-                return morphism.lit(_literal(node), cell_codomain)
+                return lit(_literal(node), cell_codomain)
             if tag == 'cell_copy':
-                return morphism.copy(_get_sort(node[1]))
+                return copy(_get_sort(node[1]))
             if tag == 'cell_delete':
-                return morphism.delete(_get_sort(node[1]))
+                return delete(_get_sort(node[1]))
             if tag == 'cell_iden':
-                return morphism.iden(_get_sort(node[1]))
+                return iden(_get_sort(node[1]))
             if tag == 'cell_seq':
-                return morphism.seq(_build_typed(node[1]), _build_typed(node[2]))
+                return seq(_build_typed(node[1]), _build_typed(node[2]))
             if tag == 'cell_par':
-                return morphism.par(_build_typed(node[1]), _build_typed(node[2]))
+                return par(_build_typed(node[1]), _build_typed(node[2]))
             if tag in {'cell_lens', 'cell_cata', 'cell_ana'}:
                 if tag == 'cell_lens':
                     _, fwd_node, bwd_node, residual_name = node
                     if residual_name is not None:
                         _get_sort(residual_name)
-                    return morphism.lens(_build_typed(fwd_node), _build_typed(bwd_node))
+                    return lens(_build_typed(fwd_node), _build_typed(bwd_node))
                 _, f_name, arg_nodes = node
                 if f_name not in functors_by_name:
                     label = "cata" if tag == "cell_cata" else "ana"
@@ -228,8 +231,6 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                 functor = functors_by_name[f_name]
                 direction = "algebra" if tag == "cell_cata" else "coalgebra"
                 if direction == "algebra":
-                    from unialg.morphism._algebra_hom import summand_domain
-                    from unialg.morphism._typed_morphism import TypedMorphism as T
                     summands = functor.summands()
                     morphisms = []
                     for arg_node, summand in zip(arg_nodes, summands):
@@ -238,7 +239,7 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                         morphisms.append(T(m.term, dom, cell_codomain))
                 else:
                     morphisms = [_build_typed(a) for a in arg_nodes]
-                return morphism.algebra_hom(functor, direction, morphisms)
+                return algebra_hom(functor, direction, morphisms)
             raise ValueError(f"cell: unknown AST tag {tag!r}")
 
         cell_obj = _build_typed(expr_node)

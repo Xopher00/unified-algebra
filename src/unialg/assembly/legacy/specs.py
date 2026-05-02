@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, fields
 import hydra.core as core
 from hydra.typing import TypeConstraint
 
-from .._validation import unify_or_raise
+from ._validation import unify_or_raise
 from hydra.dsl.meta.phantoms import list_, var
 
 from .compositions import (

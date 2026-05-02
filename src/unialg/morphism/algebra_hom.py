@@ -12,8 +12,12 @@ Builds the induced (co)algebra morphism over a polynomial functor:
 """
 from __future__ import annotations
 
+from hydra.core import TermLambda
+
+import hydra.dsl.terms as Terms
+
 from .functor import Functor, PolyExpr
-from ._typed_morphism import TypedMorphism, Terms, Name, core
+from ._typed_morphism import TypedMorphism, Name
 
 T = TypedMorphism
 
@@ -179,7 +183,7 @@ def _curry_pair(term) -> object:
 def _lit_value(morphism: TypedMorphism, context: str) -> object:
     """Extract the value term from a ``lit`` morphism (shape ``λ_. value``)."""
     term = morphism.term
-    if not (isinstance(term, core.TermLambda)
+    if not (isinstance(term, TermLambda)
             and term.value.parameter.value == "_"):
         raise ValueError(
             f"algebra_hom ({context}): One-summand morphism must be a lit "

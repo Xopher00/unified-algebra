@@ -1,7 +1,14 @@
 # Core API
 from unialg.backend import Backend, NumpyBackend, PytorchBackend, JaxBackend, CupyBackend
 from unialg.algebra import Semiring, Equation, Lens, Sort, ProductSort
-from unialg.assembly.legacy.specs import PathSpec, FanSpec, FoldSpec, UnfoldSpec, FixpointSpec, ParallelSpec
+from unialg.assembly import (
+    FanSpec,
+    FixpointSpec,
+    FoldSpec,
+    ParallelSpec,
+    PathSpec,
+    UnfoldSpec,
+)
 from unialg.runtime import Program, compile_program
 from unialg.parser import parse_ua, parse_ua_spec, UASpec
 

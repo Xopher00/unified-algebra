@@ -2,27 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from unialg.runtime import compile_program
+from ._types import NamedCell as NamedCell, UASpec as UASpec
 
 if TYPE_CHECKING:
     from unialg.runtime import Program
 
 
-@dataclass
-class UASpec:
-    """Parsed .ua program before compilation."""
-    semirings: dict[str, Any] = field(default_factory=dict)
-    sorts: dict[str, Any] = field(default_factory=dict)
-    equations: list[Any] = field(default_factory=list)
-    defines: list[Any] = field(default_factory=list)
-    backend_name: str | None = None
-    share_groups: dict[str, list[str]] = field(default_factory=dict)
-    cells: list[Any] = field(default_factory=list)
-
-
 def _source_location(text: str, remainder: str) -> tuple[int, int, str]:
-    """Derive (line, col, source_line) from the unconsumed remainder."""
     offset = len(text) - len(remainder)
     consumed = text[:offset]
     lines = consumed.split('\n')
@@ -38,8 +27,8 @@ def parse_ua_spec(text: str) -> UASpec:
     import hydra.parsers as P
     import hydra.parsing as HP
 
-    from unialg.parser._grammar import _build_parser
-    from unialg.parser._resolver import _resolve_spec
+    from ._grammar import _build_parser
+    from ._resolver import _resolve_spec
 
     program_parser = _build_parser()
     result = P.run_parser(program_parser, text)
@@ -88,8 +77,6 @@ def parse_ua(text: str, backend=None) -> "Program":
     If backend is None, uses the backend specified by ``import <name>``
     in the .ua source. A backend kwarg overrides the .ua import.
     """
-    from unialg.runtime import compile_program
-
     spec = parse_ua_spec(text)
 
     if backend is None:
@@ -99,7 +86,7 @@ def parse_ua(text: str, backend=None) -> "Program":
         backend = _resolve_backend(spec.backend_name)
 
     if spec.defines:
-        from unialg.algebra.expr import register_defines
+        from unialg.algebra import register_defines
         register_defines(spec.defines, backend)
 
     return compile_program(

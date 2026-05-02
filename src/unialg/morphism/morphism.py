@@ -5,7 +5,9 @@ directly expresses a categorical morphism as a Hydra term.
 """
 from __future__ import annotations
 
-from ._typed_morphism import TypedMorphism, Name, Terms, SortLike
+import hydra.dsl.terms as Terms
+
+from ._typed_morphism import TypedMorphism, Name, SortLike
 from .algebra_hom import algebra_hom
 from .lens import lens
 

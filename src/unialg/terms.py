@@ -7,7 +7,7 @@ import hydra.graph
 from hydra.dsl.meta.phantoms import (
     binary as phantom_binary, boolean, float64, int32, list_, record, string, TTerm, unit,
 )
-from hydra.dsl.python import Right
+from hydra.dsl.python import Nothing, Right
 from hydra.extract.core import binary as extract_binary
 from hydra.literals import float_value_to_bigfloat, integer_value_to_bigint
 
@@ -16,10 +16,17 @@ _ENCODERS = {str: string, bool: boolean, float: float64, int: int32}
 
 
 
+_TENSOR_NAME = core.Name("ua.tensor.NDArray")
+
+
+def register_tensor_schema(schema: dict) -> None:
+    schema[_TENSOR_NAME] = core.TypeScheme((), core.TypeVariable(_TENSOR_NAME), Nothing())
+
+
 def tensor_coder(backend, type_=None) -> hydra.graph.TermCoder:
     """Create a TermCoder that bridges arrays and Hydra Terms."""
     if type_ is None:
-        type_ = core.TypeVariable(core.Name("ua.tensor.NDArray"))
+        type_ = core.TypeVariable(_TENSOR_NAME)
 
     def encode(cx, graph, term):
         match extract_binary(graph, term):

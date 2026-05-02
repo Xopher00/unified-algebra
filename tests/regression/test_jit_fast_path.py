@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from unialg import NumpyBackend, Semiring, Sort, Equation
-from unialg.assembly.graph import assemble_graph, NamedCell
+from unialg.assembly.graph import assemble_graph
+from unialg.parser import NamedCell
 import unialg.morphism as morphism
 
 

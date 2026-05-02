@@ -4,23 +4,24 @@ from __future__ import annotations
 
 import dataclasses
 from collections import deque
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import hydra.core as core
 import hydra.graph
+from hydra.context import Context
 from hydra.dsl.prims import prim1
-from hydra.dsl.python import FrozenDict, Nothing
+from hydra.dsl.python import FrozenDict, Left
 from hydra.lexical import empty_graph
 from hydra.sources.libraries import standard_library
 from hydra.typing import TypeConstraint
+from hydra.unification import unify_type_constraints
 import hydra.substitution as subst
 import hydra.typing
 
 from unialg.algebra import Equation
+from unialg.terms import register_tensor_schema
 from ._equation_resolution import resolve_equation, resolve_equation_as_merge, resolve_semirings
-from ._morphism_compile import compile_morphism, Matcher
-from ._validation import unify_or_raise
+from ._morphism_compile import compile_morphism
 from .legacy.compositions import _EQ_PREFIX, _MERGE_SUFFIX
 
 if TYPE_CHECKING:
@@ -28,10 +29,6 @@ if TYPE_CHECKING:
 
 
 MORPHISM_PRIM_PREFIX = "ua.morphism."
-
-from hydra.context import Context
-from hydra.dsl.python import FrozenDict, Left
-from hydra.unification import unify_type_constraints
 
 _EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))
 
@@ -42,15 +39,6 @@ def unify_or_raise(constraints, schema):
         result = unify_type_constraints(_EMPTY_CX, st, tuple(constraints))
         if isinstance(result, Left):
             raise TypeError(result.value.message)
-
-
-
-@dataclass(frozen=True)
-class NamedCell:
-    """A named morphism expression destined for graph registration."""
-    name: str
-    cell: object
-    matchers: dict[str, Matcher] | None = None
 
 
 def topo_edges(equations: list) -> list:
@@ -191,8 +179,8 @@ def _build_compositions(specs, eq_by_name, primitives, native_fns, bound_terms, 
 
 
 def build_graph(sort_terms, primitives=None, bound_terms=None):
-    tensor_name = core.Name("ua.tensor.NDArray")
-    schema = {tensor_name: core.TypeScheme((), core.TypeVariable(tensor_name), Nothing())}
+    schema = {}
+    register_tensor_schema(schema)
     for st in sort_terms:
         st.register_schema(schema)
     return dataclasses.replace(
@@ -307,3 +295,10 @@ def _register_cells(named_cells, graph,
             primitives.setdefault(eq_alias, prim1(eq_alias, fn, [], coder, coder))
             native_fns.setdefault(eq_alias, fn)
 
+
+def rebind_params(graph, updates):
+    param_updates = {core.Name(f"ua.param.{k}"): v for k, v in updates.items()}
+    ts = hydra.typing.TermSubst(FrozenDict(param_updates))
+    new_terms = {name: subst.substitute_in_term(ts, term) for name, term in graph.bound_terms.items()}
+    new_terms.update(param_updates)
+    return dataclasses.replace(graph, bound_terms=FrozenDict(new_terms))

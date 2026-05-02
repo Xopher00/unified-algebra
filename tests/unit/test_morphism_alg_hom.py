@@ -7,7 +7,7 @@ import hydra.dsl.terms as Terms
 from unialg import Semiring, Sort
 from unialg.morphism._typed_morphism import TypedMorphism as T
 from unialg.morphism.functor import Functor, sum_, prod, one, id_, const
-from unialg.morphism._algebra_hom import summand_domain
+from unialg.morphism.algebra_hom import summand_domain
 import unialg.morphism as morphism
 
 

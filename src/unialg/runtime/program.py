@@ -25,8 +25,7 @@ from hydra.dsl.terms import apply, var
 from hydra.lexical import lookup_primitive, lookup_term
 from hydra.reduction import reduce_term
 
-import unialg.algebra as alg
-from unialg.assembly.graph import assemble_graph, rebind_params
+from unialg.assembly import assemble_graph, rebind_params
 from unialg.terms import tensor_coder
 
 EMPTY_CX = Context(trace=(), messages=(), other=FrozenDict({}))

@@ -31,3 +31,57 @@ dev = [
     "grimp>=3.14",
     "import-linter>=2.11",
 ]
+
+[tool.importlinter]
+root_packages = ["unialg"]
+
+[[tool.importlinter.contracts]]
+name = "Layer ordering"
+type = "layers"
+layers = [
+    "unialg.parser",
+    "unialg.assembly",
+    "unialg.morphism",
+    "unialg.algebra",
+]
+
+[[tool.importlinter.contracts]]
+name = "algebra must not import backend"
+type = "forbidden"
+source_modules = ["unialg.algebra"]
+forbidden_modules = ["unialg.backend"]
+ignore_imports = [
+    "unialg.algebra.contraction -> unialg.backend",
+    "unialg.algebra.semiring -> unialg.backend",
+]
+
+[[tool.importlinter.contracts]]
+name = "backend isolation"
+type = "forbidden"
+source_modules = ["unialg.backend"]
+forbidden_modules = [
+    "unialg.algebra",
+    "unialg.morphism",
+    "unialg.assembly",
+    "unialg.parser",
+]
+
+[[tool.importlinter.contracts]]
+name = "terms isolation"
+type = "forbidden"
+source_modules = ["unialg.terms"]
+forbidden_modules = [
+    "unialg.algebra",
+    "unialg.morphism",
+    "unialg.assembly",
+    "unialg.parser",
+]
+
+[[tool.importlinter.contracts]]
+name = "morphism must not import assembly or parser"
+type = "forbidden"
+source_modules = ["unialg.morphism"]
+forbidden_modules = [
+    "unialg.assembly",
+    "unialg.parser",
+]

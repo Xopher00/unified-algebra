@@ -443,6 +443,33 @@ cell bias : hidden -> hidden = -1.0
 # Fan declaration — parse and check spec type
 # ---------------------------------------------------------------------------
 
+def _def_call_fn(expr):
+    """Return the function name from a DefineExpr with kind='call'."""
+    from unialg.terms import _literal_value
+    fields = expr._payload_record_fields()
+    return _literal_value(fields['fn'])
+
+
+def _def_call_args(expr):
+    """Return the arg DefineExprs from a DefineExpr with kind='call'."""
+    from unialg._define_ast import DefineExpr
+    from unialg.terms import _literal_value
+    fields = expr._payload_record_fields()
+    return [DefineExpr(t) for t in fields['args'].value]
+
+
+def _def_var_name(expr):
+    """Return the variable name from a DefineExpr with kind='var'."""
+    from unialg.terms import _literal_value
+    return _literal_value(expr._payload)
+
+
+def _def_lit_value(expr):
+    """Return the literal value from a DefineExpr with kind='lit'."""
+    from unialg.terms import _literal_value
+    return _literal_value(expr._payload)
+
+
 class TestDefineDeclaration:
 
     def test_define_unary_parses(self):
@@ -457,8 +484,8 @@ spec hidden(real)
         assert arity == 'unary'
         assert name == 'clamp'
         assert params == ['x']
-        assert body[0] == 'call'
-        assert body[1] == 'minimum'
+        assert body.kind == 'call'
+        assert _def_call_fn(body) == 'minimum'
 
     def test_define_binary_parses(self):
         text = """
@@ -472,8 +499,21 @@ spec hidden(real)
         assert arity == 'binary'
         assert name == 'smooth_max'
         assert params == ['a', 'b']
-        # Body should be: call('log', [call('add', [call('exp', [var('a')]), call('exp', [var('b')])])])
-        assert body == ('call', 'log', [('call', 'add', [('call', 'exp', [('var', 'a')]), ('call', 'exp', [('var', 'b')])])])
+        # Body: call(log, [call(add, [call(exp, [var(a)]), call(exp, [var(b)])])])
+        assert body.kind == 'call'
+        assert _def_call_fn(body) == 'log'
+        outer_args = _def_call_args(body)
+        assert len(outer_args) == 1
+        add_node = outer_args[0]
+        assert add_node.kind == 'call'
+        assert _def_call_fn(add_node) == 'add'
+        add_args = _def_call_args(add_node)
+        assert len(add_args) == 2
+        assert all(a.kind == 'call' and _def_call_fn(a) == 'exp' for a in add_args)
+        exp_a_arg = _def_call_args(add_args[0])[0]
+        assert exp_a_arg.kind == 'var' and _def_var_name(exp_a_arg) == 'a'
+        exp_b_arg = _def_call_args(add_args[1])[0]
+        assert exp_b_arg.kind == 'var' and _def_var_name(exp_b_arg) == 'b'
 
     def test_define_infix_precedence(self):
         text = """
@@ -484,7 +524,15 @@ spec hidden(real)
         spec = parse_ua_spec(text)
         _, _, _, body = spec.defines[0]
         # * binds tighter than +: add(var(a), multiply(var(b), lit(2.0)))
-        assert body == ('call', 'add', [('var', 'a'), ('call', 'multiply', [('var', 'b'), ('lit', 2.0)])])
+        assert body.kind == 'call'
+        assert _def_call_fn(body) == 'add'
+        args = _def_call_args(body)
+        assert args[0].kind == 'var' and _def_var_name(args[0]) == 'a'
+        mul = args[1]
+        assert mul.kind == 'call' and _def_call_fn(mul) == 'multiply'
+        mul_args = _def_call_args(mul)
+        assert mul_args[0].kind == 'var' and _def_var_name(mul_args[0]) == 'b'
+        assert mul_args[1].kind == 'lit' and _def_lit_value(mul_args[1]) == 2.0
 
     def test_define_unary_minus(self):
         text = """
@@ -494,8 +542,8 @@ spec hidden(real)
 """
         spec = parse_ua_spec(text)
         _, _, _, body = spec.defines[0]
-        assert body[0] == 'call'
-        assert body[1] == 'neg'
+        assert body.kind == 'call'
+        assert _def_call_fn(body) == 'neg'
 
     def test_define_negative_literal_uses_unary_minus(self):
         text = """
@@ -505,10 +553,14 @@ spec hidden(real)
 """
         spec = parse_ua_spec(text)
         _, _, _, body = spec.defines[0]
-        assert body == ('call', 'add', [
-            ('var', 'x'),
-            ('call', 'neg', [('lit', 1.0)]),
-        ])
+        assert body.kind == 'call'
+        assert _def_call_fn(body) == 'add'
+        args = _def_call_args(body)
+        assert args[0].kind == 'var' and _def_var_name(args[0]) == 'x'
+        neg = args[1]
+        assert neg.kind == 'call' and _def_call_fn(neg) == 'neg'
+        neg_args = _def_call_args(neg)
+        assert neg_args[0].kind == 'lit' and _def_lit_value(neg_args[0]) == 1.0
 
     def test_multiple_defines(self):
         text = """

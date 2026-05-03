@@ -6,7 +6,7 @@ arithmetic, tropical/max-plus, fuzzy, probabilistic, etc.). The DSL
 compiles to [Hydra](https://github.com/CategoricalData/hydra) terms/types
 directly — there is no separate AST or translation layer.
 
-**Docs:** [Architecture](ARCHITECTURE.md) · [DSL syntax reference](SYNTAX.md) · [Examples](examples/) · [Changelog](CHANGELOG.md)
+**Docs:** [Architecture](ARCHITECTURE.md) · [DSL syntax reference](SYNTAX.md) · [Module references](docs/) · [Examples](examples/) · [Changelog](CHANGELOG.md)
 
 ## Design
 
@@ -99,9 +99,10 @@ src/unialg/
     parser/          .ua grammar + name resolution
     backend.py       Backend ABC + concrete backends (numpy, pytorch, jax, cupy)
     terms.py         Hydra record-view helpers, tensor encoding
+    _define_ast.py   DefineExpr IR for define-declaration bodies (used by parser and assembly)
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the data flow and core abstractions.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the data flow and core abstractions. Per-module developer references are in [`docs/`](docs/) (`algebra-reference.md`, `assembly-reference.md`, `morphism-reference.md`, `parser-reference.md`).
 
 ## Research basis
 

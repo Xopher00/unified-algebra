@@ -34,6 +34,12 @@ def lens(forward, backward, residual_sort=None) -> TypedMorphism:
     - The residual ``R`` must be the same in both products.
 
     The resulting lens has type ``S → T`` (forward.domain → backward.codomain).
+
+    Assembly contract (enforced in ``assembly._morphism_compile._try_lens``):
+    At runtime the forward callable must return a Python 2-tuple ``(residual, focus)``
+    and the backward callable must accept a 2-tuple ``(residual, focus_prime)`` and
+    return the updated input.  These conventions are the glue that lets
+    ``lens_seq`` pair residuals across multiple lenses in sequence.
     """
     forward = T.require(forward, "lens.forward")
     backward = T.require(backward, "lens.backward")
@@ -60,6 +66,13 @@ def lens_seq(l1: TypedMorphism, l2: TypedMorphism) -> TypedMorphism:
 
     The ``residual_sort`` of the result is ``ProductSort([l1.residual, l2.residual])``
     when both lenses carry a residual sort, else ``None``.
+
+    Assembly contract (enforced in ``assembly._morphism_compile._try_lens_seq``):
+    The forward pass pairs residuals left-to-right as ``(r1, r2)`` and returns
+    them alongside the final focus ``b``.  The backward pass must consume the
+    paired residuals in reverse order: l2.bwd receives ``(r2, b')`` first,
+    then l1.bwd receives ``(r1, a')``.  The outer residual sort of the compiled
+    lens is ``ProductSort([l1.residual_sort, l2.residual_sort])``.
     """
     l1 = T.require(l1, "lens_seq.l1")
     l2 = T.require(l2, "lens_seq.l2")

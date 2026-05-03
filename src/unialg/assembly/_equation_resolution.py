@@ -93,12 +93,7 @@ def compile_equation(eq: "Equation", backend: "Backend") -> EquationCompiled:
         compiled = compile_einsum(einsum_str)
         n_inputs = len(compiled.input_vars)
         if eq.adjoint:
-            if sr.residual_elementwise is None:
-                raise ValueError(
-                    f"Op '{eq.name}': adjoint=true requires a residual= op on the semiring")
-            from dataclasses import replace as _replace
-            _res, _red = sr.residual_elementwise, sr.times_reduce
-            sr = _replace(sr, contraction_fn=lambda cs, be, p: cs(_res, _red))
+            sr = sr.with_adjoint(eq.name)
         skip_fn = sr.plus_elementwise if eq.skip else None
     else:
         sr = compiled = None
@@ -185,7 +180,7 @@ def resolve_equation_as_merge(eq: "Equation", backend: "Backend", prim_name_over
         def compute_fn(tensors):
             result = tensors[0]
             for t in tensors[1:]:
-                result = result + t
+                result = ctx.sr.plus_elementwise(result, t)
             return ctx.nl_fn(result)
         compute_fn.n_inputs = 1
     else:

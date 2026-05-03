@@ -90,11 +90,11 @@ src/unialg/
         sort.py              Sort, ProductSort, UnitSort
         equation.py          Equation (typed tensor morphism) — pure declaration
         contraction.py       CompiledEinsum, semiring contraction engine
-        expr.py              Expression compiler for inline define ops
 
     assembly/
         graph.py                  build_graph, assemble_graph, rebind_params
         program.py                compile_program, Program callable wrapper
+        _define_lowering.py       define op expressions → backend-registered callables
         _equation_resolution.py   Equation → Hydra primitives + validation
         _morphism_compile.py      Cell → Hydra primitives/bound_terms, CompiledLens
         _validation.py            Pipeline sort/rank/axis validation
@@ -107,11 +107,12 @@ src/unialg/
         lens.py              Lens, lens_seq construction
 
     parser/
-        _grammar.py          Pratt parser for .ua surface syntax
+        _grammar.py          Hydra-combinator tokeniser + top-level declaration parser
+        _pratt.py            Shared Pratt parser helper (precedence loop, cursor ops)
         _resolver.py         Name resolution orchestration → UASpec
         _resolve_cells.py    Cell expression → TypedMorphism
         _cell_ast.py         CellExpr frozen dataclasses
-        _types.py            NamedCell, UASpec dataclasses
+        _decl_ast.py         Typed AST nodes for top-level .ua declarations
         __init__.py          parse_ua, parse_ua_spec public API
 
     backend.py       Backend ABC + NumpyBackend, PytorchBackend, JaxBackend, CupyBackend
@@ -128,7 +129,7 @@ raw declaration tuples
     |  parser/_resolver.py  (name resolution → UASpec)
     v
 UASpec (semirings, sorts, equations, cells, defines)
-    |  algebra/expr.py  (register custom ops on backend)
+    |  assembly/_define_lowering.py  (register custom ops on backend)
     |  assembly/graph.py  (resolve equations, validate DAG, build Hydra graph)
     v
 hydra.graph.Graph + Hydra primitives

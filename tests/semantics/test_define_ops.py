@@ -178,7 +178,8 @@ op step : hidden -> hidden
 
 class TestDefineBuiltinUnchanged:
 
-    def test_builtin_ops_survive(self):
+    def test_builtin_ops_not_mutated(self):
+        """register_defines must not mutate the original backend."""
         backend = NumpyBackend()
         relu_before = backend.unary('relu')
         add_before = backend.elementwise('add')
@@ -187,6 +188,8 @@ define unary custom_act(x) = tanh(x)
 algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
 spec hidden(real)
 ''', backend)
+        # The original backend is unchanged — builtins survive and the define
+        # is NOT injected into the original instance.
         assert backend.unary('relu') is relu_before
         assert backend.elementwise('add') is add_before
-        assert 'custom_act' in backend.unary_ops
+        assert 'custom_act' not in backend.unary_ops

@@ -20,8 +20,8 @@ class NamedCell:
 
 @dataclass
 class _CellResolverContext:
-    equations_by_name: dict   # live dict — _ensure_adjoint_eq mutates it
-    equations_list: list      # live list — _ensure_adjoint_eq appends to it
+    equations_by_name: dict   # live dict — mutated by _ensure_adjoint_eq
+    equations_list: list      # live list — appended to by _resolve_modified_eq
     sorts: dict
     functors_by_name: dict
 
@@ -32,7 +32,15 @@ def _get_sort(ctx: _CellResolverContext, name: str):
     return ctx.sorts[name]
 
 
-def _ensure_adjoint_eq(ctx: _CellResolverContext, base_name: str) -> str:
+def _ensure_adjoint_eq(ctx: _CellResolverContext, base_name: str) -> tuple[str, "Equation | None"]:
+    """Return ``(adjoint_name, new_eq)`` where ``new_eq`` is the freshly created
+    Equation if it did not already exist, or ``None`` if it was already registered.
+
+    The caller is responsible for appending ``new_eq`` to the equations list when
+    it is not ``None`` — this function no longer mutates ``ctx.equations_list``.
+    It still registers the equation in ``ctx.equations_by_name`` so that
+    subsequent modifier chains resolve correctly within the same call.
+    """
     if base_name not in ctx.equations_by_name:
         raise ValueError(f"unknown equation {base_name!r}")
     base = ctx.equations_by_name[base_name]
@@ -52,8 +60,8 @@ def _ensure_adjoint_eq(ctx: _CellResolverContext, base_name: str) -> str:
             adjoint=True, skip=base.skip,
         )
         ctx.equations_by_name[adjoint_name] = eq
-        ctx.equations_list.append(eq)
-    return adjoint_name
+        return adjoint_name, eq
+    return adjoint_name, None
 
 
 def _resolve_modified_eq(ctx: _CellResolverContext, base_name: str, modifiers: str):
@@ -62,7 +70,9 @@ def _resolve_modified_eq(ctx: _CellResolverContext, base_name: str, modifiers: s
     resolved_name = base_name
     for modifier in modifiers:
         if modifier == "'":
-            resolved_name = _ensure_adjoint_eq(ctx, resolved_name)
+            resolved_name, new_eq = _ensure_adjoint_eq(ctx, resolved_name)
+            if new_eq is not None:
+                ctx.equations_list.append(new_eq)
         elif modifier == "?":
             raise NotImplementedError(
                 f"equation modifier '?' on {resolved_name!r}: masked "

@@ -17,10 +17,22 @@ from ._cell_ast import (
     cell_eq, cell_lit, cell_copy, cell_delete, cell_iden,
     cell_seq, cell_par, cell_lens, cell_cata, cell_ana,
 )
+from unialg._define_ast import def_lit, def_var, def_call
 from ._decl_ast import (
     ImportDecl, AlgebraDecl, SpecDecl, OpDecl,
     ShareDecl, DefineDecl, FunctorDecl, CellDecl,
 )
+
+
+def _source_location(text: str, remainder: str) -> tuple[int, int, str]:
+    offset = len(text) - len(remainder)
+    consumed = text[:offset]
+    lines = consumed.split('\n')
+    line_no = len(lines)
+    col = len(lines[-1]) + 1
+    all_lines = text.split('\n')
+    source_line = all_lines[line_no - 1] if line_no <= len(all_lines) else ''
+    return line_no, col, source_line
 
 
 def _op_bp(op: Op) -> tuple[int, int]:
@@ -339,21 +351,21 @@ def _build_parser():
         return p.parse_args(close=_DT_RP, sep=_DT_COMMA)
 
     def _define_nud(p, t):
-        if t[0] == _DT_NUM: return ('lit', t[1])
+        if t[0] == _DT_NUM: return def_lit(t[1])
         if t[0] == _DT_NAME:
             name = t[1]
             if p.peek()[0] == _DT_LP:
                 p.advance()
-                return ('call', name, _define_args(p))
-            return ('var', name)
+                return def_call(name, _define_args(p))
+            return def_var(name)
         if t[0] == _DT_MINUS:
-            return ('call', 'neg', [p.parse(80)])
+            return def_call('neg', [p.parse(80)])
         if t[0] == _DT_LP:
             e = p.parse(0); p.expect(_DT_RP, 'unclosed ('); return e
         raise ValueError(f"define: unexpected token {t}")
 
     def _define_led(p, left, t, r_bp):
-        return ('call', _DEFINE_OP[t[0]], [left, p.parse(r_bp)])
+        return def_call(_DEFINE_OP[t[0]], [left, p.parse(r_bp)])
 
     _define_expr = _pratt_expr(
         _define_tok_raw,

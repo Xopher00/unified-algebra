@@ -71,6 +71,23 @@ class Semiring(_RecordView):
         leq_name: str | None = None
         leq_elementwise: object | None = None
 
+        def with_adjoint(self, op_name: str = "") -> "Semiring.Resolved":
+            """Return a copy with contraction_fn set to the adjoint (residual) form.
+
+            The adjoint swaps the ⊗ factor for its residual: instead of
+            contracting with (times_elementwise, times_reduce) the kernel
+            uses (residual_elementwise, times_reduce).
+
+            Raises ValueError if no residual op was declared on the semiring.
+            """
+            if self.residual_elementwise is None:
+                label = f"Op '{op_name}': " if op_name else ""
+                raise ValueError(
+                    f"{label}adjoint=true requires a residual= op on the semiring")
+            from dataclasses import replace as _replace
+            _res, _red = self.residual_elementwise, self.times_reduce
+            return _replace(self, contraction_fn=lambda cs, be, p: cs(_res, _red))
+
     def _law_check_samples(self, n: int = 5, seed: int = 42) -> list:
         """Draw n triplets uniformly from [bottom, top]."""
         import random

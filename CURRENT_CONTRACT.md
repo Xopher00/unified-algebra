@@ -53,7 +53,8 @@ Eight top-level declaration forms, in dependency order:
 - Every name in the source is resolved or a `ValueError` is raised.
 - Returns a `UASpec` with fields: `semirings`, `sorts`, `equations`, `defines`, `cells`,
   `share_groups`, `backend_name`.
-- `share_groups` is validated at parse time (all ops exist, same domain algebra, appear in a `seq`).
+- `share_groups` is validated at parse time (all ops exist, same domain algebra).
+  NOTE: the check that all ops in a share group appear in at least one `seq` is not yet enforced.
   `share_groups` is wired in `compile_program`: non-canonical ops are aliased to the canonical
   param's term before `assemble_graph` is called.
 - `?` and `@` modifiers parse without error but the resolver raises `NotImplementedError` — see §6.
@@ -79,6 +80,13 @@ Eight top-level declaration forms, in dependency order:
   `_resolve_equations` before the graph is built.
 - `assemble_graph` must not make semantic decisions: no new type rules, no cell semantics,
   no contraction logic.
+- KNOWN DEVIATIONS: two semantic decisions currently live in assembly and are slated for
+  migration. (1) The adjoint (transpose) rewrite in `_equation_resolution.py`'s
+  `compile_equation` constructs a transposed equation for backward passes — this belongs in
+  `algebra/` and is tracked as P-A1 (being implemented concurrently). (2) Lens residual
+  threading in `_morphism_compile.py`'s `_try_lens_seq` encodes optic sequencing semantics
+  (forward collects residuals, backward consumes in reverse) that logically belongs in
+  `morphism/lens.py`. Both will be moved once the algebra-layer lens interfaces stabilise.
 
 ---
 

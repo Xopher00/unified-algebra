@@ -4,13 +4,14 @@ import unialg
 
 _PUBLIC = {
     "Backend", "NumpyBackend", "PytorchBackend", "JaxBackend", "CupyBackend",
-    "Semiring", "Equation", "Lens", "Sort", "ProductSort",
+    "Semiring", "Equation", "Sort", "ProductSort",
     "Program", "compile_program",
     "parse_ua", "parse_ua_spec", "UASpec",
 }
 
 _INTERNAL = {
     "compile_einsum", "semiring_contract", "tensor_coder",
+    "contract_and_apply", "contract_merge",
     "rebind_params", "assemble_graph", "build_graph",
     "validate_pipeline", "topo_edges", "type_check_term",
     "NumpyApiBackend",

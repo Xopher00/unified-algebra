@@ -32,6 +32,32 @@ class UASpec:
     cells: list = field(default_factory=list)
 
 
+def _build_poly(node, get_sort):
+    """Recursively build a polynomial functor from a parsed expression node.
+
+    ``get_sort`` is a callable that resolves a sort name to a Sort object;
+    it is passed explicitly so this function does not close over resolver state.
+    """
+    from unialg.morphism import sum_, prod, one, zero, id_, const
+    if isinstance(node, ExprConst):
+        sym_val = node.value.value
+        if sym_val == "0": return zero()
+        if sym_val == "1": return one()
+        if sym_val == "X": return id_()
+        return const(get_sort(sym_val))
+    if isinstance(node, ExprOp):
+        op_expr = node.value
+        sym_str = op_expr.op.symbol.value
+        if sym_str == "@":
+            raise NotImplementedError("functor composition (@) not yet supported")
+        left = _build_poly(op_expr.lhs, get_sort)
+        right = _build_poly(op_expr.rhs, get_sort)
+        if sym_str == "+": return sum_(left, right)
+        if sym_str == "&": return prod(left, right)
+        raise ValueError(f"functor: unknown operator {sym_str!r}")
+    raise ValueError(f"functor: invalid polynomial AST node {node!r}")
+
+
 def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
     """Resolve raw declarations into a UASpec.
 
@@ -114,33 +140,14 @@ def _resolve_spec(raw_decls: list[tuple]) -> UASpec:
                 equations_by_name[name] = eq_term
                 equations_list.append(eq_term)
             case FunctorDecl(name=name, body=body_node, attrs=attrs):
-                from unialg.morphism import Functor, sum_, prod, one, zero, id_, const
-
-                def _build_poly(node):
-                    if isinstance(node, ExprConst):
-                        sym_val = node.value.value
-                        if sym_val == "0": return zero()
-                        if sym_val == "1": return one()
-                        if sym_val == "X": return id_()
-                        return const(_get_sort(sym_val))
-                    if isinstance(node, ExprOp):
-                        op_expr = node.value
-                        sym_str = op_expr.op.symbol.value
-                        if sym_str == "@":
-                            raise NotImplementedError("functor composition (@) not yet supported")
-                        left = _build_poly(op_expr.lhs)
-                        right = _build_poly(op_expr.rhs)
-                        if sym_str == "+": return sum_(left, right)
-                        if sym_str == "&": return prod(left, right)
-                        raise ValueError(f"functor: unknown operator {sym_str!r}")
-                    raise ValueError(f"functor: invalid polynomial AST node {node!r}")
+                from unialg.morphism import Functor
 
                 category = attrs.get('category', 'set')
                 if category not in ('set', 'poset'):
                     raise ValueError(
                         f"functor {name!r}: category must be 'set' or 'poset', got {category!r}"
                     )
-                f = Functor(name, _build_poly(body_node), category=category)
+                f = Functor(name, _build_poly(body_node, _get_sort), category=category)
                 f.validate()
                 functors_by_name[name] = f
             case ShareDecl(name=name, op_names=op_names):

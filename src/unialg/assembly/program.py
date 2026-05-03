@@ -24,7 +24,7 @@ from hydra.reduction import reduce_term
 
 import hydra.dsl.terms as _hterms
 from unialg.terms import tensor_coder
-from .graph import assemble_graph, rebind_params
+from .graph import assemble_graph
 
 EMPTY_CX = empty_context()
 
@@ -194,9 +194,12 @@ class Program:
         """
         wrapped = {k: _wrap_scalar(v) for k, v in params.items()}
         if self._build_args is None:
-            new_graph = rebind_params(self._graph, wrapped)
-            return Program(new_graph, self._backend, self._coder, self._cx,
-                           _list_packed_info=self._list_packed_info)
+            raise RuntimeError(
+                "Program.rebind() requires the program to have been compiled with "
+                "parameter bindings, but this program was not built via compile_program() "
+                "(no _build_args recorded). Reconstruct the program with compile_program() "
+                "to enable rebinding."
+            )
         existing_hp = self._build_args.get('params') or {}
         merged_hp = {**existing_hp, **wrapped}
         return compile_program(

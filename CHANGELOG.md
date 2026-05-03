@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stale and redundant test files from prior package structure
 - `composition/` and `resolve/` subpackages (absorbed into `assembly/` and `algebra/`)
 
+### Removed
+- `Lens` from top-level public API (`unialg.__all__`) — sort-level lens record was unused externally
+- `assemble_graph` and `rebind_params` from `assembly` public API — advanced internals accessible via deep import
+- `semiring_contract` from `algebra` public API — internal contraction primitive
+
 ### Fixed
 - Python dependency resolution issues with Hydra kernel installation
 - Sort axis dimension mismatch validation now correctly skips unsized axes
+- `register_defines` no longer mutates the shared backend; returns a scoped overlay instead
+- Merge fallback path uses semiring `plus_elementwise` instead of Python `+` operator

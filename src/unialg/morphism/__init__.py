@@ -4,7 +4,7 @@ from .algebra_hom import summand_domain as summand_domain
 from .functor import Functor as Functor
 from .functor import PolyExpr as PolyExpr
 from .functor import sum_ as sum_, prod as prod, one as one
-from .functor import zero as zero, id_ as id_, const as const
+from .functor import zero as zero, id_ as id_, const as const, exp as exp
 from .lens import lens as lens
 from .lens import lens_seq as lens_seq
 from .lens import _LENS_TYPE as _LENS_TYPE
@@ -34,5 +34,5 @@ __all__ = [
     "delete",
     "seq",
     "par",
-    "sum_", "prod", "one", "zero", "const", "id_",
+    "sum_", "prod", "one", "zero", "const", "id_", "exp",
 ]

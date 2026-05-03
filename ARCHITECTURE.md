@@ -1,5 +1,7 @@
 # Architecture
 
+See [CURRENT_CONTRACT.md](CURRENT_CONTRACT.md) for the layer-by-layer boundary contract.
+
 unified-algebra is a typed DSL for wiring algebraic tensor programs.
 
 ## Design contract
@@ -33,10 +35,10 @@ unified-algebra is layered on top of [Hydra](https://github.com/CategoricalData/
 - **Sorts as tensor/domain spaces.** `algebra/sort.py` — `Sort` (named tensor type bound to a Semiring), `ProductSort` (typed monoidal product), `UnitSort` (terminal object).
 - **Semiring algebra and law checking.** `algebra/semiring.py` — declarative spec + backend-resolved runtime. No Hydra overlap; semirings do not exist in `standard_library()`.
 - **Equation / einsum / contraction.** `algebra/equation.py`, `algebra/contraction.py` — declarative tensor morphism specs and the contraction engine. No Hydra overlap.
-- **Functor (polynomial F-algebra).** `assembly/functor.py` — body kinds `zero`/`one`/`id`/`const`/`sum`/`prod`/`exp`. Hydra has type extraction but no polynomial-functor algebra.
-- **Cell IR.** `assembly/_para.py` — typed monoidal-categorical morphism IR with 9 locked variants (`eq`, `lit`, `iden`, `copy`, `delete`, `seq`, `par`, `algebraHom`, `lens`). Encoded as a Hydra union `ua.cell.Cell`. **Cell is not collapsed into generic Hydra terms** by design; it carries categorical structure (monoidal product, comonoid copy/delete, optic residual threading, recursion schemes) that polymorphic Hydra terms do not express.
-- **Lenses / optics.** `assembly/_para_runtime.py` — `CompiledLens` dataclass with forward/backward/residual. Bidirectional structure is Python-side only; lens cells are runtime-accessible via `compiled_fns` and are not Hydra graph primitives (forward/backward are JIT-compiled closures, not Hydra terms).
-- **algebraHom / fold / unfold / fixpoint.** `assembly/_para_alg_hom.py` — three runtime families (inductive walker, coinductive driver, Tarski iterator). Recursion lives in Python closures; Hydra has no fixpoint/μ term.
+- **Functor (polynomial F-algebra).** `morphism/functor.py` — body kinds `zero`/`one`/`id`/`const`/`sum`/`prod`/`exp`. Hydra has type extraction but no polynomial-functor algebra.
+- **Typed morphism IR.** `morphism/_typed_morphism.py` — `TypedMorphism` carries a Hydra term plus boundary sorts (input/output). Constructors in `morphism/morphism.py`: `eq`, `lit`, `iden`, `copy`, `delete`, `seq`, `par`, `lens`.
+- **Lenses / optics.** `assembly/_morphism_compile.py` — `CompiledLens` dataclass with forward/backward boundary sorts. Lenses are registered as Hydra primitives (forward + backward pass) in the same graph as all other primitives. `reduce_term` is the single execution path.
+- **algebraHom / fold / unfold / fixpoint.** `morphism/algebra_hom.py` — catamorphism and anamorphism construction. Recursion schemes compile to Hydra primitives via `assemble_graph`; Hydra has no fixpoint/μ term.
 - **Backend lowering and execution.** `backend.py` is intentionally Hydra-free. JIT compilation, while_loop, tensor ops, and contraction execution are all backend-native and do not become Hydra primitives.
 
 ### `terms.py` is the narrow adapter
@@ -65,8 +67,8 @@ If projections become necessary, lower to `hydra.lib.pairs.first` / `hydra.lib.p
 
 ### Forbidden moves
 
-- Collapsing Cell IR into generic Hydra terms.
-- Putting Equation, Cell, Semiring, or backend semantics inside `terms.py`.
+- Collapsing TypedMorphism categorical structure (monoidal product, copy/delete, optic residual, recursion schemes) into unstructured Hydra terms.
+- Putting Equation, TypedMorphism, Semiring, or backend semantics inside `terms.py`.
 - Constructing `core.TermLambda` / `core.TermLet` directly (use `hydra.dsl.meta.phantoms.lam` / `let`).
 - Treating `ProductSort` as cartesian.
 - Reimplementing primitives that exist in `hydra.lib.*` (audit `standard_library()` first).
@@ -84,48 +86,55 @@ If projections become necessary, lower to `hydra.lib.pairs.first` / `hydra.lib.p
 ```
 src/unialg/
     algebra/
-        semiring.py      Semiring declaration + law validation
-        sort.py          Sort (named tensor type), ProductSort, Lens
-        equation.py      Equation (typed tensor morphism) — pure declaration only
-        contraction.py   CompiledEinsum, semiring contraction engine
-        expr.py          Expression compiler for inline `define` ops
+        semiring.py          Semiring declaration + law validation
+        sort.py              Sort, ProductSort, UnitSort
+        equation.py          Equation (typed tensor morphism) — pure declaration
+        contraction.py       CompiledEinsum, semiring contraction engine
+        expr.py              Expression compiler for inline define ops
 
     assembly/
-        graph.py                  DAG assembly, topological sort, sort/rank validation
-        compositions.py           Path, Fan, Fold, Unfold, Fixpoint composition objects
-        specs.py                  Spec dataclasses (PathSpec, FanSpec, etc.)
-        _primitives.py            Hydra primitive registration
-        _validation.py            Type unification helper (unify_or_raise)
-        _equation_resolution.py   Equation lowering to Hydra Primitives
+        graph.py                  build_graph, assemble_graph, rebind_params
+        program.py                compile_program, Program callable wrapper
+        _equation_resolution.py   Equation → Hydra primitives + validation
+        _morphism_compile.py      Cell → Hydra primitives/bound_terms, CompiledLens
+        _validation.py            Pipeline sort/rank/axis validation
+
+    morphism/
+        _typed_morphism.py   TypedMorphism — term + boundary sorts
+        morphism.py          Constructors: eq, lit, iden, copy, delete, seq, par
+        functor.py           PolynomialFunctor, PolyExpr
+        algebra_hom.py       Catamorphism/anamorphism construction
+        lens.py              Lens, lens_seq construction
 
     parser/
-        _grammar.py      PEG grammar for .ua surface syntax
-        _resolver.py     Name resolution: raw tuples -> UASpec
+        _grammar.py          Pratt parser for .ua surface syntax
+        _resolver.py         Name resolution orchestration → UASpec
+        _resolve_cells.py    Cell expression → TypedMorphism
+        _cell_ast.py         CellExpr frozen dataclasses
+        _types.py            NamedCell, UASpec dataclasses
+        __init__.py          parse_ua, parse_ua_spec public API
 
-    runtime/
-        program.py       compile_program(), Program callable wrapper
-
-    backend.py           Backend ABC + NumpyBackend, PytorchBackend, JaxBackend, CupyBackend
-    terms.py             Hydra record-view helpers, tensor_coder, literal encoding
+    backend.py       Backend ABC + NumpyBackend, PytorchBackend, JaxBackend, CupyBackend
+    terms.py         Hydra record-view helpers, tensor_coder, literal encoding
 ```
 
 ## Data flow
 
 ```
 .ua source text
-    |  parser/_grammar.py
+    |  parser/_grammar.py  (Pratt parser)
     v
 raw declaration tuples
-    |  parser/_resolver.py
+    |  parser/_resolver.py  (name resolution → UASpec)
     v
-UASpec (semirings, sorts, equations, compositions, defines)
-    |  algebra/expr.py (register custom ops on backend)
-    |  assembly/graph.py (resolve equations, validate DAG, build Hydra graph)
+UASpec (semirings, sorts, equations, cells, defines)
+    |  algebra/expr.py  (register custom ops on backend)
+    |  assembly/graph.py  (resolve equations, validate DAG, build Hydra graph)
     v
-hydra.graph.Graph + compiled entry points
-    |  runtime/program.py
+hydra.graph.Graph + Hydra primitives
+    |  assembly/program.py  (compile_program → Program)
     v
-Program(name, *arrays) -> arrays
+Program(name, *arrays) -> arrays   [executes via reduce_term]
 ```
 
 ## Core abstractions

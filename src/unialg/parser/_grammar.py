@@ -9,6 +9,27 @@ import hydra.parsers as P
 from hydra.parsers import Nothing
 
 from ._pratt import parse_pratt
+from hydra.ast import (
+    ExprConst, ExprOp, OpExpr, Op, Symbol, Padding, Precedence, Associativity,
+    WsSpace,
+)
+from ._cell_ast import (
+    cell_eq, cell_lit, cell_copy, cell_delete, cell_iden,
+    cell_seq, cell_par, cell_lens, cell_cata, cell_ana,
+)
+from ._decl_ast import (
+    ImportDecl, AlgebraDecl, SpecDecl, OpDecl,
+    ShareDecl, DefineDecl, FunctorDecl, CellDecl,
+)
+
+
+def _op_bp(op: Op) -> tuple[int, int]:
+    p = op.precedence.value
+    if op.associativity == Associativity.RIGHT:
+        return (p, p - 1)
+    if op.associativity == Associativity.NONE:
+        return (p, p)
+    return (p, p + 1)  # LEFT or BOTH
 
 
 def _build_parser():
@@ -217,13 +238,13 @@ def _build_parser():
     import_decl = P.bind(sym('import'), lambda _:
                   P.bind(ident, lambda name:
                   P.bind(_eol, lambda _:
-                  P.pure(('import', name)))))
+                  P.pure(ImportDecl(backend=name)))))
 
     algebra_decl = P.bind(sym('algebra'), lambda _:
                    P.bind(ident, lambda name:
                    P.bind(_sr_args, lambda kw_args:
                    P.bind(_eol, lambda _:
-                   P.pure(('algebra', name, kw_args))))))
+                   P.pure(AlgebraDecl(name=name, kw_args=kw_args))))))
 
     _axis_size = P.bind(P.char(ord(':')), lambda _:
                  P.bind(_tok(_digits), lambda ds:
@@ -258,9 +279,10 @@ def _build_parser():
                 P.bind(_spec_extra, lambda mb:
                 P.bind(sym(')'), lambda _:
                 P.bind(_eol, lambda _:
-                P.pure(('spec', name, sr_name,
-                        mb.value[0] if not isinstance(mb, Nothing) else False,
-                        mb.value[1] if not isinstance(mb, Nothing) else ())))))))))
+                P.pure(SpecDecl(
+                        name=name, sr_name=sr_name,
+                        batched=mb.value[0] if not isinstance(mb, Nothing) else False,
+                        axes=mb.value[1] if not isinstance(mb, Nothing) else ())))))))))
 
     op_decl = P.bind(sym('op'), lambda _:
               P.bind(ident, lambda name:
@@ -268,7 +290,7 @@ def _build_parser():
               P.bind(_sort_sig, lambda sig:
               P.bind(_eol, lambda _:
               P.bind(P.many(_indented_kv_op()), lambda kv_list:
-              P.pure(('op', name, sig, dict(kv_list)))))))))
+              P.pure(OpDecl(name=name, sig=sig, attrs=dict(kv_list)))))))))
 
     def _sep_by(sep_str, p):
         _sep = sym(sep_str)
@@ -282,7 +304,7 @@ def _build_parser():
                  P.bind(sym(':'), lambda _:
                  P.bind(_sep_by(',', ident), lambda op_names:
                  P.bind(_eol, lambda _:
-                 P.pure(('share', name, op_names)))))))
+                 P.pure(ShareDecl(name=name, op_names=op_names)))))))
 
 
     # -------------------------------------------------------------------
@@ -363,7 +385,7 @@ def _build_parser():
                   P.bind(sym('='), lambda _:
                   P.bind(_define_expr, lambda body:
                   P.bind(_eol, lambda _:
-                  P.pure(('define', name, ar, params, body)))))))))))
+                  P.pure(DefineDecl(name=name, arity=ar, params=params, body=body)))))))))))
 
     # -------------------------------------------------------------------
     # Polynomial-expression Pratt parser — body of `functor` decls
@@ -378,8 +400,13 @@ def _build_parser():
     _PT_PLUS = 'p+'; _PT_AMP = 'p&'; _PT_AT = 'p@'
     _PT_LPAREN = 'p('; _PT_RPAREN = 'p)'
 
-    _POLY_BP = {_PT_AT: (80, 79), _PT_AMP: (70, 71), _PT_PLUS: (60, 61)}
-    _POLY_TAG = {_PT_PLUS: 'poly_sum', _PT_AMP: 'poly_prod', _PT_AT: 'poly_compose'}
+    _PAD_SPACE = Padding(WsSpace(), WsSpace())
+    _POLY_LED_OP = {
+        _PT_PLUS: Op(Symbol("+"), _PAD_SPACE, Precedence(60), Associativity.LEFT),
+        _PT_AMP:  Op(Symbol("&"), _PAD_SPACE, Precedence(70), Associativity.LEFT),
+        _PT_AT:   Op(Symbol("@"), _PAD_SPACE, Precedence(80), Associativity.RIGHT),
+    }
+    _POLY_BP = {k: _op_bp(op) for k, op in _POLY_LED_OP.items()}
 
     _poly_tok_raw = _token_choice(
         literals=(
@@ -393,17 +420,18 @@ def _build_parser():
     )
 
     def _poly_nud(p, t):
-        if t[0] == _PT_ZERO: return ('poly_zero',)
-        if t[0] == _PT_ONE: return ('poly_one',)
-        if t[0] == _PT_ID: return ('poly_id',)
-        if t[0] == _PT_NAME: return ('poly_const', t[1])
+        if t[0] == _PT_ZERO: return ExprConst(Symbol("0"))
+        if t[0] == _PT_ONE: return ExprConst(Symbol("1"))
+        if t[0] == _PT_ID: return ExprConst(Symbol("X"))
+        if t[0] == _PT_NAME: return ExprConst(Symbol(t[1]))
         if t[0] == _PT_LPAREN:
             e = p.parse(0); p.expect(_PT_RPAREN, 'unclosed ('); return e
         if t[0] == 'ERROR': raise ValueError(f"functor: {t[1]}")
         raise ValueError(f"functor: unexpected {t[0]}")
 
     def _poly_led(p, left, t, r_bp):
-        return (_POLY_TAG[t[0]], left, p.parse(r_bp))
+        op = _POLY_LED_OP[t[0]]
+        return ExprOp(OpExpr(op=op, lhs=left, rhs=p.parse(r_bp)))
 
     _poly_expr = _pratt_expr(
         _poly_tok_raw,
@@ -422,7 +450,7 @@ def _build_parser():
                    P.bind(_poly_expr, lambda body:
                    P.bind(_eol, lambda _:
                    P.bind(P.many(_indented_kv()), lambda attrs:
-                   P.pure(('functor', name, body, dict(attrs)))))))))
+                   P.pure(FunctorDecl(name=name, body=body, attrs=dict(attrs)))))))))
 
     # -------------------------------------------------------------------
     # Cell-expression Pratt parser
@@ -454,9 +482,9 @@ def _build_parser():
     _CT_LP = '('; _CT_RP = ')'; _CT_COMMA = ','; _CT_LB = '['; _CT_RB = ']'
 
     _CELL_BP = {_CT_AMP: (70, 71), _CT_GT: (60, 61), _CT_TILDE: (50, 51)}
-    _NAMED_BINARY = {'seq': 'cell_seq', 'par': 'cell_par'}
-    _NAMED_BRACKET = {'id': 'cell_iden', 'copy': 'cell_copy', 'drop': 'cell_delete'}
-    _NAMED_HOM = {'fold': 'cell_cata', 'unfold': 'cell_ana'}
+    _NAMED_BINARY = {'seq': cell_seq, 'par': cell_par}
+    _NAMED_BRACKET = {'id': cell_iden, 'copy': cell_copy, 'drop': cell_delete}
+    _NAMED_HOM = {'fold': cell_cata, 'unfold': cell_ana}
 
     _cell_tok_raw = _token_choice(
         literals=(
@@ -483,11 +511,11 @@ def _build_parser():
         p.expect(_CT_RB, f"closing ] for {label}[]")
         return n[1]
 
-    def _hom(p, tag):
+    def _hom(p, cls):
         f = p.expect(_CT_NAME, "functor name")
         p.expect(_CT_RB, "] after functor")
         p.expect(_CT_LP, "( after functor ref")
-        return (tag, f[1], _cell_args(p))
+        return cls(f[1], tuple(_cell_args(p)))
 
     def _cell_nud(p, t):
         if t[0] == 'ERROR': raise ValueError(f"cell: {t[1]}")
@@ -497,7 +525,7 @@ def _build_parser():
                 p.advance()
                 args = _cell_args(p)
                 if len(args) != 2: raise ValueError(f"{name}() takes 2 args")
-                return (_NAMED_BINARY[name], args[0], args[1])
+                return _NAMED_BINARY[name](args[0], args[1])
             if name == 'lens' and p.peek()[0] == _CT_LP:
                 p.advance()
                 args = _cell_args(p)
@@ -507,21 +535,24 @@ def _build_parser():
                     p.advance()
                     residual = p.expect(_CT_NAME, "sort after *[")[1]
                     p.expect(_CT_RB, "] for *[")
-                return ('cell_lens', args[0], args[1], residual)
+                return cell_lens(args[0], args[1], residual)
             if name in (_NAMED_BRACKET | _NAMED_HOM) and p.peek()[0] == _CT_LB:
                 p.advance()
                 inner = _bracket_name(p, name)
-                if name in _NAMED_BRACKET: return (_NAMED_BRACKET[name], inner)
+                if name in _NAMED_BRACKET: return _NAMED_BRACKET[name](inner)
                 if name in _NAMED_HOM:
                     p.expect(_CT_LP, f"( after {name}[{inner}]")
-                    return (_NAMED_HOM[name], inner, _cell_args(p))
-            return ('cell_eq', name)
-        if t[0] == _CT_NUM: return ('cell_lit', t[1])
-        if t[0] == _CT_CARET: return ('cell_copy', _bracket_name(p, '^'))
-        if t[0] == _CT_BANG: return ('cell_delete', _bracket_name(p, '!'))
-        if t[0] == _CT_UNDER: return ('cell_iden', _bracket_name(p, '_'))
-        if t[0] == _CT_GT_BR: return _hom(p, 'cell_cata')
-        if t[0] == _CT_LT_BR: return _hom(p, 'cell_ana')
+                    return _NAMED_HOM[name](inner, tuple(_cell_args(p)))
+            i = len(name)
+            while i > 0 and name[i - 1] in "'?":
+                i -= 1
+            return cell_eq(name[:i], name[i:])
+        if t[0] == _CT_NUM: return cell_lit(t[1])
+        if t[0] == _CT_CARET: return cell_copy(_bracket_name(p, '^'))
+        if t[0] == _CT_BANG: return cell_delete(_bracket_name(p, '!'))
+        if t[0] == _CT_UNDER: return cell_iden(_bracket_name(p, '_'))
+        if t[0] == _CT_GT_BR: return _hom(p, cell_cata)
+        if t[0] == _CT_LT_BR: return _hom(p, cell_ana)
         if t[0] == _CT_LP:
             e = p.parse(0); p.expect(_CT_RP, 'unclosed ('); return e
         raise ValueError(f"cell: unexpected token {t}")
@@ -534,9 +565,9 @@ def _build_parser():
                 p.advance()
                 residual = p.expect(_CT_NAME, "sort name after *[")[1]
                 p.expect(_CT_RB, "closing ] for *[")
-            return ('cell_lens', left, right, residual)
-        tag = 'cell_seq' if t[0] == _CT_GT else 'cell_par'
-        return (tag, left, right)
+            return cell_lens(left, right, residual)
+        cls = cell_seq if t[0] == _CT_GT else cell_par
+        return cls(left, right)
 
     _cell_expr = _pratt_expr(
         _cell_tok_raw,
@@ -555,7 +586,7 @@ def _build_parser():
                 P.bind(sym('='), lambda _:
                 P.bind(_cell_expr, lambda expr:
                 P.bind(_eol, lambda _:
-                P.pure(('cell', name, sig, expr)))))))))
+                P.pure(CellDecl(name=name, sig=sig, expr=expr)))))))))
 
     decl = P.choice((
         define_decl,

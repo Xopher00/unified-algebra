@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hydra.core as core
 import hydra.graph
+import hydra.dsl.terms as _hterms
 from hydra.dsl.meta.phantoms import (
     binary as phantom_binary, boolean, float64, int32, list_, record, string, TTerm, unit,
 )
@@ -39,21 +40,13 @@ def tensor_coder(backend, type_=None) -> hydra.graph.TermCoder:
 
     return hydra.graph.TermCoder(type=type_, encode=encode, decode=decode)
 
-def float_term(value: float) -> core.TermLiteral:
-    return core.TermLiteral(value=core.LiteralFloat(value=float(value)))
-
-
-def integer_term(value: int) -> core.TermLiteral:
-    return core.TermLiteral(value=core.LiteralInteger(value=int(value)))
-
-
 def literal_term(value) -> core.TermLiteral:
     if isinstance(value, bool):
         return core.TermLiteral(value=core.LiteralBoolean(value=value))
     if isinstance(value, int):
-        return integer_term(value)
+        return _hterms.int32(int(value))
     if isinstance(value, float):
-        return float_term(value)
+        return _hterms.float32(float(value))
     if isinstance(value, str):
         return core.TermLiteral(value=core.LiteralString(value=value))
     if isinstance(value, bytes):

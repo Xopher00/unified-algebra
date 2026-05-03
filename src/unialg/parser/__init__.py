@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from unialg.assembly import compile_program
-from ._types import NamedCell as NamedCell, UASpec as UASpec
+from ._resolve_cells import NamedCell as NamedCell
+from ._resolver import UASpec as UASpec
 
 if TYPE_CHECKING:
     from unialg.assembly import Program
@@ -54,39 +55,23 @@ def parse_ua_spec(text: str) -> UASpec:
     return _resolve_spec(raw_decls)
 
 
-_BACKEND_MAP = {
-    'numpy': 'NumpyBackend',
-    'jax': 'JaxBackend',
-    'pytorch': 'PytorchBackend',
-    'cupy': 'CupyBackend',
-}
-
-
-def _resolve_backend(name: str):
-    cls_name = _BACKEND_MAP.get(name)
-    if cls_name is None:
-        raise ValueError(
-            f"Unknown backend {name!r} — available: {list(_BACKEND_MAP)}")
-    import unialg.backend as be
-    return getattr(be, cls_name)()
-
-
 def parse_ua(text: str, backend=None) -> "Program":
     """Parse and compile .ua source text to a Program.
 
     If backend is None, uses the backend specified by ``import <name>``
     in the .ua source. A backend kwarg overrides the .ua import.
     """
+    from unialg.backend import resolve_backend
     spec = parse_ua_spec(text)
 
     if backend is None:
         if spec.backend_name is None:
             raise ValueError(
                 "No backend specified — pass backend= or add 'import <backend>' to .ua source")
-        backend = _resolve_backend(spec.backend_name)
+        backend = resolve_backend(spec.backend_name)
 
     if spec.defines:
-        from unialg.algebra import register_defines
+        from unialg.assembly import register_defines
         register_defines(spec.defines, backend)
 
     return compile_program(
@@ -94,4 +79,5 @@ def parse_ua(text: str, backend=None) -> "Program":
         backend=backend,
         semirings=spec.semirings or None,
         cells=spec.cells or None,
+        share_groups=spec.share_groups or None,
     )

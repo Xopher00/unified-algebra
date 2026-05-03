@@ -13,50 +13,12 @@ from hydra.dsl.python import FrozenDict, Nothing
 from hydra.lexical import elements_to_graph, graph_with_primitives
 from hydra.sources.libraries import standard_library
 
-from unialg.algebra import Equation
 from unialg.terms import register_tensor_schema
-from ._validation import validate_pipeline
 from ._morphism_compile import register_cells
-from ._equation_resolution import resolve_equation, resolve_semirings
+from ._equation_resolution import _resolve_equations
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
-
-
-def _resolve_equations(eq_terms, backend, semirings):
-    """Returns (eq_by_name, primitives, native_fns, coder, schema, list_packed_info)."""
-    eq_by_name: dict[str, Equation] = {}
-    for i, t in enumerate(eq_terms):
-        eq = Equation.from_term(t)
-        if eq.name in eq_by_name:
-            raise ValueError(f"Duplicate equation name '{eq.name}' (positions {list(eq_by_name).index(eq.name)} and {i})")
-        eq_by_name[eq.name] = eq
-
-    primitives: dict = {}
-    native_fns: dict = {
-        core.Name("ua.equation.fst"):            lambda p: p[0],
-        core.Name("ua.equation.snd"):            lambda p: p[1],
-        core.Name("ua.equation.pair_construct"): lambda a, b: (a, b),
-    }
-    list_packed_info: dict = {}
-    coder = None
-    resolved_sr = resolve_semirings(semirings, backend) if semirings else {}
-
-    schema: dict = {}
-    for eq in eq_by_name.values():
-        eq.register_sorts(schema)
-        prim, native_fn, sr, eq_coder, n_params, n_inputs, is_list_packed = resolve_equation(eq, backend)
-        sr_name = eq.semiring_name
-        if sr_name and sr is not None:
-            resolved_sr.setdefault(sr_name, sr)
-        if coder is None:
-            coder = eq_coder
-        primitives[prim.name] = prim
-        native_fns[prim.name] = native_fn
-        if is_list_packed:
-            list_packed_info[prim.name] = (n_params, n_inputs)
-
-    return eq_by_name, primitives, native_fns, coder, schema, list_packed_info
 
 
 def build_graph(sort_terms, primitives=None, bound_terms=None):
@@ -90,19 +52,14 @@ def assemble_graph(
     compiled to Hydra primitives or bound_terms. Lenses produce two primitives
     (forward + backward).
     """
-    eq_by_name, primitives, native_fns, coder, schema, list_packed_info = \
-        _resolve_equations(eq_terms, backend, semirings)
-
-    for st in (extra_sorts or []):
-        if st is not None:
-            st.register_schema(schema)
-    schema_types = FrozenDict(schema)
-    validate_pipeline(list(eq_by_name.values()), schema_types)
+    eq_by_name, primitives, native_fns, coder, schema_types, list_packed_info = \
+        _resolve_equations(eq_terms, backend, semirings, extra_sorts=extra_sorts)
 
     bound_terms: dict[core.Name, core.Term] = {}
     if params:
         for param_name, param_term in params.items():
-            bound_terms[core.Name(f"ua.param.{param_name}")] = param_term
+            if param_term is not None:
+                bound_terms[core.Name(f"ua.param.{param_name}")] = param_term
 
     seen_sorts: dict[str, core.Term] = {}
     for eq in eq_by_name.values():

@@ -345,3 +345,25 @@ class PytorchBackend(Backend):
         except Exception:
             pass
         return super().available_memory()
+
+
+# ---------------------------------------------------------------------------
+# Backend name resolution
+# ---------------------------------------------------------------------------
+
+_BACKEND_MAP = {
+    'numpy': 'NumpyBackend',
+    'jax': 'JaxBackend',
+    'pytorch': 'PytorchBackend',
+    'cupy': 'CupyBackend',
+}
+
+
+def resolve_backend(name: str) -> Backend:
+    """Instantiate a backend by name. Raises ValueError for unknown names."""
+    cls_name = _BACKEND_MAP.get(name)
+    if cls_name is None:
+        raise ValueError(
+            f"Unknown backend {name!r} — available: {list(_BACKEND_MAP)}")
+    import sys
+    return getattr(sys.modules[__name__], cls_name)()

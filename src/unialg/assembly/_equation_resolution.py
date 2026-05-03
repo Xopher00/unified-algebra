@@ -9,13 +9,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import hydra.core as core
 from hydra.graph import Primitive
 from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
+from hydra.dsl.python import FrozenDict
 
-from unialg.algebra import compile_einsum, contract_and_apply, contract_merge
+from unialg.algebra import compile_einsum, contract_and_apply, contract_merge, Equation
+from ._validation import validate_pipeline
 
 if TYPE_CHECKING:
-    from unialg.algebra import Equation
     from unialg.backend import Backend
 
 
@@ -127,6 +129,48 @@ def resolve_equation(eq: "Equation", backend: "Backend"):
     prim = _make_prim(ctx.prim_name, hydra_compute, coders, ctx.out_coder)
     is_list_packed = (ctx.n_params + n_inputs) > 3
     return prim, native_fn, ctx.sr, ctx.in_coder, ctx.n_params, n_inputs, is_list_packed
+
+
+def _resolve_equations(eq_terms, backend, semirings, extra_sorts=None):
+    """Returns (eq_by_name, primitives, native_fns, coder, schema_types, list_packed_info)."""
+    eq_by_name: dict[str, Equation] = {}
+    for i, t in enumerate(eq_terms):
+        eq = Equation.from_term(t)
+        if eq.name in eq_by_name:
+            raise ValueError(f"Duplicate equation name '{eq.name}' (positions {list(eq_by_name).index(eq.name)} and {i})")
+        eq_by_name[eq.name] = eq
+
+    primitives: dict = {}
+    native_fns: dict = {
+        core.Name("ua.equation.fst"):            lambda p: p[0],
+        core.Name("ua.equation.snd"):            lambda p: p[1],
+        core.Name("ua.equation.pair_construct"): lambda a, b: (a, b),
+    }
+    list_packed_info: dict = {}
+    coder = None
+    resolved_sr = resolve_semirings(semirings, backend) if semirings else {}
+
+    schema: dict = {}
+    for eq in eq_by_name.values():
+        eq.register_sorts(schema)
+        prim, native_fn, sr, eq_coder, n_params, n_inputs, is_list_packed = resolve_equation(eq, backend)
+        sr_name = eq.semiring_name
+        if sr_name and sr is not None:
+            resolved_sr.setdefault(sr_name, sr)
+        if coder is None:
+            coder = eq_coder
+        primitives[prim.name] = prim
+        native_fns[prim.name] = native_fn
+        if is_list_packed:
+            list_packed_info[prim.name] = (n_params, n_inputs)
+
+    for st in (extra_sorts or []):
+        if st is not None:
+            st.register_schema(schema)
+    schema_types = FrozenDict(schema)
+    validate_pipeline(list(eq_by_name.values()), schema_types)
+
+    return eq_by_name, primitives, native_fns, coder, schema_types, list_packed_info
 
 
 def resolve_equation_as_merge(eq: "Equation", backend: "Backend", prim_name_override=None):

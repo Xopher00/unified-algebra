@@ -693,23 +693,23 @@ Rules:
 The canonical test suite for parser/syntax alignment is `tests/unit/test_parser.py` and `tests/negative/test_parser_errors.py`.
 Run them after any parser change: `uv run --python 3.12 --extra dev python -m pytest tests/unit/test_parser.py tests/negative/test_parser_errors.py -v`.
 
-### Known divergence (as of 2026-05-03)
+### Superseded top-level composition declarations (as of 2026-05-03)
 
-A current divergence exists between this document and the parser. By rule 3 above, this is a known bug and must be resolved.
+The following top-level declaration keywords are **no longer parsed by `_grammar.py`**. They are superseded by the `cell` expression language documented below. The sections earlier in this file that describe their syntax are retained as conceptual documentation only — they do not reflect what the parser accepts.
 
-**Documented in this file but not parsed by `_grammar.py`** (the `decl` dispatcher does not list these as declaration kinds):
+Superseded keywords (not parsed):
 
-- `seq` — sequential composition with `>>` chain
-- `branch` — parallel composition with `|` list and `merge =` attribute
-- `parallel` — bimap / monoidal product with `&`
-- `scan` — catamorphism with `step =` attribute
-- `unroll` — anamorphism with `step =` and `steps =` attributes
-- `fixpoint` — fixpoint iteration with `step`, `predicate`, `epsilon`, `max_iter` attributes
-- `lens` — bidirectional morphism with `fwd`, `bwd`, optional `residual` attributes
-- `lens_seq` — sequential lens composition
-- `lens_branch` — parallel lens composition
+- `seq` — superseded by `>` (sequential composition) in `cell` expressions
+- `branch` — superseded by `|` merge pattern in `cell` expressions
+- `parallel` — superseded by `&` (parallel / bimap) in `cell` expressions
+- `scan` — superseded by `>[F](args)` / `fold[F](args)` catamorphism form in `cell` expressions
+- `unroll` — superseded by `<[F](args)` / `unfold[F](args)` anamorphism form in `cell` expressions
+- `fixpoint` — superseded by `~` with convergence arguments in `cell` expressions
+- `lens` — superseded by `fwd ~ bwd` pairing in `cell` expressions
+- `lens_seq` — superseded by chained `>` between `~`-paired expressions in `cell` expressions
+- `lens_branch` — superseded by parallel `&` between `~`-paired expressions in `cell` expressions
 
-**Parsed by `_grammar.py` but not documented above** (the `cell` and `functor` declarations):
+**Currently parsed: `cell` and `functor` declarations**
 
 `cell <name> : <sort_sig> = <cell_expr>` — composition IR. Operator grammar (Pratt, infix):
 
@@ -754,4 +754,35 @@ Note: `;` and `*` are explicitly rejected with error messages ("use '>' not ';'"
 
 Note: `*` is explicitly rejected ("use '&' for functor product, not '*'").
 
-Resolution of the broader divergence is gated on `NEW_PROMPT.md` Task 2 (Pratt parser refactor). Do not add new forms to either side until that decision lands.
+---
+
+## Planned but not yet implemented
+
+These constructs parse successfully but raise `NotImplementedError` at resolution time.
+They are **reserved syntax** — do not remove them from the grammar.
+
+### `?` — masked/guarded equation references
+
+**Syntax:** suffix modifier on any equation reference in a `cell` expression, e.g. `op?`
+
+**Current behavior:** resolver raises `NotImplementedError`:
+`"equation modifier '?' on {name!r}: masked references are parsed but not implemented"`
+
+**Design intent:** a guarded variant of the named equation. Masking semantics are TBD —
+zero-masking, NaN-masking, conditional execution, and projection are all candidates.
+Will be specified when a concrete use case drives the semantic decision.
+
+### `@` — functor composition
+
+**Syntax:** infix operator in the polynomial functor sub-grammar, right-associative, precedence 80.
+E.g. `List @ Tree` means the composition of functors `List` and `Tree`.
+
+**Current behavior:** resolver raises `NotImplementedError`:
+`"functor composition (@) not yet supported"`
+
+**Design intent:** `F @ G` = functor substitution, i.e. substituting `G` for `X` in `F`.
+Example: `(1 + B*X) @ (1 + A*X)` expands to `1 + B*(1 + A*X)`.
+
+**Blocker:** requires a `PolyExpr` compose variant in `morphism/functor.py` and expansion
+logic in `algebra_hom.py` (so catamorphisms over composed functors work correctly).
+Deferred. Blocked on PolyExpr compose variant in `morphism/functor.py` and expansion logic in `algebra_hom.py`.

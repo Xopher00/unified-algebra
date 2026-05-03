@@ -39,30 +39,28 @@ def _boundary_type(value: SortLike, label: str = "boundary") -> core.Type:
     return _require(value, HYDRA_TYPE_TYPES, label)
 
 
-class TypedMorphism(core.TypeFunction):
+class TypedMorphism:
     """A Hydra function type paired with the term that inhabits it.
 
-    ``value`` is the inherited Hydra ``FunctionType``:
+    ``_function_type`` is the Hydra ``TypeFunction``:
         ``domain.type_ -> codomain.type_``.
 
     Boundary values may be UA Sort/ProductSort records or native Hydra Type
-    variants. ``value`` always stores the normalized Hydra function type.
+    variants. ``_function_type`` always stores the normalized Hydra function type.
     """
 
-    term: object
-    domain_sort: SortLike
-    codomain_sort: SortLike
+    __slots__ = ("term", "domain_sort", "codomain_sort", "_function_type")
 
     def __init__(self, term, domain: SortLike, codomain: SortLike):
-        super().__init__(
+        self._function_type = core.TypeFunction(
             core.FunctionType(
                 _boundary_type(domain, "TypedMorphism.domain"),
                 _boundary_type(codomain, "TypedMorphism.codomain"),
             )
         )
-        object.__setattr__(self, "term", self.unwrap(term))
-        object.__setattr__(self, "domain_sort", domain)
-        object.__setattr__(self, "codomain_sort", codomain)
+        self.term = self.unwrap(term)
+        self.domain_sort = domain
+        self.codomain_sort = codomain
 
     @property
     def domain(self) -> SortLike:
@@ -74,15 +72,15 @@ class TypedMorphism(core.TypeFunction):
 
     @property
     def domain_type(self) -> core.Type:
-        return self.value.domain
+        return self._function_type.value.domain
 
     @property
     def codomain_type(self) -> core.Type:
-        return self.value.codomain
+        return self._function_type.value.codomain
 
     @property
     def type_(self) -> core.Type:
-        return self
+        return self._function_type
     
     def require_boundary(
         self, domain: SortLike, codomain: SortLike,

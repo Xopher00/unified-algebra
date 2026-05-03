@@ -9,8 +9,6 @@ from .sort import Lens as Lens
 from .sort import ProductSort as ProductSort
 from .sort import Sort as Sort
 from .sort import sort_wrap as sort_wrap
-from .expr import register_defines as register_defines
-
 __all__ = [
     "Semiring",
     "Equation",
@@ -23,5 +21,4 @@ __all__ = [
     "contract_and_apply",
     "contract_merge",
     "CONTRACTION_REGISTRY",
-    "register_defines",
 ]

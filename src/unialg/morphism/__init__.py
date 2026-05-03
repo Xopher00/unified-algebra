@@ -24,9 +24,9 @@ __all__ = [
     "Functor",
     "PolyExpr",
     "algebra_hom",
-    "summand_domain"
+    "summand_domain",
     "lens",
-    "_LENS_TYPE",
+    "lens_seq",
     "eq",
     "lit",
     "iden",
@@ -34,5 +34,5 @@ __all__ = [
     "delete",
     "seq",
     "par",
-    "sum_", "prod", "one", "zero", "const", "id_"
+    "sum_", "prod", "one", "zero", "const", "id_",
 ]

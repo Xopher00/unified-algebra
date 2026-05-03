@@ -1,11 +1,7 @@
-"""Expression compiler for `define` declarations.
-
-Compiles expression ASTs (from the parser) into backend-callable functions
-and registers them on the backend's op tables.
-"""
+"""Compile `define` declarations into backend-callable functions."""
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 
 def compile_expr(

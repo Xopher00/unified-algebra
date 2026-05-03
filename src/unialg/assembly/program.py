@@ -17,12 +17,13 @@ from __future__ import annotations
 import hydra.core as core
 import hydra.graph as gr
 from hydra.checking import type_of_term
-from hydra.dsl.python import Just, Left, Node, Right
+from hydra.dsl.python import Just, Left, Right, Node
 from hydra.dsl.terms import apply, var, list_ as term_list
 from hydra.lexical import empty_context, lookup_primitive, lookup_term
 from hydra.reduction import reduce_term
 
-from unialg.terms import tensor_coder, float_term, integer_term
+import hydra.dsl.terms as _hterms
+from unialg.terms import tensor_coder
 from .graph import assemble_graph, rebind_params
 
 EMPTY_CX = empty_context()
@@ -204,6 +205,7 @@ class Program:
             extra_sorts=self._build_args.get('extra_sorts'),
             semirings=self._build_args.get('semirings'),
             cells=self._build_args.get('cells'),
+            share_groups=self._build_args.get('share_groups'),
         )
 
     def type_check(self, entry_point: str):
@@ -228,12 +230,12 @@ def _wrap_scalar(v):
     if isinstance(v, Node):
         return v
     if isinstance(v, float):
-        return float_term(v)
+        return _hterms.float32(float(v))
     if isinstance(v, int):
-        return integer_term(v)
+        return _hterms.int32(int(v))
     raise TypeError(
         f"rebind: cannot wrap value of type {type(v).__name__!r}; "
-        f"expected float, int, or hydra.core.Term"
+        f"expected float, int, or a Hydra term"
     )
 
 
@@ -249,24 +251,36 @@ def compile_program(
     extra_sorts: list | None = None,
     semirings: dict | None = None,
     cells: list | None = None,
+    share_groups: dict | None = None,
 ) -> Program:
     """Compile a unified-algebra specification to a runnable Program.
 
     This is the single entry point for converting DSL terms into a callable.
     Parser output and hand-written Python both flow through here. ``cells``
     is the list of ``NamedCell`` entries produced by the morphism DSL.
+
+    ``share_groups`` maps a group name to the list of op names sharing that
+    parameter slot.  The first op in each group is canonical; all others alias
+    to it.  This implements Para's ``∆P : P → P × P`` tying semantics.
     """
+    params = dict(params or {})
+    for _group_name, op_names in (share_groups or {}).items():
+        canonical = op_names[0]
+        for op_name in op_names[1:]:
+            params[op_name] = params.get(canonical)
+
     graph, native_fns, list_packed_info = assemble_graph(
         equations,
         backend,
-        params=params,
+        params=params or None,
         extra_sorts=extra_sorts,
         semirings=semirings,
         cells=cells,
     )
     coder = tensor_coder(backend)
     build_args = dict(equations=equations, extra_sorts=extra_sorts,
-                      semirings=semirings, params=params, cells=cells)
+                      semirings=semirings, params=params, cells=cells,
+                      share_groups=share_groups)
     return Program(graph, backend, coder, EMPTY_CX, _build_args=build_args,
                    _list_packed_info=list_packed_info)
 

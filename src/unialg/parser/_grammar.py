@@ -5,13 +5,14 @@ raw declaration tuples.  No semantic resolution — that lives in _resolver.py.
 """
 from __future__ import annotations
 
+import hydra.parsers as P
+from hydra.parsers import Nothing
+
 from ._pratt import parse_pratt
 
 
 def _build_parser():
     """Build the full .ua program parser.  Returns the top-level Parser[list[tuple]]."""
-    import hydra.parsers as P
-    from hydra.parsers import Nothing
 
     # -------------------------------------------------------------------
     # Primitives

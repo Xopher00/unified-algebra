@@ -67,7 +67,6 @@ def _compose(f, g, x):
 def _bimap(f, g, pair):
     return (f(pair[0]), g(pair[1]))
 
-
 def _unwrap_typed_morphism(term):
     return term.term if isinstance(term, TypedMorphism) else term
 
@@ -181,10 +180,6 @@ def _try_lens_seq(term, graph, native_fns, coder, backend):
             return CompiledLens(forward=_fwd, backward=_bwd, residual_sort=residual_sort)
         case _:
             return None
-
-
-
-
 
 
 def _compile_binary(term, graph, native_fns, coder, backend):

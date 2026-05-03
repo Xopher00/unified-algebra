@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 from unialg.terms import float_term
+from unialg.morphism import TypedMorphism as T
 from unialg.algebra import Sort, ProductSort, Semiring, Equation
 from ._types import NamedCell, UASpec
-from unialg.morphism import TypedMorphism as T
 
 
 def _resolve_spec(raw_decls: list[tuple]) -> UASpec:

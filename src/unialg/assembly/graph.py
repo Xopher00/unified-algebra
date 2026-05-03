@@ -7,17 +7,17 @@ from typing import TYPE_CHECKING
 
 import hydra.core as core
 import hydra.graph
+import hydra.typing
+import hydra.substitution as subst
 from hydra.dsl.python import FrozenDict, Nothing
 from hydra.lexical import elements_to_graph, graph_with_primitives
 from hydra.sources.libraries import standard_library
-import hydra.substitution as subst
-import hydra.typing
 
 from unialg.algebra import Equation
 from unialg.terms import register_tensor_schema
-from ._equation_resolution import resolve_equation, resolve_semirings
-from ._morphism_compile import register_cells
 from ._validation import validate_pipeline
+from ._morphism_compile import register_cells
+from ._equation_resolution import resolve_equation, resolve_semirings
 
 if TYPE_CHECKING:
     from unialg.backend import Backend
@@ -57,7 +57,6 @@ def _resolve_equations(eq_terms, backend, semirings):
             list_packed_info[prim.name] = (n_params, n_inputs)
 
     return eq_by_name, primitives, native_fns, coder, schema, list_packed_info
-
 
 
 def build_graph(sort_terms, primitives=None, bound_terms=None):
@@ -120,7 +119,6 @@ def assemble_graph(
     # Final graph captures the post-registration dict state into FrozenDicts.
     graph = build_graph(sort_list, primitives=primitives, bound_terms=bound_terms)
     return graph, native_fns, list_packed_info
-
 
 
 def rebind_params(graph, updates):

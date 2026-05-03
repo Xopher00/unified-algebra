@@ -19,10 +19,10 @@ import hydra.graph as gr
 from hydra.checking import type_of_term
 from hydra.dsl.python import Just, Left, Node, Right
 from hydra.dsl.terms import apply, var, list_ as term_list
-from unialg.terms import tensor_coder, float_term, integer_term
 from hydra.lexical import empty_context, lookup_primitive, lookup_term
 from hydra.reduction import reduce_term
 
+from unialg.terms import tensor_coder, float_term, integer_term
 from .graph import assemble_graph, rebind_params
 
 EMPTY_CX = empty_context()

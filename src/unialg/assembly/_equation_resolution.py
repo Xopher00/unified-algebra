@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
 from hydra.graph import Primitive
+from hydra.dsl.prims import prim1, prim2, prim3, float32 as float32_coder, list_ as list_coder
 
 from unialg.algebra import compile_einsum, contract_and_apply, contract_merge
 

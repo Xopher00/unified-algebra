@@ -329,7 +329,9 @@ class PytorchBackend(Backend):
     def to_wire(self, arr) -> bytes:
         a = arr.contiguous().detach().cpu()
         dtype_str = str(a.dtype).replace("torch.", "")
-        return self._encode_wire_header(dtype_str, a.shape) + a.untyped_storage().tobytes()
+        storage = a.untyped_storage()
+        raw = bytes(storage) if not hasattr(storage, 'tobytes') else storage.tobytes()
+        return self._encode_wire_header(dtype_str, a.shape) + raw
 
     def argmax(self, tensor, axis):
         return self._lib.argmax(tensor, dim=axis)

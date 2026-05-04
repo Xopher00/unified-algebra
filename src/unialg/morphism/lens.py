@@ -52,9 +52,14 @@ def lens(forward, backward, residual_sort=None) -> TypedMorphism:
     )
     T.same_sort(fwd_residual, bwd_residual, "lens.residual")
 
+    if residual_sort is not None:
+        from ._typed_morphism import _boundary_type
+        T.same_sort(_boundary_type(residual_sort), fwd_residual, "lens.residual_sort")
+
     return T(
         _lens_term(forward, backward, residual_sort),
         forward.domain, backward.codomain,
+        kind="lens",
     )
 
 
@@ -76,9 +81,19 @@ def lens_seq(l1: TypedMorphism, l2: TypedMorphism) -> TypedMorphism:
     """
     l1 = T.require(l1, "lens_seq.l1")
     l2 = T.require(l2, "lens_seq.l2")
+    if l1.kind != "lens":
+        raise TypeError(
+            f"lens_seq.l1: expected a lens morphism (kind='lens'), "
+            f"got kind={l1.kind!r}"
+        )
+    if l2.kind != "lens":
+        raise TypeError(
+            f"lens_seq.l2: expected a lens morphism (kind='lens'), "
+            f"got kind={l2.kind!r}"
+        )
     T.same_sort(l1.codomain, l2.domain, "lens_seq.junction")
     term = Terms.record(_LENS_SEQ_TYPE, [
         Terms.field("first", l1.term),
         Terms.field("second", l2.term),
     ])
-    return T(term, l1.domain, l2.codomain)
+    return T(term, l1.domain, l2.codomain, kind="lens_seq")

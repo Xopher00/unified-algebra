@@ -49,9 +49,9 @@ class TypedMorphism:
     variants. ``_function_type`` always stores the normalized Hydra function type.
     """
 
-    __slots__ = ("term", "domain_sort", "codomain_sort", "_function_type")
+    __slots__ = ("term", "domain_sort", "codomain_sort", "_function_type", "kind")
 
-    def __init__(self, term, domain: SortLike, codomain: SortLike):
+    def __init__(self, term, domain: SortLike, codomain: SortLike, *, kind: str | None = None):
         self._function_type = core.TypeFunction(
             core.FunctionType(
                 _boundary_type(domain, "TypedMorphism.domain"),
@@ -61,6 +61,7 @@ class TypedMorphism:
         self.term = self.unwrap(term)
         self.domain_sort = domain
         self.codomain_sort = codomain
+        self.kind = kind
 
     @property
     def domain(self) -> SortLike:
@@ -143,3 +144,21 @@ class TypedMorphism:
         )
         pair = typ.value
         return pair.first, pair.second
+
+    def infer_type(self) -> tuple:
+        """Return (domain_sort, codomain_sort)."""
+        return (self.domain_sort, self.codomain_sort)
+
+    def validate(self) -> "TypedMorphism":
+        """Verify this morphism was constructed through a smart constructor.
+
+        Kind-specific invariants are enforced at each constructor call site
+        (morphism.py, lens.py, algebra_hom.py). This method checks that ``kind``
+        was set, which is the contract those constructors fulfil.
+        """
+        if self.kind is None:
+            raise ValueError(
+                "TypedMorphism.validate: no kind set — use a smart constructor "
+                "(eq, lit, iden, copy, delete, seq, par, lens, lens_seq, algebra_hom)"
+            )
+        return self

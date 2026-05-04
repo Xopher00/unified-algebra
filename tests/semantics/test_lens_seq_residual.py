@@ -61,8 +61,11 @@ def graph(hidden):
 
 
 def _make_lens(hidden, residual, backend):
-    """Build a lens whose forward stores a residual and backward consumes it."""
-    prod = T.product(hidden, hidden)
+    """Build a lens whose forward stores a residual and backward consumes it.
+
+    ProductSort([residual, hidden]) — residual is slot 0, focus is slot 1.
+    """
+    prod = ProductSort([residual, hidden])
     fwd_m = morphism.eq("store_residual", domain=hidden, codomain=prod)
     bwd_m = morphism.eq("consume_residual", domain=prod, codomain=hidden)
     return morphism.lens(fwd_m, bwd_m, residual_sort=residual)
@@ -79,7 +82,7 @@ def _native_fns_for(backend, *eqs):
 class TestLensResidualConstruction:
 
     def test_residual_sort_stored_in_term(self, hidden, residual):
-        prod = T.product(hidden, hidden)
+        prod = ProductSort([residual, hidden])
         fwd = morphism.eq("f", domain=hidden, codomain=prod)
         bwd = morphism.eq("g", domain=prod, codomain=hidden)
         m = morphism.lens(fwd, bwd, residual_sort=residual)

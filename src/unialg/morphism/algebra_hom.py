@@ -53,7 +53,8 @@ def algebra_hom(functor: Functor, direction: str, morphisms: list) -> TypedMorph
                 f"coalgebra_hom over {functor.name!r}: expected 1 morphism, "
                 f"got {len(morphisms)}"
             )
-        return morphisms[0]
+        step = morphisms[0]
+        return T(step.term, step.domain_sort, step.codomain_sort, kind="ana")
 
     # algebra: one morphism per summand, shared codomain = carrier
     n_summands = len(functor.summands())
@@ -84,6 +85,7 @@ def algebra_hom(functor: Functor, direction: str, morphisms: list) -> TypedMorph
             )),
             T.list_type(base_sort),
             carrier,
+            kind="cata",
         )
 
     # Maybe:  F = 1 + X  →  cata(nothing, just) : Maybe C → C
@@ -99,6 +101,7 @@ def algebra_hom(functor: Functor, direction: str, morphisms: list) -> TypedMorph
             )),
             T.maybe_type(carrier),
             carrier,
+            kind="cata",
         )
 
     raise NotImplementedError(

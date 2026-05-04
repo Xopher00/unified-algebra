@@ -77,10 +77,12 @@ class TestMaybeAlgebra:
 
 class TestCoalgebra:
 
-    def test_returns_step_unchanged(self, list_functor, carrier):
+    def test_returns_ana_morphism(self, list_functor, carrier):
         step = T(Terms.identity(), carrier, carrier)
         result = morphism.algebra_hom(list_functor, "coalgebra", [step])
-        assert result is step
+        assert result.kind == "ana"
+        assert result.domain_sort is carrier
+        assert result.codomain_sort is carrier
 
     def test_multiple_morphisms_rejected(self, list_functor, carrier):
         step = T(Terms.identity(), carrier, carrier)

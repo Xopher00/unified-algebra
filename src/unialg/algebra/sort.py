@@ -120,6 +120,10 @@ class ProductSort(_RecordView):
         super().__init__(elements=elements)
 
     @property
+    def batched(self) -> bool:
+        return False
+
+    @property
     def type_(self) -> core.Type:
         types = [e.type_ for e in self.elements]
         result = types[-1]

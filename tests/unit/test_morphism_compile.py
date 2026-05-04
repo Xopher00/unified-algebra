@@ -73,7 +73,7 @@ class TestCompileLit:
     def test_returns_constant(self, hidden, graph, coder, backend):
         v = core.TermLiteral(core.LiteralFloat(core.FloatValueFloat32(42.0)))
         fn = compile_morphism(morphism.lit(v, hidden), graph, {}, coder, backend)
-        assert fn("anything").value == pytest.approx(42.0)
+        assert float(fn("anything")) == pytest.approx(42.0)
 
 
 class TestCompileEq:

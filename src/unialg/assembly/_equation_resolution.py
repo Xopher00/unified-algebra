@@ -114,10 +114,24 @@ def resolve_equation(eq: "Equation", backend: "Backend"):
     Returns (prim, native_fn, sr, in_coder, n_params, n_inputs, is_list_packed).
     is_list_packed is True when n_params + n_inputs > 3.
     """
+    from unialg.algebra.sort import ProductSort
     ctx = compile_equation(eq, backend)
     if not ctx.has_einsum and not ctx.has_nl:
         raise ValueError(f"Equation '{eq.name}' has neither einsum nor nonlinearity")
     n_inputs = 1 if not ctx.has_einsum else ctx.n_inputs
+
+    if isinstance(eq.domain_sort, ProductSort) and ctx.has_einsum:
+        pair_coder = eq.domain_sort.coder(backend)
+
+        def _pair_native(pair_val, *params):
+            tensors = list(pair_val) if not isinstance(pair_val, list) else pair_val
+            return contract_and_apply(ctx.compiled, tensors, ctx.sr, backend, ctx.nl_fn, tuple(params))
+
+        coders = [float32_coder()] * ctx.n_params + [pair_coder]
+        prim = _make_prim(ctx.prim_name, _pair_native, coders, ctx.out_coder)
+        is_list_packed = False
+        return prim, _pair_native, ctx.sr, pair_coder, ctx.n_params, 1, is_list_packed
+
     coders, hydra_compute, native_fn = _build_resolved(
         ctx.in_coder, ctx.n_params, n_inputs, ctx.sr, ctx.compiled, backend, ctx.nl_fn,
         skip_fn=ctx.skip_fn)

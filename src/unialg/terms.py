@@ -31,9 +31,13 @@ def tensor_coder(backend, type_=None) -> hydra.graph.TermCoder:
 
     def encode(cx, graph, term):
         match extract_binary(graph, term):
-            case Right(value=raw): pass
-            case _: raw = _literal_value(term)
-        return Right(backend.from_wire(raw))
+            case Right(value=raw):
+                return Right(backend.from_wire(raw))
+            case _:
+                val = _literal_value(term)
+                if isinstance(val, (int, float)):
+                    return Right(backend.scalar(val))
+                return Right(backend.from_wire(val))
 
     def decode(cx, arr):
         return Right(phantom_binary(backend.to_wire(arr)).value)

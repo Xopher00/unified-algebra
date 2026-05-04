@@ -104,6 +104,10 @@ class Backend(ABC):
     def constant(self, name: str) -> object:
         return self.constants[name]
 
+    @abstractmethod
+    def scalar(self, value: float):
+        """Wrap a Python float as a 0-d backend tensor."""
+
     def available_memory(self) -> int | None:
         """Available memory in bytes. Returns None if unknown."""
         try:
@@ -179,6 +183,9 @@ class NumpyApiBackend(Backend):
 
     def _broadcast_copy(self, np_api) -> Callable:
         return lambda a, shape: np_api.broadcast_to(a, shape).copy()
+
+    def scalar(self, value: float):
+        return getattr(self._lib, "numpy", self._lib).asarray(value, dtype="float64")
 
     def argmax(self, tensor, axis):
         return self._argmax(tensor, axis=axis)
@@ -332,6 +339,9 @@ class PytorchBackend(Backend):
         storage = a.untyped_storage()
         raw = bytes(storage) if not hasattr(storage, 'tobytes') else storage.tobytes()
         return self._encode_wire_header(dtype_str, a.shape) + raw
+
+    def scalar(self, value: float):
+        return self._lib.as_tensor(value)
 
     def argmax(self, tensor, axis):
         return self._lib.argmax(tensor, dim=axis)

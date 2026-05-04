@@ -130,34 +130,39 @@ class Semiring(_RecordView):
         )
 
     def check_laws(self, backend: "Backend", samples, atol: float = 1e-9) -> None:
-        """Verify ⊕ and ⊗ form a valid semiring on Python-scalar samples.
+        """Verify ⊕ and ⊗ form a valid semiring on scalar samples.
 
-        Pulls only the elementwise ops from `backend` and evaluates the 7 axioms:
-        ⊕ commutativity, ⊕ associativity, ⊕ identity, ⊗ associativity,
-        ⊗ identity, 0 annihilates ⊗, ⊗ distributes over ⊕.
+        Converts Python floats to backend-native 0-d tensors so that ops
+        like torch.minimum (which reject plain floats) work uniformly.
 
         `samples` is an iterable of `(a, b, c)` triplets. The caller picks a
         domain the user-defined semiring is closed over (e.g. [0, 1] for fuzzy).
         """
         plus = backend.elementwise(self.plus)
         times = backend.elementwise(self.times)
-        zero, one = self.zero, self.one
+        s = backend.scalar
+        zero, one = s(self.zero), s(self.one)
+
+        def _f(v):
+            """Extract Python float from a 0-d tensor or scalar."""
+            return float(v)
 
         def _check(lhs, rhs, axiom: str, a, b, c):
-            if math.isnan(lhs) or math.isnan(rhs):
+            lf, rf = _f(lhs), _f(rhs)
+            if math.isnan(lf) or math.isnan(rf):
                 raise ValueError(
                     f"Semiring '{self.name}': {axiom} produces NaN at (a,b,c)=({a},{b},{c}): "
-                    f"lhs={lhs}, rhs={rhs}"
+                    f"lhs={lf}, rhs={rf}"
                 )
-            if lhs == rhs:  # exact equality (handles ±inf == ±inf without nan blow-up)
+            if lf == rf:
                 return
-            if abs(lhs - rhs) > atol:
+            if abs(lf - rf) > atol:
                 raise ValueError(
                     f"Semiring '{self.name}': {axiom} fails at (a,b,c)=({a},{b},{c}): "
-                    f"lhs={lhs}, rhs={rhs}"
+                    f"lhs={lf}, rhs={rf}"
                 )
 
-        for a, b, c in samples:
+        for a, b, c in ((s(x), s(y), s(z)) for x, y, z in samples):
             _check(plus(a, b),             plus(b, a),                              "⊕ commutativity",     a, b, c)
             _check(plus(plus(a, b), c),    plus(a, plus(b, c)),                     "⊕ associativity",     a, b, c)
             _check(plus(a, zero),          a,                                       "⊕ identity",          a, b, c)
@@ -167,19 +172,15 @@ class Semiring(_RecordView):
             _check(times(a, plus(b, c)),   plus(times(a, b), times(a, c)),          "⊗ distributes over ⊕", a, b, c)
 
         if self.leq:
-            # The named op is the meet of the induced order:
-            #   a ≤ b  iff  meet(a, b) ≈ a  (within atol).
-            # backend.elementwise(name) returns a value, not a bool — so we
-            # derive the boolean relation from the meet.
             meet = backend.elementwise(self.leq)
 
             def _le(x, y) -> bool:
-                m = meet(x, y)
+                m = _f(meet(x, y))
                 if math.isnan(m):
                     return False
-                return abs(m - x) <= atol
+                return abs(m - _f(x)) <= atol
 
-            for a, b, c in samples:
+            for a, b, c in ((s(x), s(y), s(z)) for x, y, z in samples):
                 if not _le(a, a):
                     raise ValueError(
                         f"Semiring '{self.name}': leq reflexivity fails at a={a} "

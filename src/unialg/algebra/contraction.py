@@ -259,7 +259,10 @@ def _make_compute_sum(factors, reduced_dims):
         return term
 
     def compute_sum(times_fn, reduce_fn):
-        return reduce_fn(compute_product(times_fn), reduced_dims)
+        product = compute_product(times_fn)
+        if not reduced_dims:
+            return product
+        return reduce_fn(product, reduced_dims)
 
     compute_sum.compute_product = compute_product
     compute_sum.reduced_dims = reduced_dims

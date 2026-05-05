@@ -122,6 +122,79 @@ cell single : hidden -> hidden = relu
             parse_ua(text)
 
 
+_NUMPY_ADJ_BASE = """\
+import numpy
+algebra real_adj(plus=add, times=multiply, zero=0.0, one=1.0, residual=divide)
+spec embed(real_adj)
+
+op fwd_op : embed -> embed
+  einsum = "ij,j->i"
+  algebra = real_adj
+
+cell adj : embed -> embed = fwd_op'
+"""
+
+_TORCH_ADJ_BASE = """\
+import pytorch
+algebra real_adj(plus=add, times=multiply, zero=0.0, one=1.0, residual=divide)
+spec embed(real_adj)
+
+op fwd_op : embed -> embed
+  einsum = "ij,j->i"
+  algebra = real_adj
+
+cell adj : embed -> embed = fwd_op'
+"""
+
+_W = np.array([[2.0, 4.0], [3.0, 6.0]])
+_X = np.array([1.0, 2.0])
+
+
+class TestAdjointNumpy:
+
+    def test_forward(self):
+        prog = parse_ua(_NUMPY_ADJ_BASE)
+        result = prog("fwd_op", _W, _X)
+        np.testing.assert_allclose(result, np.sum(_W * _X, axis=1), rtol=1e-10)
+
+    def test_adjoint(self):
+        prog = parse_ua(_NUMPY_ADJ_BASE)
+        result = prog("fwd_op__adjoint", _W, _X)
+        np.testing.assert_allclose(result, np.prod(_W / _X, axis=1), rtol=1e-10)
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch not installed")
+class TestAdjointTorch:
+
+    def test_forward(self):
+        import torch
+        torch.set_default_dtype(torch.float64)
+        prog = parse_ua(_TORCH_ADJ_BASE)
+        W = torch.tensor([[2.0, 4.0], [3.0, 6.0]])
+        x = torch.tensor([1.0, 2.0])
+        result = prog("fwd_op", W, x)
+        torch.testing.assert_close(result, torch.sum(W * x, dim=1))
+
+    def test_adjoint(self):
+        import torch
+        torch.set_default_dtype(torch.float64)
+        prog = parse_ua(_TORCH_ADJ_BASE)
+        W = torch.tensor([[2.0, 4.0], [3.0, 6.0]])
+        x = torch.tensor([1.0, 2.0])
+        result = prog("fwd_op__adjoint", W, x)
+        torch.testing.assert_close(result, torch.prod(W / x, dim=1))
+
+    def test_forward_adjoint_differ(self):
+        import torch
+        torch.set_default_dtype(torch.float64)
+        prog = parse_ua(_TORCH_ADJ_BASE)
+        W = torch.tensor([[2.0, 4.0], [3.0, 6.0]])
+        x = torch.tensor([1.0, 2.0])
+        fwd = prog("fwd_op", W, x)
+        adj = prog("fwd_op__adjoint", W, x)
+        assert not torch.allclose(fwd, adj)
+
+
 class TestHadamardNumpy:
 
     def test_hadamard_standalone(self):

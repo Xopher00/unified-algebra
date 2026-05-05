@@ -46,3 +46,38 @@ class TestIdentityCell:
         prog = parse_ua(text)
         x = np.array([1.0, 2.0, 3.0])
         np.testing.assert_allclose(prog("pass_through", x), x)
+
+
+class TestCopyCell:
+
+    def test_copy_entry_point_registered(self):
+        text = _BASE + "\ncell dup : embed -> embed = ^[embed]\n"
+        prog = parse_ua(text)
+        assert "dup" in prog.entry_points()
+
+    def test_copy_returns_stacked_pair(self):
+        # copy(x) = (x, x); the numpy tensor coder stacks the Python tuple
+        # into a (2, n) array because np.ascontiguousarray((arr, arr)) does so.
+        text = _BASE + "\ncell dup : embed -> embed = ^[embed]\n"
+        prog = parse_ua(text)
+        x = np.array([1.0, 2.0, 3.0])
+        result = prog("dup", x)
+        assert result.shape == (2, 3)
+        np.testing.assert_array_equal(result[0], x)
+        np.testing.assert_array_equal(result[1], x)
+
+
+class TestDeleteCell:
+
+    def test_delete_entry_point_registered(self):
+        text = _BASE + "\ncell drop : embed -> embed = ![embed]\n"
+        prog = parse_ua(text)
+        assert "drop" in prog.entry_points()
+
+    def test_delete_execution_raises(self):
+        # delete returns None; the numpy coder cannot serialize None as a memory
+        # buffer. This documents the current execution limitation.
+        text = _BASE + "\ncell drop : embed -> embed = ![embed]\n"
+        prog = parse_ua(text)
+        with pytest.raises((ValueError, TypeError)):
+            prog("drop", np.array([1.0, 2.0, 3.0]))

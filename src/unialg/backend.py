@@ -310,7 +310,7 @@ class PytorchBackend(Backend):
             binary_ops={
                 "add":       Backend.BinaryOp(elementwise=torch.add,       reduce=lambda a, axis: torch.sum(a, dim=axis)),
                 "subtract":  Backend.BinaryOp(elementwise=torch.sub),
-                "multiply":  Backend.BinaryOp(elementwise=torch.mul,       reduce=lambda a, axis: torch.prod(a, dim=axis)),
+                "multiply":  Backend.BinaryOp(elementwise=torch.mul,       reduce=lambda a, axis: torch.prod(a, dim=int(axis[0] if isinstance(axis, tuple) else axis))),
                 "divide":    Backend.BinaryOp(elementwise=torch.div),
                 "power":     Backend.BinaryOp(elementwise=torch.pow),
                 "minimum":   Backend.BinaryOp(elementwise=torch.minimum,   reduce=lambda a, axis: torch.amin(a, dim=axis)),

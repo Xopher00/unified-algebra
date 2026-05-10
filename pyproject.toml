@@ -1,0 +1,98 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "unialg"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4.2,<9.0.0", "pytest-testmon", "hypothesis>=6.152.4", "pynguin>=0.45.0", "numpy", "scipy", "hatchling", "psutil"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/unialg", "src/hydra"]
+
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+markers = [
+    "semantics: trusted behavioral contracts for the unialg DSL",
+    "property: Hypothesis-generated semantic law checks",
+    "unit: focused helper or substrate checks",
+    "negative: expected failure and rejection-path tests",
+    "regression: bug reproductions and reviewed generated tests",
+    "generated: reviewed tests originally produced by a generator",
+]
+
+[dependency-groups]
+dev = [
+    "grimp>=3.14",
+    "hypothesis>=6.152.4",
+    "import-linter>=2.11",
+    "ipykernel>=7.2.0",
+    "jupyterlab>=4.5.7",
+    "notebook>=7.5.6",
+    "pynguin>=0.45.0",
+]
+
+[tool.importlinter]
+root_packages = ["unialg"]
+
+[[tool.importlinter.contracts]]
+name = "Layer ordering"
+type = "layers"
+layers = [
+    "unialg.parser",
+    "unialg.assembly",
+    "unialg.morphism",
+    "unialg.algebra",
+]
+
+[[tool.importlinter.contracts]]
+name = "algebra must not import backend"
+type = "forbidden"
+source_modules = ["unialg.algebra"]
+forbidden_modules = ["unialg.backend"]
+ignore_imports = [
+    "unialg.algebra.contraction -> unialg.backend",
+    "unialg.algebra.semiring -> unialg.backend",
+]
+
+[[tool.importlinter.contracts]]
+name = "backend isolation"
+type = "forbidden"
+source_modules = ["unialg.backend"]
+forbidden_modules = [
+    "unialg.algebra",
+    "unialg.morphism",
+    "unialg.assembly",
+    "unialg.parser",
+]
+
+[[tool.importlinter.contracts]]
+name = "terms isolation"
+type = "forbidden"
+source_modules = ["unialg.terms"]
+forbidden_modules = [
+    "unialg.algebra",
+    "unialg.morphism",
+    "unialg.assembly",
+    "unialg.parser",
+]
+
+[[tool.importlinter.contracts]]
+name = "morphism must not import assembly or parser"
+type = "forbidden"
+source_modules = ["unialg.morphism"]
+forbidden_modules = [
+    "unialg.assembly",
+    "unialg.parser",
+]

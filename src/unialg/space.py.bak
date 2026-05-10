@@ -1,0 +1,145 @@
+"""Typed spaces and monad descriptors: the objects of the algebraic construction layer.
+
+Space, ProductSpace, and UnitSpace are distinct semantic types.
+  - Space("A") is an atomic named object.
+  - ProductSpace(A, B) is a structured product of two spaces.
+  - UnitSpace() is the terminal object 1.
+
+Equality is structural and type-aware. Python's frozen dataclass equality
+checks class identity before comparing fields, so Space("A × B") is never
+equal to ProductSpace(Space("A"), Space("B")), and UnitSpace() is never
+equal to Space("1").
+
+SpaceT is the union type used throughout the layer for dom/cod annotations.
+
+Monad lives here (not in expr.py) because it is a descriptor of a categorical
+structure, not an expression node. MonadSpace references it by tag string for
+display; Monad carries the full Hydra primitive names needed at encoding time.
+"""
+
+from __future__ import annotations
+from dataclasses import dataclass
+
+from hydra.core import Name
+
+
+@dataclass(frozen=True)
+class Space:
+    """An atomic typed object, identified by name."""
+    name: str
+
+    def __repr__(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True)
+class UnitSpace:
+    """The terminal object 1: the unique type with exactly one inhabitant.
+
+    Not equal to Space("1") — class identity, not name, determines equality.
+    """
+
+    @property
+    def name(self) -> str:
+        return "1"
+
+    def __repr__(self) -> str:
+        return "1"
+
+
+@dataclass(frozen=True)
+class ProductSpace:
+    """A product of two typed objects: left × right.
+
+    Equality is structural: both components must match.
+    Not equal to an atomic Space with the same display string.
+    """
+    left: SpaceT
+    right: SpaceT
+
+    @property
+    def name(self) -> str:
+        return f"{self.left.name} × {self.right.name}"
+
+    def __repr__(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True)
+class SumSpace:
+    """A coproduct of two typed objects: left + right.
+
+    Dual to ProductSpace. Equality is structural and type-aware.
+    Not equal to an atomic Space with the same display string.
+    """
+    left: SpaceT
+    right: SpaceT
+
+    @property
+    def name(self) -> str:
+        return f"{self.left.name} + {self.right.name}"
+
+    def __repr__(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True)
+class FunctionSpace:
+    """The function space A → B: morphisms from dom to cod as a first-class object."""
+    dom: SpaceT
+    cod: SpaceT
+
+    @property
+    def name(self) -> str:
+        return f"{self.dom.name} → {self.cod.name}"
+
+    def __repr__(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True)
+class ZeroSpace:
+    """The initial object 0: the uninhabited type.
+
+    Not equal to Space("0") — class identity determines equality.
+    """
+
+    @property
+    def name(self) -> str:
+        return "0"
+
+    def __repr__(self) -> str:
+        return "0"
+
+
+@dataclass(frozen=True)
+class MonadSpace:
+    """Application of a monad T to a base space: T(A).
+
+    tag identifies the monad ("Maybe", "List", etc.) — matches Monad.tag.
+    MonadSpace("Maybe", A) != MonadSpace("List", A) by tag inequality.
+    """
+    tag: str
+    base: SpaceT
+
+    @property
+    def name(self) -> str:
+        return f"{self.tag}({self.base.name})"
+
+    def __repr__(self) -> str:
+        return self.name
+
+
+SpaceT = Space | UnitSpace | ZeroSpace | ProductSpace | SumSpace | FunctionSpace | MonadSpace
+
+
+@dataclass(frozen=True)
+class Monad:
+    """Monad descriptor: identifies a monad by tag and names its Hydra primitives."""
+    tag: str
+    bind_name: Name
+    pure_name: Name
+
+
+MAYBE: Monad = Monad("Maybe", Name("hydra.lib.maybes.bind"), Name("hydra.lib.maybes.pure"))
+LIST: Monad  = Monad("List",  Name("hydra.lib.lists.bind"),  Name("hydra.lib.lists.pure"))

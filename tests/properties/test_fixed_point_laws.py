@@ -1,10 +1,10 @@
 import pytest
 from hypothesis import given, settings
 
-from unialg import expressions as expr
-from unialg import functors as sem
-from unialg.morphisms import _identity, compose
-from unialg.optics import Optic
+from unialg.syntax import expressions as expr
+from unialg.semantics import functors as sem
+from unialg.semantics.morphisms import _identity, compose
+from unialg.semantics.optics import Optic
 
 from support.strategies import type_values
 

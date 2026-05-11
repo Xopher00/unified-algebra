@@ -1,10 +1,10 @@
 import pytest
 from hypothesis import assume, given, settings
 
-from unialg import expressions as expr
-from unialg import morphisms as ops
-from unialg.functors import Functor, apply_poly
-from unialg.optics import Optic
+from unialg.syntax import expressions as expr
+from unialg.semantics import morphisms as ops
+from unialg.semantics.functors import Functor, apply_poly
+from unialg.semantics.optics import Optic
 from support.strategies import (
     optic_values,
     poly_values,

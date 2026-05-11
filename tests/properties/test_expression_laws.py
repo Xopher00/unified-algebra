@@ -1,8 +1,8 @@
 import pytest
 from hypothesis import given, settings
 
-from unialg import expressions as expr
-from unialg.space import show_type
+from unialg.syntax import expressions as expr
+from unialg.objects import show_type
 from support.strategies import (
     primitive_morphism_nodes,
     poly_values,

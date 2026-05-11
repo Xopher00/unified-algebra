@@ -8,6 +8,8 @@ import hydra.dsl.terms as Terms
 import hydra.reduction as R
 from hydra.graph import Primitive
 
+import hydra.rewriting as RW
+
 from unialg.objects import ExpType, Name, ProductType, SumType, Type, TypeList, TypeScheme, TypeUnit
 from unialg.syntax import expressions as expr
 from . import terms as H
@@ -16,6 +18,33 @@ from unialg.semantics.functors import Functor
 from unialg.semantics.morphisms import Morphism, MorphismError, compose, raw_signature
 from unialg.semantics.optics import Optic, fixed_point_optic, identity_optic
 from . import realize
+
+# IDENTITY = "hydra.lib.equality.identity"
+
+# def _is_identity_primitive(term) -> bool:
+#     # Adapt field names to Hydra-Python's generated Term/Function wrappers.
+#     # Intended shape: TermFunction(FunctionPrimitive(Name("hydra.lib.equality.identity")))
+#     return (
+#         getattr(term, "name", None) == IDENTITY
+#         or str(getattr(term, "name", "")) == IDENTITY
+#         or IDENTITY in repr(term)
+#     )
+
+# def _rewrite_identity_apps(recurse, term):
+#     term = recurse(term)
+
+#     # Intended Hydra AST shape:
+#     # apply(identity, x) -> x
+#     fun = getattr(term, "function", None)
+#     arg = getattr(term, "argument", None)
+
+#     if fun is not None and arg is not None and _is_identity_primitive(fun):
+#         return arg
+
+#     return term
+
+# def normalize_recursive_body(term):
+#     return RW.rewrite_term(_rewrite_identity_apps, term)
 
 
 def act_forward(t: Optic, h: Morphism) -> Morphism:

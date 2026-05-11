@@ -11,7 +11,7 @@ from hydra.core import (
     TypeUnit,
 )
 
-from unialg import expressions as expr
+from unialg.syntax import expressions as expr
 
 
 pytestmark = pytest.mark.semantics

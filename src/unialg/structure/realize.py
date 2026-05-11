@@ -38,28 +38,19 @@ def _child_param(param_term: TTerm | None, param: Type, child_param: Type, side:
     return P.first(param_term) if side == "left" else P.second(param_term)
 
 
-def _child_arg(value: TTerm, param_term: TTerm | None, param: Type, child_param: Type, side: str) -> TTerm:
-    """Build the raw argument passed to a contextual child."""
-    child_param_term = _child_param(param_term, param, child_param, side)
-    return value if child_param_term is None else P.pair(child_param_term, value)
-
-
-def _contextual_calls(node: expr.ContextualBinary, x: TTerm):
-    """Return value and routed child calls for contextual realization."""
-    param_term, value = split_input(x, node.param)
-
-    def call_f(v: TTerm) -> TTerm:
-        return P.apply(realize_term(node.f), _child_arg(v, param_term, node.param, node.f_param, "right"))
-
-    def call_g(v: TTerm) -> TTerm:
-        return P.apply(realize_term(node.g), _child_arg(v, param_term, node.param, node.g_param, "left"))
-
-    return value, call_f, call_g
-
-
 def _contextual_term(node: expr.ContextualBinary, build) -> Term:
     """Realize a contextual node by routing child calls and wrapping ``ctx_x``."""
-    return H.term_lambda("ctx_x", lambda x: build(*_contextual_calls(node, x))).value
+    def wrapped(x: TTerm):
+        param_term, value = split_input(x, node.param)
+        def call(child, child_param, side, v):
+            child_param_term = _child_param(param_term, node.param, child_param, side)
+            arg = (v if child_param_term is None else P.pair(child_param_term, v))
+            return P.apply(realize_term(child), arg)
+        return build(value,
+            lambda v: call(node.f, node.f_param, "right", v),
+            lambda v: call(node.g, node.g_param, "left", v),
+        )
+    return H.term_lambda("ctx_x", wrapped).value
 
 
 def realize(node: expr.MorphismExpr) -> Term:

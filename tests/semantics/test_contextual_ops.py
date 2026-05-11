@@ -12,10 +12,10 @@ from hydra.core import (
     TypeMaybe,
 )
 
-from unialg import expressions as expr
-from unialg import morphisms as ops
+from unialg.syntax import expressions as expr
+from unialg.semantics import morphisms as ops
 from unialg.lowering import run
-from unialg.space import LIST, MAYBE
+from unialg.objects import LIST, MAYBE
 
 
 INT = TypeLiteral(LiteralTypeInteger(IntegerType.INT32))

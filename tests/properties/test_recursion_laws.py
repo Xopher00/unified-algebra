@@ -1,11 +1,11 @@
 import hydra.dsl.meta.phantoms as P
 
-from unialg import expressions as expr
-from unialg import morphisms as ops
-from unialg.functors import Functor
-from unialg.optics import Optic
-from unialg.recursion import ana, cata, hylo
-from unialg.space import MAYBE
+from unialg.syntax import expressions as expr
+from unialg.semantics import morphisms as ops
+from unialg.semantics.functors import Functor
+from unialg.semantics.optics import Optic
+from unialg.structure.recursion import ana, cata, hylo
+from unialg.objects import MAYBE
 from support.strategies import INT
 
 

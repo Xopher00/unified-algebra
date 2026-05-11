@@ -8,7 +8,7 @@ from .semantics.morphisms import (
     _assoc as assoc, _symmetry as symmetry,
     compose, par, pair, case, absurd,
 )
-from .semantics.semirings import Semiring
+from .tensors.semirings import Semiring
 from .semantics.optics import Optic
 from .structure.actions import poly_fmap
 from .structure.recursion import act, act_forward, act_backward, compose_optic, recursive_carrier, cata, ana, hylo
@@ -60,7 +60,7 @@ __all__ = [
     "act_forward",
     "act_backward",
     "poly_fmap",
-    "apply_poly"
+    "apply_poly",
     "compose_optic",
     "recursive_carrier",
     "cata",

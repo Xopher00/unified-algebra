@@ -12,10 +12,10 @@ from hydra.core import (
     TypePair,
 )
 
-from unialg import expressions as expr
-from unialg import morphisms as ops
-from unialg import functors as sem
-from unialg.space import LIST, MAYBE
+from unialg.syntax import expressions as expr
+from unialg.semantics import morphisms as ops
+from unialg.semantics import functors as sem
+from unialg.objects import LIST, MAYBE
 from support.strategies import (
     UNIT,
     VOID,

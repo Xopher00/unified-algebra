@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from unialg.objects import Type
-from . import morphisms
+from unialg.semantics import morphisms
 
 
 Morphism = morphisms.Morphism

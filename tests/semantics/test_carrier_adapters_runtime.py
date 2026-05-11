@@ -4,15 +4,15 @@ import hydra.lexical as L
 import hydra.sources.libraries as Libs
 import hydra.dsl.meta.phantoms as P
 import hydra.dsl.terms as Terms
-from hydra.core import Name
+from hydra.core import Name, TypeScheme
 from hydra.dsl.python import Right
 from hydra.graph import Primitive
 
-from unialg import expressions as expr
-from unialg import morphisms as ops
+from unialg.syntax import expressions as expr
+from unialg.semantics import morphisms as ops
 from unialg.lowering import run
-from unialg.recursion import ana, cata, hylo, list_carrier
-from unialg.space import ExpType, TypeScheme
+from unialg.structure.recursion import ana, cata, hylo, recursive_carrier
+from unialg.objects import ExpType
 from support.strategies import INT
 
 

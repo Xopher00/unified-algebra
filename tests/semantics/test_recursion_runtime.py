@@ -5,14 +5,14 @@ import hydra.sources.libraries as Libs
 import hydra.dsl.meta.phantoms as P
 from hydra.core import Name
 
-from unialg import expressions as expr
-from unialg import hydra_primitives as H
-from unialg import morphisms as ops
-from unialg.functors import Functor
+from unialg.syntax import expressions as expr
+from unialg.structure import terms as H
+from unialg.semantics import morphisms as ops
+from unialg.semantics.functors import Functor
 from unialg.lowering import run
-from unialg.optics import Optic
-from unialg.recursion import ana, cata, hylo
-from unialg.space import MAYBE
+from unialg.semantics.optics import Optic
+from unialg.structure.recursion import ana, cata, hylo
+from unialg.objects import MAYBE
 from support.strategies import INT
 
 

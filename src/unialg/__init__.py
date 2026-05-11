@@ -1,6 +1,6 @@
 from .objects import Monad, MAYBE, LIST, ProductType, SumType
 from .syntax.expressions import PolyExpr, Zero, One, Id, Const, Sum, Prod, Exp
-from .semantics.functors import Functor, zero, one, id_, const, sum_, prod, exp
+from .semantics.functors import Functor, zero, one, id_, const, sum_, prod, exp, apply_poly
 from .semantics.morphisms import Morphism, MorphismError
 from .semantics.morphisms import (
     _identity as identity, _copy as copy, _delete as delete,
@@ -60,6 +60,7 @@ __all__ = [
     "act_forward",
     "act_backward",
     "poly_fmap",
+    "apply_poly"
     "compose_optic",
     "recursive_carrier",
     "cata",

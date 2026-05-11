@@ -178,25 +178,28 @@ class Morphism:
         return Morphism(self.node_in(monad), self.param, monad, self.aux_primitives)
 
 
+def _lr(t: TypePair | TypeEither) -> tuple[Type, Type]:
+    return (t.value.first, t.value.second) if isinstance(t, TypePair) else (t.value.left, t.value.right)
+
+
 def _is_assoc(dom: Type, cod: Type, cls: type) -> bool:
-    return (
-        isinstance(dom, cls)
-        and isinstance(dom.left, cls)
-        and isinstance(cod, cls)
-        and isinstance(cod.right, cls)
-        and dom.left.left == cod.left
-        and dom.left.right == cod.right.left
-        and dom.right == cod.right.right
-    )
+    if not (isinstance(dom, cls) and isinstance(cod, cls)):
+        return False
+    dl, dr = _lr(dom)
+    cl, cr = _lr(cod)
+    if not (isinstance(dl, cls) and isinstance(cr, cls)):
+        return False
+    dll, dlr = _lr(dl)
+    crl, crr = _lr(cr)
+    return dll == cl and dlr == crl and dr == crr
 
 
 def _is_symmetry(dom: Type, cod: Type, cls: type) -> bool:
-    return (
-        isinstance(dom, cls)
-        and isinstance(cod, cls)
-        and dom.left == cod.right
-        and dom.right == cod.left
-    )
+    if not (isinstance(dom, cls) and isinstance(cod, cls)):
+        return False
+    dl, dr = _lr(dom)
+    cl, cr = _lr(cod)
+    return dl == cr and dr == cl
 
 
 # ---------------------------------------------------------------------------
@@ -300,15 +303,17 @@ def absurd(cod: Type) -> Morphism:
 
 def _assoc(dom: TypePair | TypeEither) -> Morphism:
     """Reassociation ``(A ⋆ B) ⋆ C → A ⋆ (B ⋆ C)``, for product or sum."""
-    a, b, c = dom.left.left, dom.left.right, dom.right
+    dl, c = _lr(dom)
+    a, b = _lr(dl)
     make = ProductType if isinstance(dom, TypePair) else SumType
     return Morphism(node=expr.Assoc(dom, make(a, make(b, c))))
 
 
 def _symmetry(dom: TypePair | TypeEither) -> Morphism:
     """Swap ``A ⋆ B → B ⋆ A``, for product or sum."""
+    l, r = _lr(dom)
     make = ProductType if isinstance(dom, TypePair) else SumType
-    return Morphism(node=expr.Symmetry(dom, make(dom.right, dom.left)))
+    return Morphism(node=expr.Symmetry(dom, make(r, l)))
 
 
 # ---------------------------------------------------------------------------

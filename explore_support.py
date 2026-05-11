@@ -33,12 +33,24 @@ from unialg import (
     Morphism,
     ProductType,
     SumType,
+    delete,
+    identity,
+    compose,
+    case,
     inl,
     inr,
     lower,
     run,
+    Functor,
+    Optic,
+    Semiring,
+    assoc,
+    symmetry,
+    cata,
+    ana,
+    hylo,
 )
-from unialg import expressions as expr
+from unialg.syntax import expressions as expr
 
 
 def make_graph():
@@ -256,3 +268,49 @@ def run_sum_int(m: Morphism, *, side: str, value: int) -> str:
     branch = result.value
     label = "Left" if side == "left" else "Right"
     return f"{label} {int_val(branch.value)}"
+
+
+# --- assoc / symmetry ---------------------------------------------------------
+
+INT_TRIPLE_L = ProductType(ProductType(INT, INT), INT)
+mul_pair = Morphism(expr.Prim(_binary_pair_op("mul"), INT_PAIR, INT))
+const_zero = Morphism(expr.Prim(P.lam("u", P.int32(0)).value, UNIT, INT))
+const_one = Morphism(expr.Prim(P.lam("u", P.int32(1)).value, UNIT, INT))
+
+
+def nested_left_arg(a: int, b: int, c: int):
+    """Pack ((a, b), c) as a Hydra term for assoc input."""
+    return P.pair(P.pair(int_term(a), int_term(b)), int_term(c)).value
+
+
+def nested_right_val(result) -> tuple[int, tuple[int, int]]:
+    """Unpack a (a, (b, c)) Hydra result."""
+    outer = result.value
+    return (int_val(outer[0]), (int_val(outer[1].value[0]), int_val(outer[1].value[1])))
+
+
+def run_assoc(m: Morphism, a: int, b: int, c: int) -> tuple[int, tuple[int, int]]:
+    return nested_right_val(run(m, nested_left_arg(a, b, c), ctx, graph))
+
+
+# --- optic / cata / ana fixtures ----------------------------------------------
+
+def const_int(value: int) -> Morphism:
+    """Constant morphism Unit → Int."""
+    raw = P.lam("u", P.int32(value)).value
+    return Morphism(expr.Prim(raw, UNIT, INT))
+
+
+def one_or_self_optic(rolled_value: int = 42) -> Optic:
+    """Trivially terminating recursive optic. Carrier = Int, F(X) = 1 + X.
+
+    unroll: Int → 1 + Int  always goes left (stop immediately)
+    roll:   1 + Int → Int  returns rolled_value from Unit branch, identity from Int
+    """
+    shape = SumType(UNIT, INT)
+    return Optic(
+        functor=Functor("OneOrSelf", expr.Sum(expr.One(), expr.Id())),
+        forward=compose(delete(INT), inl(shape)),
+        backward=case(const_int(rolled_value), identity(INT)),
+        carrier=INT,
+    )

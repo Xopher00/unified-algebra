@@ -61,12 +61,8 @@ def term_lambda(name: str, body: Callable[[TTerm], TTerm]) -> TTerm:
     return P.lam(name, body(x))
 
 
-def bind(
-    monad: MonadDescriptor,
-    value: TTerm,
-    name: str,
-    body: Callable[[TTerm], TTerm],
-) -> TTerm:
+def bind(monad: MonadDescriptor, value: TTerm, name: str,
+    body: Callable[[TTerm], TTerm]) -> TTerm:
     """Hydra monadic bind for the configured monad descriptor."""
     f = term_lambda(name, body)
     if monad.bind_name == LISTS_BIND:
@@ -100,11 +96,15 @@ def pair_second() -> TTerm:
     return P.primitive(PAIRS_SECOND)
 
 
-def pair_effects(
-    monad: MonadDescriptor | None,
-    left: TTerm,
-    right: TTerm,
-) -> TTerm:
+def pair_swap() -> TTerm:
+    """Swap a Hydra pair: A × B → B × A."""
+    return term_lambda("p", lambda p:
+        P.pair(P.second(p), P.first(p))
+    )
+
+
+def pair_effects(monad: MonadDescriptor | None,
+    left: TTerm, right: TTerm) -> TTerm:
     """Pair two results, sequencing effects when a monad is present."""
     if monad is None:
         return P.pair(left, right)
@@ -137,11 +137,16 @@ def right_injection() -> TTerm:
     return _injection(Terms.right)
 
 
-def case_effects(
-    monad: MonadDescriptor | None,
-    branch_l: TTerm,
-    branch_r: TTerm,
-) -> TTerm:
+def either_swap() -> TTerm:
+    """Swap a Hydra Either: A + B → B + A."""
+    return eithers_either(
+        term_lambda("l", lambda l: P.apply(right_injection(), l)),
+        term_lambda("r", lambda r: P.apply(left_injection(), r)),
+    )
+
+
+def case_effects(monad: MonadDescriptor | None, 
+    branch_l: TTerm, branch_r: TTerm) -> TTerm:
     """Build functor action for sums, traversing branch effects if needed."""
     if monad is None:
         return eithers_bimap(branch_l, branch_r)
@@ -152,21 +157,6 @@ def case_effects(
         term_lambda("ce_rv", lambda rv:
             bind(monad, P.apply(branch_r, rv), "ce_r", lambda rb:
                 pure(monad, P.apply(right_injection(), rb)))),
-    )
-
-
-def pair_swap() -> TTerm:
-    """Swap a Hydra pair: A × B → B × A."""
-    return term_lambda("p", lambda p:
-        P.pair(P.second(p), P.first(p))
-    )
-
-
-def either_swap() -> TTerm:
-    """Swap a Hydra Either: A + B → B + A."""
-    return eithers_either(
-        term_lambda("l", lambda l: P.apply(right_injection(), l)),
-        term_lambda("r", lambda r: P.apply(left_injection(), r)),
     )
 
 

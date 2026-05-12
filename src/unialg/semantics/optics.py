@@ -19,13 +19,12 @@ No Hydra imports.  No encoding logic.  The action lives in ``recursion.act``.
 """
 
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 
-from unialg.syntax import expressions as expr
-from unialg.objects import Type, ProductType, SumType
 from . import functors
 from . import morphisms
+from unialg.syntax import expressions as expr
+from unialg.objects import Type
 
 
 @dataclass(frozen=True)
@@ -82,16 +81,43 @@ class Optic:
         """B — extracted from backward.dom() via functor.unapply."""
         return self._replacement
     
+    def act_forward(self, h: morphisms.Morphism) -> morphisms.Morphism:
+        """Decompose through an optic, then lift ``h`` through the optic functor."""
+        return morphisms.compose(self.forward, self.functor.map(h)) 
 
+    def act_backward(self, h: morphisms.Morphism) -> morphisms.Morphism:
+        """Lift ``h`` through the optic functor, then reconstruct through the optic."""
+        return morphisms.compose(self.functor.map(h), self.backward)    
 
+    def act(self, h: morphisms.Morphism) -> morphisms.Morphism:
+        """Apply an optic action to ``h``.
+
+        Composition: ``S --forward--> F(A) --functor.map(F,h)--> F(B) --backward--> T``.
+        If ``h`` is lax, plain optic boundaries are lifted into the same monad by the
+        morphism composition rules.
+        """
+        return morphisms.compose(self.act_forward(h), self.backward)
+    
+    def compose(self, inner: Optic) -> Optic:
+        """Compose two optics: focus through ``outer`` then ``inner``."""
+        return _compose_optic(self, inner)
+    
+
+def _compose_optic(outer: Optic, inner: Optic) -> Optic:
+        """Compose two optics: focus through ``outer`` then ``inner``."""
+        composed_functor = outer.functor.compose(inner.functor)
+        fwd = outer.act_forward(inner.forward)
+        bwd = outer.act_backward(inner.backward)
+        return Optic(functor=composed_functor, forward=fwd, backward=bwd)
+    
 
 def identity_optic(*, name: str, functor: functors.Functor, focus: Type) -> Optic:
     """Build an optic where S = T = F(focus), so both boundaries are identity."""
     carrier = functor.apply(focus)
     return Optic(
         functor=functor,
-        forward=morphisms._identity(carrier),
-        backward=morphisms._identity(carrier),
+        forward=morphisms.identity(carrier),
+        backward=morphisms.identity(carrier),
     )
 
 

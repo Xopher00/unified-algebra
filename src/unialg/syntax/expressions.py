@@ -155,6 +155,59 @@ class Prim(MorphismExpr):
     cod: Type
 
 
+@singledispatch
+def pretty(expr) -> str:
+    """Render a DSL expression for humans.
+
+    This is intentionally lightweight display text, not a parser-stable
+    serialization format.  It raises ``ValueError`` for base classes or unknown
+    expression objects.
+    """
+    raise ValueError(f"pretty: unknown type {type(expr).__name__!r}")
+
+
+@pretty.register(MorphismExpr)
+def _pretty_morphism(expr: MorphismExpr) -> str:
+    match expr:
+        case Identity():
+            return "id"
+        case Copy():
+            return "copy"
+        case Delete():
+            return "!"
+        case First():
+            return "π₁"
+        case Second():
+            return "π₂"
+        case Left():
+            return "ι₁"
+        case Right():
+            return "ι₂"
+        case Absurd():
+            return "absurd"
+        case Assoc():
+            return "assoc"
+        case Symmetry():
+            return "sym"
+        case MonadicEmbed(f=f):
+            return f"η({pretty(f)})"
+        case Compose(f=f, g=g):
+            return f"({pretty(f)} ; {pretty(g)})"
+        case Parallel(f=f, g=g):
+            return f"({pretty(f)} × {pretty(g)})"
+        case Pair(f=f, g=g):
+            return f"⟨{pretty(f)}, {pretty(g)}⟩"
+        case Case(f=f, g=g):
+            return f"[{pretty(f)}, {pretty(g)}]"
+        case PolyFmap(body=body):
+            return f"F({pretty(body)})"
+        case Prim():
+            return "prim"
+        case _:
+            raise ValueError(f"pretty: unknown MorphismExpr {type(expr).__name__!r}")
+
+
+
 # ---------------------------------------------------------------------------
 # PolyExpr ADT
 # ---------------------------------------------------------------------------
@@ -223,15 +276,22 @@ class Maybe(PolyExpr):
     body: PolyExpr
 
 
-@singledispatch
-def pretty(expr) -> str:
-    """Render a DSL expression for humans.
 
-    This is intentionally lightweight display text, not a parser-stable
-    serialization format.  It raises ``ValueError`` for base classes or unknown
-    expression objects.
+@dataclass(frozen=True)
+class PolyFmap(MorphismExpr):
+    """Semantic polynomial functor action F(f).
+
+    This is syntax, not lowering. It records that a morphism expression should
+    be mapped through a polynomial body. Backend Hydra construction happens in
+    realize.py.
     """
-    raise ValueError(f"pretty: unknown type {type(expr).__name__!r}")
+
+    body: PolyExpr
+    f: MorphismExpr
+    param: Type
+    monad: Monad | None
+    dom: Type
+    cod: Type
 
 
 @pretty.register(PolyExpr)
@@ -265,45 +325,3 @@ def _pretty_poly(expr: PolyExpr) -> str:
         return f"Maybe[{pretty(expr.body)}]"
     raise ValueError(f"pretty: unknown PolyExpr {type(expr).__name__!r}")
 
-
-@pretty.register(MorphismExpr)
-def _pretty_morphism(expr: MorphismExpr) -> str:
-    match expr:
-        case Identity():
-            return "id"
-        case Copy():
-            return "copy"
-        case Delete():
-            return "!"
-        case First():
-            return "π₁"
-        case Second():
-            return "π₂"
-        case Left():
-            return "ι₁"
-        case Right():
-            return "ι₂"
-        case Absurd():
-            return "absurd"
-        case Assoc():
-            return "assoc"
-        case Symmetry():
-            return "sym"
-        case MonadicEmbed(f=f):
-            return f"η({pretty(f)})"
-        case Compose(f=f, g=g):
-            return f"({pretty(f)} ; {pretty(g)})"
-        case Parallel(f=f, g=g):
-            return f"({pretty(f)} × {pretty(g)})"
-        case Pair(f=f, g=g):
-            return f"⟨{pretty(f)}, {pretty(g)}⟩"
-        case Case(f=f, g=g):
-            return f"[{pretty(f)}, {pretty(g)}]"
-        case Prim():
-            return "prim"
-        case _:
-            raise ValueError(f"pretty: unknown MorphismExpr {type(expr).__name__!r}")
-
-
-MorphismExpr.pretty = pretty
-PolyExpr.pretty = pretty

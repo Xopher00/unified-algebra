@@ -31,3 +31,4 @@ class Semiring:
     times: Morphism
     zero: Morphism
     one: Morphism
+    adjoint: Morphism | None = None

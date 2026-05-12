@@ -47,7 +47,7 @@ def _one_or_self_carrier(rolled_value: int = 42) -> Optic:
     return Optic(
         functor=Functor("OneOrSelf", expr.Sum(expr.One(), expr.Id())),
         forward=ops.compose(ops._delete(INT), ops._inl(shape)),
-        backward=ops.case(_const_int(rolled_value), ops._identity(INT)),
+        backward=ops.case(_const_int(rolled_value), ops.identity(INT)),
         carrier=INT,
     )
 
@@ -101,7 +101,7 @@ def _lax_para_to_left_unit() -> ops.Morphism:
 def test_cata_runtime_smoke(ctx, graph):
     folded = cata(
         _one_or_self_carrier(),
-        ops.case(_const_int(7), ops._identity(INT)),
+        ops.case(_const_int(7), ops.identity(INT)),
     )
 
     assert _int(run(folded, P.int32(999).value, ctx, graph)) == 7
@@ -117,7 +117,7 @@ def test_hylo_runtime_smoke(ctx, graph):
     transformed = hylo(
         _one_or_self_carrier(42),
         _left_unit(),
-        ops.case(_const_int(7), ops._identity(INT)),
+        ops.case(_const_int(7), ops.identity(INT)),
     )
 
     assert _int(run(transformed, P.int32(5).value, ctx, graph)) == 7

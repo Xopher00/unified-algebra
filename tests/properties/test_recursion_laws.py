@@ -12,8 +12,8 @@ from support.strategies import INT
 def _identity_optic() -> Optic:
     return Optic(
         functor=Functor("Id", expr.Id()),
-        forward=ops._identity(INT),
-        backward=ops._identity(INT),
+        forward=ops.identity(INT),
+        backward=ops.identity(INT),
         carrier=INT,
     )
 
@@ -106,8 +106,8 @@ def test_hylo_preserves_shared_lax_para_context():
 def test_recursion_rejects_missing_carrier():
     optic = Optic(
         functor=Functor("Id", expr.Id()),
-        forward=ops._identity(INT),
-        backward=ops._identity(INT),
+        forward=ops.identity(INT),
+        backward=ops.identity(INT),
     )
 
     try:

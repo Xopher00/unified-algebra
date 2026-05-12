@@ -16,15 +16,8 @@ from dataclasses import dataclass
 
 from unialg.syntax import expressions as expr
 from unialg.objects import (
-    Monad,
-    Type,
-    TypeUnit,
-    TypePair,
-    ProductType,
-    TypeEither,
-    SumType,
-    VoidType,
-    show_type,
+    Monad, Type, TypeUnit, TypePair, TypeEither,
+    ProductType, SumType, VoidType, show_type,
 )
 
 
@@ -87,17 +80,11 @@ def raw_signature(param: Type, monad: Monad | None, dom: Type, cod: Type) -> tup
     raw_dom = dom if param == TypeUnit() else ProductType(param, dom)
     raw_cod = cod if monad is None else monad.wrap(cod)
     return raw_dom, raw_cod
+    
 
 
-def _contextual_binary(
-    cls,
-    f: Morphism,
-    g: Morphism,
-    dom: Type,
-    cod: Type,
-    *,
-    shared_context: bool = False,
-) -> Morphism:
+def _contextual_binary(cls, f: Morphism, g: Morphism,
+    dom: Type, cod: Type, *, shared_context: bool = False) -> Morphism:
     monad = _resolve_monad(f, g)
     param = (
         _share_param(f.param, g.param)
@@ -243,6 +230,8 @@ def signature(node: expr.MorphismExpr) -> tuple[Type, Type]:
             return dom, cod
         case expr.Prim(_, dom, cod):
             return dom, cod
+        case expr.PolyFmap(dom=dom, cod=cod):
+            return dom, cod
         case _:
             raise TypeError(f"signature: unknown MorphismExpr {type(node).__name__!r}")
 
@@ -261,7 +250,7 @@ def cod_of(node: expr.MorphismExpr) -> Type:
 # Plain constructors
 # ---------------------------------------------------------------------------
 
-def _identity(space: Type) -> Morphism:
+def identity(space: Type) -> Morphism:
     """Identity morphism ``space -> space``."""
     return Morphism(node=expr.Identity(space))
 
@@ -332,11 +321,8 @@ def compose(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphi
     """
     MorphismError.check(f.cod(), g.dom(), "Cannot compose")
     return _contextual_binary(
-        expr.Compose,
-        f,
-        g,
-        f.dom(),
-        g.cod(),
+        expr.Compose, f, g, 
+        f.dom(), g.cod(),
         shared_context=shared_context,
     )
 
@@ -362,9 +348,7 @@ def pair(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
     """
     MorphismError.check(f.dom(), g.dom(), "Cannot build pair")
     return _contextual_binary(
-        expr.Pair,
-        f,
-        g,
+        expr.Pair, f, g, 
         f.dom(),
         ProductType(f.cod(), g.cod()),
         shared_context=shared_context,
@@ -378,10 +362,8 @@ def case(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
     """
     MorphismError.check(f.cod(), g.cod(), "Cannot build case")
     return _contextual_binary(
-        expr.Case,
-        f,
-        g,
-        SumType(f.dom(), g.dom()),
+        expr.Case, f, g,
+        SumType(f.dom(), g.dom()), 
         f.cod(),
         shared_context=shared_context,
     )

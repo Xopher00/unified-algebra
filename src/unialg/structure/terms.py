@@ -17,6 +17,7 @@ import hydra.dsl.terms as Terms
 from hydra.core import Name
 from hydra.lib import names as Names
 from hydra.phantoms import TTerm
+import hydra.rewriting as Rewriting
 
 
 class MonadDescriptor(Protocol):
@@ -45,9 +46,47 @@ MAYBES_PURE = Names.maybes_pure
 VOID_CASE_TYPE = Name("hydra.core.Void")
 
 
-def absurd() -> TTerm:
-    """Term-level eliminator for the uninhabited object."""
-    return P.match(VOID_CASE_TYPE, P.Nothing(), [])
+def _variant_fields(t, variant: str, *fields, then):
+    if type(t).__name__ != variant:
+        return t
+    v = getattr(t, "value", None)
+    if v is None:
+        return t
+    out = tuple(getattr(v, field, None) for field in fields)
+    if any(x is None for x in out):
+        return t
+    return then(*out)
+
+
+def _structural_rewrite_once(t):
+    """
+    Peephole simplifications for Hydra terms emitted by this module.
+
+    first(pair(a, b))  -> a
+    second(pair(a, b)) -> b
+    swap(pair(a, b))   -> pair(b, a) 
+    """
+    return _variant_fields(
+        t, "TermApplication", "function", "argument",
+        then=lambda f, x: _variant_fields(
+            x, "TermPair", "left", "right",
+            then=lambda a, b:
+                a if f == pair_first().value else
+                b if f == pair_second().value else
+                P.pair(TTerm(b), TTerm(a)).value if f == pair_swap().value else
+                t
+        )
+    )
+
+
+def optimize_term(term: TTerm) -> TTerm:
+    """
+    Optimize a Hydra term after lowering from unialg morphism combinators.
+    """
+    def rule(recurse, t):
+        return _structural_rewrite_once(recurse(t))
+    tterm = term.value if isinstance(term, TTerm) else term
+    return TTerm(Rewriting.rewrite_term(rule, tterm))
 
 
 def prim2(name: Name, a: TTerm, b: TTerm) -> TTerm:
@@ -81,6 +120,11 @@ def pure(monad: MonadDescriptor, value: TTerm) -> TTerm:
     return P.apply(P.primitive(monad.pure_name), value)
 
 
+def absurd() -> TTerm:
+    """Term-level eliminator for the uninhabited object."""
+    return P.match(VOID_CASE_TYPE, P.Nothing(), [])
+
+
 def pairs_bimap(left: TTerm, right: TTerm) -> TTerm:
     """Hydra ``pairs.bimap`` partially applied to two component functions."""
     return prim2(PAIRS_BIMAP, left, right)
@@ -94,23 +138,6 @@ def pair_first() -> TTerm:
 def pair_second() -> TTerm:
     """Hydra pair second projection."""
     return P.primitive(PAIRS_SECOND)
-
-
-def pair_swap() -> TTerm:
-    """Swap a Hydra pair: A × B → B × A."""
-    return term_lambda("p", lambda p:
-        P.pair(P.second(p), P.first(p))
-    )
-
-
-def pair_effects(monad: MonadDescriptor | None,
-    left: TTerm, right: TTerm) -> TTerm:
-    """Pair two results, sequencing effects when a monad is present."""
-    if monad is None:
-        return P.pair(left, right)
-    return bind(monad, left, "pe_l", lambda l:
-        bind(monad, right, "pe_r", lambda r:
-            pure(monad, P.pair(l, r))))
 
 
 def eithers_bimap(left: TTerm, right: TTerm) -> TTerm:
@@ -135,29 +162,6 @@ def left_injection() -> TTerm:
 def right_injection() -> TTerm:
     """Function injecting a value into the right side of Hydra Either."""
     return _injection(Terms.right)
-
-
-def either_swap() -> TTerm:
-    """Swap a Hydra Either: A + B → B + A."""
-    return eithers_either(
-        term_lambda("l", lambda l: P.apply(right_injection(), l)),
-        term_lambda("r", lambda r: P.apply(left_injection(), r)),
-    )
-
-
-def case_effects(monad: MonadDescriptor | None, 
-    branch_l: TTerm, branch_r: TTerm) -> TTerm:
-    """Build functor action for sums, traversing branch effects if needed."""
-    if monad is None:
-        return eithers_bimap(branch_l, branch_r)
-    return eithers_either(
-        term_lambda("ce_lv", lambda lv:
-            bind(monad, P.apply(branch_l, lv), "ce_l", lambda lb:
-                pure(monad, P.apply(left_injection(), lb)))),
-        term_lambda("ce_rv", lambda rv:
-            bind(monad, P.apply(branch_r, rv), "ce_r", lambda rb:
-                pure(monad, P.apply(right_injection(), rb)))),
-    )
 
 
 def lists_uncons(xs: TTerm) -> TTerm:
@@ -185,24 +189,6 @@ def lists_map(f: TTerm) -> TTerm:
     return P.apply(P.primitive(LISTS_MAP), f)
 
 
-def list_effects(monad: MonadDescriptor | None, item_action: TTerm) -> TTerm:
-    """Build functor action for List, traversing element effects if needed."""
-    if monad is None:
-        return lists_map(item_action)
-
-    return term_lambda("xs", lambda xs:
-        lists_foldr(
-            term_lambda("x", lambda x:
-                term_lambda("acc", lambda acc:
-                    bind(monad, P.apply(item_action, x), "le_y", lambda y:
-                        bind(monad, acc, "le_ys", lambda ys:
-                            pure(monad, lists_cons(y, ys)))))),
-            pure(monad, lists_empty()),
-            xs,
-        )
-    )
-
-
 def maybes_maybe(default: TTerm, f: TTerm, x: TTerm) -> TTerm:
     """Hydra ``maybes.maybe``: B → (A → B) → Maybe(A) → B."""
     return Maybes.maybe(default, f, x)
@@ -218,6 +204,63 @@ def maybes_just() -> TTerm:
     return term_lambda("just_value", lambda x: TTerm(Terms.just(x.value)))
 
 
+def pair_swap() -> TTerm:
+    """Swap a Hydra pair: A × B → B × A."""
+    return term_lambda("p", lambda p:
+        P.pair(P.second(p), P.first(p))
+    )
+
+
+def either_swap() -> TTerm:
+    """Swap a Hydra Either: A + B → B + A."""
+    return eithers_either(
+        term_lambda("l", lambda l: P.apply(right_injection(), l)),
+        term_lambda("r", lambda r: P.apply(left_injection(), r)),
+    )
+
+
+def pair_effects(monad: MonadDescriptor | None,
+    left: TTerm, right: TTerm) -> TTerm:
+    """Pair two results, sequencing effects when a monad is present."""
+    if monad is None:
+        return P.pair(left, right)
+    return bind(monad, left, "pe_l", lambda l:
+        bind(monad, right, "pe_r", lambda r:
+            pure(monad, P.pair(l, r))))
+
+
+def case_effects(monad: MonadDescriptor | None, 
+    branch_l: TTerm, branch_r: TTerm) -> TTerm:
+    """Build functor action for sums, traversing branch effects if needed."""
+    if monad is None:
+        return eithers_bimap(branch_l, branch_r)
+    return eithers_either(
+        term_lambda("ce_lv", lambda lv:
+            bind(monad, P.apply(branch_l, lv), "ce_l", lambda lb:
+                pure(monad, P.apply(left_injection(), lb)))),
+        term_lambda("ce_rv", lambda rv:
+            bind(monad, P.apply(branch_r, rv), "ce_r", lambda rb:
+                pure(monad, P.apply(right_injection(), rb)))),
+    )
+
+
+def list_effects(monad: MonadDescriptor | None, item_action: TTerm) -> TTerm:
+    """Build functor action for List, traversing element effects if needed."""
+    if monad is None:
+        return lists_map(item_action)
+    return term_lambda("xs", lambda xs:
+        lists_foldr(
+            term_lambda("x", lambda x:
+                term_lambda("acc", lambda acc:
+                    bind(monad, P.apply(item_action, x), "le_y", lambda y:
+                        bind(monad, acc, "le_ys", lambda ys:
+                            pure(monad, lists_cons(y, ys)))))),
+            pure(monad, lists_empty()),
+            xs,
+        )
+    )
+
+
 def maybe_effects(monad: MonadDescriptor | None, item_action: TTerm) -> TTerm:
     """Build functor action for Maybe, traversing element effects if needed."""
     if monad is None:
@@ -229,7 +272,6 @@ def maybe_effects(monad: MonadDescriptor | None, item_action: TTerm) -> TTerm:
                 mx,
             )
         )
-
     return term_lambda("mx", lambda mx:
         maybes_maybe(
             pure(monad, maybes_nothing()),

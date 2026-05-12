@@ -14,7 +14,7 @@ from hydra.phantoms import TTerm
 from unialg.syntax import expressions as expr
 from unialg.semantics import morphisms as ops
 from unialg.semantics import functors as sem
-from unialg.structure.actions import poly_fmap
+from unialg.semantics.functors import poly_fmap
 from unialg.structure.realize import realize
 from unialg.lowering import run
 from unialg.objects import MAYBE

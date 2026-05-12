@@ -3,7 +3,7 @@ from hypothesis import given, settings
 
 from unialg.syntax import expressions as expr
 from unialg.semantics import functors as sem
-from unialg.semantics.morphisms import _identity, compose
+from unialg.semantics.morphisms import identity, compose
 from unialg.semantics.optics import Optic
 
 from support.strategies import type_values
@@ -15,8 +15,8 @@ pytestmark = [pytest.mark.semantics, pytest.mark.property]
 def carrier_optic(carrier):
     return Optic(
         functor=sem.Functor("Id", expr.Id()),
-        forward=_identity(carrier),
-        backward=_identity(carrier),
+        forward=identity(carrier),
+        backward=identity(carrier),
         carrier=carrier,
     )
 

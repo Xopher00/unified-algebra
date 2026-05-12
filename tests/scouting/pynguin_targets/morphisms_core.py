@@ -45,11 +45,11 @@ def apply_sum_shape_to_int():
 
 
 def identity_int_dom():
-    return ops._identity(INT).dom()
+    return ops.identity(INT).dom()
 
 
 def identity_int_cod():
-    return ops._identity(INT).cod()
+    return ops.identity(INT).cod()
 
 
 def copy_int_cod():
@@ -57,8 +57,8 @@ def copy_int_cod():
 
 
 def compose_identity_int_dom():
-    return ops.compose(ops._identity(INT), ops._identity(INT)).dom()
+    return ops.compose(ops.identity(INT), ops.identity(INT)).dom()
 
 
 def compose_identity_int_cod():
-    return ops.compose(ops._identity(INT), ops._identity(INT)).cod()
+    return ops.compose(ops.identity(INT), ops.identity(INT)).cod()

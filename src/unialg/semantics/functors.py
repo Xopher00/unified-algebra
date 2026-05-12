@@ -7,26 +7,17 @@ unifier rather than reimplementing type matching here.
 """
 
 from __future__ import annotations
-
 from dataclasses import dataclass
 
 from hydra.dsl.python import Right
 import hydra.lib.maps as HMaps
 import hydra.unification as Unification
 
+from . import morphisms
 from unialg.syntax import expressions as expr
 from unialg.objects import (
-    Name,
-    Type,
-    TypeUnit,
-    TypeList,
-    TypeMaybe,
-    TypeVariable,
-    ProductType,
-    SumType,
-    ExpType,
-    VoidType,
-    show_type,
+    Name, Type, TypeUnit, TypeList, TypeMaybe, TypeVariable,
+    ProductType, SumType, ExpType, VoidType, show_type,
 )
 
 
@@ -36,11 +27,7 @@ def _fresh_element_var(functor: "Functor", fa: Type) -> Name:
 
 def _unify_types(pattern: Type, actual: Type, comment: str):
     result = Unification.unify_types(
-        None,
-        HMaps.empty(),
-        pattern,
-        actual,
-        comment,
+        None, HMaps.empty(), pattern, actual, comment,
     )
     if not isinstance(result, Right):
         raise TypeError(
@@ -136,6 +123,45 @@ class Functor:
                 f"F({show_type(a)})={show_type(rebuilt)} != {show_type(fa)}"
             )
         return a
+    
+    def map(self, h: morphisms.Morphism) -> morphisms.Morphism:
+        """Semantic polynomial functor action on a typed morphism."""
+        return poly_fmap(self, h)
+    
+
+def _has_exp(body: expr.PolyExpr) -> bool:
+    if isinstance(body, expr.Exp):
+        return True
+    if isinstance(body, (expr.Sum, expr.Prod)):
+        return _has_exp(body.left) or _has_exp(body.right)
+    return False
+
+
+def poly_fmap(functor: Functor, h: morphisms.Morphism) -> morphisms.Morphism:
+    """Semantic polynomial functor action on a typed morphism.
+
+    Builds syntax for F(h). Does not realize to Hydra and does not construct
+    Prim.
+    """
+    if h.monad is not None and _has_exp(functor.body):
+        raise TypeError("poly_fmap: Exp polynomials are not traversable for arbitrary monads")
+    fa_type = functor.apply(h.dom())
+    fb_type = functor.apply(h.cod())
+    raw_dom, raw_cod = morphisms.raw_signature(h.param, h.monad, fa_type, fb_type)
+
+    return morphisms.Morphism(
+        node=expr.PolyFmap(
+            body=functor.body,
+            f=h.node,
+            param=h.param,
+            monad=h.monad,
+            dom=raw_dom,
+            cod=raw_cod,
+        ),
+        param=h.param,
+        monad=h.monad,
+        aux_primitives=h.aux_primitives,
+    )
 
 
 def zero() -> expr.Zero:

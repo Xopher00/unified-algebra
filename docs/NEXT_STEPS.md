@@ -26,6 +26,14 @@ Tests revised. 94 passing. No references to old API remain in live tests; legacy
 - 8 unified Hypothesis property tests (type laws + rejection laws), 103 tests total passing
 - No Hydra term construction in `optics.py`; action in `actions.py` preserves layer discipline
 
+## Next: tensor operations
+
+- ~/.claude/plans/fluffy-tinkering-whistle.md
+- Core api flow is stable enough we may begin implementing tensor operations on top of it
+- we already have the backends being loaded
+- see plan file for details
+
+
 ## Next: Clarify the core API flow
 
 The current code has a natural but partly scattered flow:

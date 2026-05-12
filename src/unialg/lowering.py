@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import dataclasses
 
+from hydra.dsl.python import Right
 import hydra.dsl.terms as Terms
+import hydra.lib.maps as HMaps
 import hydra.reduction as R
 
-from hydra.dsl.python import Right
-import hydra.lib.maps as HMaps
 from .semantics.morphisms import Morphism
 from .structure.realize import realize
+from .structure.terms import optimize_term
 
 
 def _augment_graph(graph, aux_primitives):
@@ -36,6 +37,7 @@ def _apply_and_reduce(term, argument, ctx, graph, label):
 
 def lower(morphism: Morphism):
     """Realize a typed morphism as a raw Hydra term without evaluating it."""
+    # return optimize_term().value
     return realize(morphism.node)
 
 
@@ -48,4 +50,5 @@ def run(morphism: Morphism, argument, ctx, graph):
     """
     aux = morphism.aux_primitives
     g = _augment_graph(graph, aux) if aux else graph
-    return _apply_and_reduce(realize(morphism.node), argument, ctx, g, morphism)
+    term = lower(morphism)
+    return _apply_and_reduce(term, argument, ctx, g, morphism)

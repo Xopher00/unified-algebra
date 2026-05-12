@@ -103,8 +103,8 @@ def test_functor_compose_apply_law(outer_body, inner_body, space):
 @settings(max_examples=60)
 @given(type_values())
 def test_basic_morphism_constructors_have_expected_types(space):
-    assert ops._identity(space).dom() == space
-    assert ops._identity(space).cod() == space
+    assert ops.identity(space).dom() == space
+    assert ops.identity(space).cod() == space
     assert ops._copy(space).dom() == space
     assert ops._copy(space).cod() == ops.ProductType(space, space)
     assert ops._delete(space).dom() == space
@@ -263,8 +263,8 @@ def test_compose_derives_type_and_preserves_aux(pair):
 def test_identity_is_neutral_for_composition_type_structure(domain, codomain):
     f = ops.Morphism(expr.Prim(object(), domain, codomain))
 
-    left = ops.compose(ops._identity(domain), f)
-    right = ops.compose(f, ops._identity(codomain))
+    left = ops.compose(ops.identity(domain), f)
+    right = ops.compose(f, ops.identity(codomain))
 
     assert (left.dom(), left.cod()) == (f.dom(), f.cod())
     assert (right.dom(), right.cod()) == (f.dom(), f.cod())

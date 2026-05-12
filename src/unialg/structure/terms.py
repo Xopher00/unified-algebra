@@ -37,13 +37,31 @@ EITHERS_EITHER = Names.eithers_either
 LISTS_BIND = Names.lists_bind
 LISTS_PURE = Names.lists_pure
 LISTS_MAP = Names.lists_map
+LISTS_APPLY = Names.lists_apply
+
 MAYBES_BIND = Names.maybes_bind
 MAYBES_PURE = Names.maybes_pure
+MAYBES_APPLY = Names.maybes_apply
 
 # Hydra has structural TypeVoid, but its term-level case statement targets a
 # nominal union type name.  This synthetic name is only used to encode the
 # impossible eliminator for unialg's structural void domain.
 VOID_CASE_TYPE = Name("hydra.core.Void")
+
+
+def prim2(name: Name, a: TTerm, b: TTerm) -> TTerm:
+    """Apply a binary Hydra primitive to two arguments."""
+    return P.primitive2(name, a, b)
+
+
+def term_lambda(name: str, body: Callable[[TTerm], TTerm]) -> TTerm:
+    """Build a Hydra lambda term from a named variable."""
+    x = P.var(name)
+    return P.lam(name, body(x))
+
+
+def lam2(name1: str, name2: str, body: Callable[[TTerm, TTerm], TTerm]) -> TTerm:
+    return term_lambda(name1, lambda x: term_lambda(name2, lambda y: body(x, y)))
 
 
 def _variant_fields(t, variant: str, *fields, then):
@@ -64,19 +82,18 @@ def _structural_rewrite_once(t):
 
     first(pair(a, b))  -> a
     second(pair(a, b)) -> b
-    swap(pair(a, b))   -> pair(b, a) 
+    swap(pair(a, b))   -> pair(b, a)
     """
-    return _variant_fields(
-        t, "TermApplication", "function", "argument",
-        then=lambda f, x: _variant_fields(
+    def rewrite_pair_app(f, x):
+        return _variant_fields(
             x, "TermPair", "left", "right",
-            then=lambda a, b:
+            then=lambda a, b: (
                 a if f == pair_first().value else
                 b if f == pair_second().value else
                 P.pair(TTerm(b), TTerm(a)).value if f == pair_swap().value else
                 t
-        )
-    )
+            ))
+    return _variant_fields(t, "TermApplication", "function", "argument", then=rewrite_pair_app)
 
 
 def optimize_term(term: TTerm) -> TTerm:
@@ -87,17 +104,6 @@ def optimize_term(term: TTerm) -> TTerm:
         return _structural_rewrite_once(recurse(t))
     tterm = term.value if isinstance(term, TTerm) else term
     return TTerm(Rewriting.rewrite_term(rule, tterm))
-
-
-def prim2(name: Name, a: TTerm, b: TTerm) -> TTerm:
-    """Apply a binary Hydra primitive to two arguments."""
-    return P.primitive2(name, a, b)
-
-
-def term_lambda(name: str, body: Callable[[TTerm], TTerm]) -> TTerm:
-    """Build a Hydra lambda term from a named variable."""
-    x = P.var(name)
-    return P.lam(name, body(x))
 
 
 def bind(monad: MonadDescriptor, value: TTerm, name: str,
@@ -118,6 +124,31 @@ def pure(monad: MonadDescriptor, value: TTerm) -> TTerm:
     if monad.pure_name == MAYBES_PURE:
         return Maybes.pure(value)
     return P.apply(P.primitive(monad.pure_name), value)
+
+
+def apply_effect(monad: MonadDescriptor, ff: TTerm, fx: TTerm) -> TTerm:
+    if monad.pure_name == LISTS_PURE:
+        return prim2(LISTS_APPLY, ff, fx)
+    if monad.pure_name == MAYBES_PURE:
+        return prim2(MAYBES_APPLY, ff, fx)
+    return bind(monad, ff, "ap_f", lambda f:
+        bind(monad, fx, "ap_x", lambda x:
+            pure(monad, P.apply(f, x))))
+
+
+def map_effect(monad: MonadDescriptor, f: TTerm, fx: TTerm) -> TTerm:
+    if monad.pure_name == LISTS_PURE:
+        return Lists.map_(f, fx)
+    if monad.pure_name == MAYBES_PURE:
+        return Maybes.map_(f, fx)
+    return bind(monad, fx, "map_x", lambda x:
+        pure(monad, P.apply(f, x)))
+
+
+def lift2_effect(monad: MonadDescriptor, f: Callable[[TTerm, TTerm], TTerm],
+    left: TTerm, right: TTerm, name1: str = "x", name2: str = "y") -> TTerm:
+    ctor = lam2(name1, name2, f)
+    return apply_effect(monad, apply_effect(monad, pure(monad, ctor), left), right)
 
 
 def absurd() -> TTerm:
@@ -219,42 +250,38 @@ def either_swap() -> TTerm:
     )
 
 
-def pair_effects(monad: MonadDescriptor | None,
-    left: TTerm, right: TTerm) -> TTerm:
-    """Pair two results, sequencing effects when a monad is present."""
+def pair_effects(monad: MonadDescriptor | None, left: TTerm, right: TTerm) -> TTerm:
+    """Pair two results, using applicative assembly when Hydra supports it."""
     if monad is None:
         return P.pair(left, right)
-    return bind(monad, left, "pe_l", lambda l:
-        bind(monad, right, "pe_r", lambda r:
-            pure(monad, P.pair(l, r))))
+    return lift2_effect(monad, lambda l, r: P.pair(l, r), left, right, "pe_l", "pe_r")
 
 
-def case_effects(monad: MonadDescriptor | None, 
-    branch_l: TTerm, branch_r: TTerm) -> TTerm:
-    """Build functor action for sums, traversing branch effects if needed."""
+def case_effects(monad: MonadDescriptor | None, branch_l: TTerm, branch_r: TTerm) -> TTerm:
+    """Build sum action, mapping injections through concrete Hydra effects."""
     if monad is None:
         return eithers_bimap(branch_l, branch_r)
+    lift_left = left_injection()
+    lift_right = right_injection()
     return eithers_either(
         term_lambda("ce_lv", lambda lv:
-            bind(monad, P.apply(branch_l, lv), "ce_l", lambda lb:
-                pure(monad, P.apply(left_injection(), lb)))),
+            map_effect(monad, lift_left, P.apply(branch_l, lv))),
         term_lambda("ce_rv", lambda rv:
-            bind(monad, P.apply(branch_r, rv), "ce_r", lambda rb:
-                pure(monad, P.apply(right_injection(), rb)))),
+            map_effect(monad, lift_right, P.apply(branch_r, rv))),
     )
 
 
 def list_effects(monad: MonadDescriptor | None, item_action: TTerm) -> TTerm:
-    """Build functor action for List, traversing element effects if needed."""
+    """Build list action, using applicative step assembly for concrete effects."""
     if monad is None:
         return lists_map(item_action)
     return term_lambda("xs", lambda xs:
         lists_foldr(
-            term_lambda("x", lambda x:
-                term_lambda("acc", lambda acc:
-                    bind(monad, P.apply(item_action, x), "le_y", lambda y:
-                        bind(monad, acc, "le_ys", lambda ys:
-                            pure(monad, lists_cons(y, ys)))))),
+            lam2("x", "acc",
+                lambda x, acc: lift2_effect(
+                    monad, lists_cons, P.apply(item_action, x),
+                    acc, "le_y", "le_ys",
+                )),
             pure(monad, lists_empty()),
             xs,
         )
@@ -262,22 +289,102 @@ def list_effects(monad: MonadDescriptor | None, item_action: TTerm) -> TTerm:
 
 
 def maybe_effects(monad: MonadDescriptor | None, item_action: TTerm) -> TTerm:
-    """Build functor action for Maybe, traversing element effects if needed."""
+    """Build maybe action, preferring direct Hydra map/apply structure."""
     if monad is None:
-        return term_lambda("mx", lambda mx:
-            maybes_maybe(
-                maybes_nothing(),
-                term_lambda("x", lambda x:
-                    P.apply(maybes_just(), P.apply(item_action, x))),
-                mx,
-            )
-        )
-    return term_lambda("mx", lambda mx:
-        maybes_maybe(
-            pure(monad, maybes_nothing()),
-            term_lambda("x", lambda x:
-                bind(monad, P.apply(item_action, x), "me_y", lambda y:
-                    pure(monad, P.apply(maybes_just(), y)))),
-            mx,
-        )
+        return term_lambda("mx", lambda mx: Maybes.map_(item_action, mx))
+    lift_just = maybes_just()
+    branch = term_lambda(
+        "x", lambda x: map_effect(monad, lift_just, P.apply(item_action, x)),
     )
+    return term_lambda(
+        "mx",
+        lambda mx: maybes_maybe(
+            pure(monad, maybes_nothing()),
+            branch,
+            mx,
+        ),
+    )
+
+
+# def pair_effects(monad: MonadDescriptor | None,
+#     left: TTerm, right: TTerm) -> TTerm:
+#     """Pair two results, sequencing effects when a monad is present."""
+#     if monad is None:
+#         return P.pair(left, right)
+#     return bind(monad, left, "pe_l", lambda l:
+#         bind(monad, right, "pe_r", lambda r:
+#             pure(monad, P.pair(l, r))))
+
+# def _structural_rewrite_once(t):
+#     """
+#     Peephole simplifications for Hydra terms emitted by this module.
+
+#     first(pair(a, b))  -> a
+#     second(pair(a, b)) -> b
+#     swap(pair(a, b))   -> pair(b, a) 
+#     """
+#     return _variant_fields(
+#         t, "TermApplication", "function", "argument",
+#         then=lambda f, x: _variant_fields(
+#             x, "TermPair", "left", "right",
+#             then=lambda a, b:
+#                 a if f == pair_first().value else
+#                 b if f == pair_second().value else
+#                 P.pair(TTerm(b), TTerm(a)).value if f == pair_swap().value else
+#                 t
+#         )
+#     )
+
+
+# def maybe_effects(monad: MonadDescriptor | None, item_action: TTerm) -> TTerm:
+#     """Build functor action for Maybe, traversing element effects if needed."""
+#     if monad is None:
+#         return term_lambda("mx", lambda mx:
+#             maybes_maybe(
+#                 maybes_nothing(),
+#                 term_lambda("x", lambda x:
+#                     P.apply(maybes_just(), P.apply(item_action, x))),
+#                 mx,
+#             )
+#         )
+#     return term_lambda("mx", lambda mx:
+#         maybes_maybe(
+#             pure(monad, maybes_nothing()),
+#             term_lambda("x", lambda x:
+#                 bind(monad, P.apply(item_action, x), "me_y", lambda y:
+#                     pure(monad, P.apply(maybes_just(), y)))),
+#             mx,
+#         )
+#     )
+
+
+# def case_effects(monad: MonadDescriptor | None, 
+#     branch_l: TTerm, branch_r: TTerm) -> TTerm:
+#     """Build functor action for sums, traversing branch effects if needed."""
+#     if monad is None:
+#         return eithers_bimap(branch_l, branch_r)
+#     return eithers_either(
+#         term_lambda("ce_lv", lambda lv:
+#             bind(monad, P.apply(branch_l, lv), "ce_l", lambda lb:
+#                 pure(monad, P.apply(left_injection(), lb)))),
+#         term_lambda("ce_rv", lambda rv:
+#             bind(monad, P.apply(branch_r, rv), "ce_r", lambda rb:
+#                 pure(monad, P.apply(right_injection(), rb)))),
+#     )
+
+
+# def list_effects(monad: MonadDescriptor | None, item_action: TTerm) -> TTerm:
+#     """Build functor action for List, traversing element effects if needed."""
+#     if monad is None:
+#         return lists_map(item_action)
+#     return term_lambda("xs", lambda xs:
+#         lists_foldr(
+#             term_lambda("x", lambda x:
+#                 term_lambda("acc", lambda acc:
+#                     bind(monad, P.apply(item_action, x), "le_y", lambda y:
+#                         bind(monad, acc, "le_ys", lambda ys:
+#                             pure(monad, lists_cons(y, ys)))))),
+#             pure(monad, lists_empty()),
+#             xs,
+#         )
+#     )

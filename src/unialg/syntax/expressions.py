@@ -201,6 +201,12 @@ def _pretty_morphism(expr: MorphismExpr) -> str:
             return f"[{pretty(f)}, {pretty(g)}]"
         case PolyFmap(body=body):
             return f"F({pretty(body)})"
+        case SelfRef(node=node):
+            return f"self({node.name[-6:]})"
+        case Cata(node=node):
+            return f"cata({pretty(node.body)})"
+        case Ana(node=node):
+            return f"ana({pretty(node.body)})"
         case Prim():
             return "prim"
         case _:
@@ -276,7 +282,6 @@ class Maybe(PolyExpr):
     body: PolyExpr
 
 
-
 @dataclass(frozen=True)
 class PolyFmap(MorphismExpr):
     """Semantic polynomial functor action F(f).
@@ -292,6 +297,32 @@ class PolyFmap(MorphismExpr):
     monad: Monad | None
     dom: Type
     cod: Type
+
+
+@dataclass(frozen=True)
+class SelfRef(MorphismExpr):
+    """Abstract self-reference in a fixpoint equation (no Hydra import needed)."""
+    name: str
+    dom: Type
+    cod: Type
+
+
+@dataclass(frozen=True)
+class AlgExpr(MorphismExpr):
+    name: str
+    body: MorphismExpr   # body equation with SelfRef embedded
+    dom: Type            # raw_dom = raw_signature(param, monad, carrier, alg.cod())
+    cod: Type            # raw_cod
+
+
+@dataclass(frozen=True)
+class Cata(AlgExpr):
+    """Deferred catamorphism node — realized by structure/realize.py."""
+
+
+@dataclass(frozen=True)
+class Ana(AlgExpr):
+    """Deferred anamorphism node — realized by structure/realize.py."""
 
 
 @pretty.register(PolyExpr)

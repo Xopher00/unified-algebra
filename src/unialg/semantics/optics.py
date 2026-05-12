@@ -21,8 +21,8 @@ No Hydra imports.  No encoding logic.  The action lives in ``recursion.act``.
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from . import functors
-from . import morphisms
+from functors import Functor
+from morphisms import Morphism, MorphismError, compose, identity, raw_signature
 from unialg.syntax import expressions as expr
 from unialg.objects import Type
 
@@ -38,9 +38,9 @@ class Optic:
     Focus ``A`` and replacement ``B`` are derived via ``functor.unapply``
     on the forward codomain and backward domain respectively.
     """
-    functor: functors.Functor
-    forward: morphisms.Morphism
-    backward: morphisms.Morphism
+    functor: Functor
+    forward: Morphism
+    backward: Morphism
     carrier: Type | None = None
     _focus: Type = field(init=False, repr=False, compare=False)
     _replacement: Type = field(init=False, repr=False, compare=False)
@@ -49,13 +49,13 @@ class Optic:
         try:
             focus = self.functor.unapply(self.forward.cod())
         except TypeError as e:
-            raise morphisms.MorphismError(
+            raise MorphismError(
                 f"invalid optic forward codomain: {e}"
             ) from e
         try:
             replacement = self.functor.unapply(self.backward.dom())
         except TypeError as e:
-            raise morphisms.MorphismError(
+            raise MorphismError(
                 f"invalid optic backward domain: {e}"
             ) from e
         object.__setattr__(self, "_focus", focus)
@@ -81,22 +81,22 @@ class Optic:
         """B — extracted from backward.dom() via functor.unapply."""
         return self._replacement
     
-    def act_forward(self, h: morphisms.Morphism) -> morphisms.Morphism:
+    def act_forward(self, h: Morphism) -> Morphism:
         """Decompose through an optic, then lift ``h`` through the optic functor."""
-        return morphisms.compose(self.forward, self.functor.map(h)) 
+        return compose(self.forward, self.functor.map(h)) 
 
-    def act_backward(self, h: morphisms.Morphism) -> morphisms.Morphism:
+    def act_backward(self, h: Morphism) -> Morphism:
         """Lift ``h`` through the optic functor, then reconstruct through the optic."""
-        return morphisms.compose(self.functor.map(h), self.backward)    
+        return compose(self.functor.map(h), self.backward)    
 
-    def act(self, h: morphisms.Morphism) -> morphisms.Morphism:
+    def act(self, h: Morphism) -> Morphism:
         """Apply an optic action to ``h``.
 
         Composition: ``S --forward--> F(A) --functor.map(F,h)--> F(B) --backward--> T``.
         If ``h`` is lax, plain optic boundaries are lifted into the same monad by the
         morphism composition rules.
         """
-        return morphisms.compose(self.act_forward(h), self.backward)
+        return compose(self.act_forward(h), self.backward)
     
     def compose(self, inner: Optic) -> Optic:
         """Compose two optics: focus through ``outer`` then ``inner``."""
@@ -111,21 +111,67 @@ def _compose_optic(outer: Optic, inner: Optic) -> Optic:
         return Optic(functor=composed_functor, forward=fwd, backward=bwd)
     
 
-def identity_optic(*, name: str, functor: functors.Functor, focus: Type) -> Optic:
+def _require_carrier(fp: Optic) -> Type:
+    if fp.carrier is None:
+        raise MorphismError("recursive optic must define carrier")
+    return fp.carrier
+
+
+def algebra(fp: Optic, alg: Morphism, i: int) -> Morphism:
+    carrier = _require_carrier(fp)
+    kind = ("cata", "ana")[i]
+    MorphismError.check(
+        (alg.dom(), alg.cod())[i],
+        fp.functor.apply((alg.cod(), alg.dom())[i]),
+        f"{kind} shape",
+    )
+    name = f"unialg.{kind}.{id(fp):x}.{id(alg):x}"
+    raw_dom, raw_cod = raw_signature(
+        alg.param, alg.monad,
+        (carrier, alg.dom())[i], (alg.cod(), carrier)[i],
+    )    
+    self_ref = Morphism(
+        expr.SelfRef(name, raw_dom, raw_cod),
+        param=alg.param, monad=alg.monad,
+    )
+    body = compose(
+        (fp.act_forward(self_ref), alg)[i],
+        (alg, fp.act_backward(self_ref))[i],
+        shared_context=True,
+    )
+    return Morphism(
+        expr.AlgExpr(name=name, body=body.node, dom=raw_dom, cod=raw_cod),
+        param=alg.param, monad=alg.monad, aux_primitives=alg.aux_primitives,
+    )
+
+
+def cata(fp: Optic, alg: Morphism) -> Morphism:
+    return algebra(fp, alg, 0)
+
+
+def ana(fp: Optic, coalg: Morphism) -> Morphism:
+    return algebra(fp, coalg, 1)
+
+
+def hylo(fp: Optic, coalg: Morphism, alg: Morphism) -> Morphism:
+    return compose(ana(fp, coalg), cata(fp, alg), shared_context=True)
+
+
+def identity_optic(*, name: str, functor: Functor, focus: Type) -> Optic:
     """Build an optic where S = T = F(focus), so both boundaries are identity."""
     carrier = functor.apply(focus)
     return Optic(
         functor=functor,
-        forward=morphisms.identity(carrier),
-        backward=morphisms.identity(carrier),
+        forward=identity(carrier),
+        backward=identity(carrier),
     )
 
 
-def fixed_point_optic(*, functor: functors.Functor, carrier: Type, unroll, roll, ) -> Optic:
+def fixed_point_optic(*, functor: Functor, carrier: Type, unroll, roll, ) -> Optic:
     layer = functor.apply(carrier)
     return Optic(
         functor=functor,
-        forward=morphisms.Morphism(expr.Prim(unroll, carrier, layer)),
-        backward=morphisms.Morphism(expr.Prim(roll, layer, carrier)),
+        forward=Morphism(expr.Prim(unroll, carrier, layer)),
+        backward=Morphism(expr.Prim(roll, layer, carrier)),
         carrier=carrier,
     )

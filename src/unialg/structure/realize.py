@@ -11,16 +11,21 @@ from __future__ import annotations
 from hydra.core import Term
 from hydra.phantoms import TTerm
 import hydra.dsl.meta.phantoms as P
+from hydra.graph import Primitive
+from hydra.dsl.python import Right
+import hydra.dsl.terms as Terms
+import hydra.reduction as R
+
 
 from . import terms as T
 from unialg.semantics.morphisms import Morphism
 from unialg.syntax import expressions as expr
-from unialg.objects import Monad, Type, TypeUnit, TypePair, TypeEither
+from unialg.objects import Name, Monad, Type, TypeUnit, TypePair, TypeEither, ExpType, TypeScheme
 
 
-def realize_term(node: expr.MorphismExpr) -> TTerm:
+def realize_term(node: expr.MorphismExpr, _prims=None) -> TTerm:
     """Translate a morphism expression into a typed Hydra term handle."""
-    return TTerm(realize(node))
+    return TTerm(realize(node, _prims))
 
 
 def primitive_from_raw(raw: TTerm, dom: Type, cod: Type, like: Morphism, extra: tuple = ()) -> tuple[TTerm, Morphism]:
@@ -129,7 +134,7 @@ def _contextual_term(node: expr.ContextualBinary, build) -> Term:
     return T.term_lambda("ctx_x", wrapped).value
 
 
-def realize(node: expr.MorphismExpr) -> Term:
+def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
     """Translate a morphism expression into a raw Hydra term.
 
     The returned term expects the node's raw domain, not necessarily the visible
@@ -205,6 +210,26 @@ def realize(node: expr.MorphismExpr) -> Term:
                 "ctx_x",
                 lambda ctx_x: _apply_parametric_poly_fmap(node, h_term, ctx_x),
             ).value
+        case expr.SelfRef(name, _, _):
+            return P.primitive(Name(name)).value
+        case expr.AlgExpr(name, body, dom, cod) | expr.Cata(name, body, dom, cod) | expr.Ana(name, body, dom, cod):
+                prim_name = Name(name)
+                raw_body_ref = [None]
+                def impl(ctx, graph, args):
+                    term = Terms.apply(raw_body_ref[0].value, args[0])
+                    result = R.reduce_term(ctx, graph, True, term)
+                    if isinstance(result, Right):
+                        return result
+                    raise RuntimeError(f"{name} reduction failed: {result!r}")
+                prim = Primitive(
+                    prim_name,
+                    TypeScheme(variables=frozenset(), body=ExpType(dom, cod), constraints=None),
+                    impl,
+                )
+                if _prims is not None:
+                    _prims.append(prim)
+                raw_body_ref[0] = TTerm(realize(body, _prims))
+                return P.primitive(prim_name).value
         case expr.Prim(raw, _, _):
             return raw
         case _:

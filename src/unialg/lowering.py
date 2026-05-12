@@ -35,10 +35,10 @@ def _apply_and_reduce(term, argument, ctx, graph, label):
     raise RuntimeError(f"Reduction failed for {label}: {result}")
 
 
-def lower(morphism: Morphism):
+def lower(morphism: Morphism, extra_prims=None):
     """Realize a typed morphism as a raw Hydra term without evaluating it."""
     # return optimize_term().value
-    return realize(morphism.node)
+    return realize(morphism.node, extra_prims)
 
 
 def run(morphism: Morphism, argument, ctx, graph):
@@ -48,7 +48,8 @@ def run(morphism: Morphism, argument, ctx, graph):
     temporary graph before reduction.  ``argument`` must already be a Hydra
     ``Term`` matching the morphism's raw domain.
     """
-    aux = morphism.aux_primitives
+    extra_prims = []
+    aux = morphism.aux_primitives + tuple(extra_prims)
     g = _augment_graph(graph, aux) if aux else graph
-    term = lower(morphism)
+    term = lower(morphism, extra_prims)
     return _apply_and_reduce(term, argument, ctx, g, morphism)

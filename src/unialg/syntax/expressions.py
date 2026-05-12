@@ -309,10 +309,18 @@ class SelfRef(MorphismExpr):
 
 @dataclass(frozen=True)
 class AlgExpr(MorphismExpr):
+    """Base node for deferred recursive scheme expressions.
+
+    ``name`` is a globally unique identifier used as the Hydra primitive name.
+    ``body`` contains the algebra/coalgebra equation with embedded ``SelfRef``
+    nodes.  ``dom`` and ``cod`` are the raw term types (including any parameter
+    prefix and monad wrapper).  Subclasses ``Cata`` and ``Ana`` are realized by
+    ``structure/realize.py`` as mutually recursive Hydra ``Primitive`` objects.
+    """
     name: str
-    body: MorphismExpr   # body equation with SelfRef embedded
-    dom: Type            # raw_dom = raw_signature(param, monad, carrier, alg.cod())
-    cod: Type            # raw_cod
+    body: MorphismExpr
+    dom: Type
+    cod: Type
 
 
 @dataclass(frozen=True)

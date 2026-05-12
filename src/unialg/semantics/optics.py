@@ -21,8 +21,8 @@ No Hydra imports.  No encoding logic.  The action lives in ``recursion.act``.
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from functors import Functor
-from morphisms import Morphism, MorphismError, compose, identity, raw_signature
+from .functors import Functor
+from .morphisms import Morphism, MorphismError, compose, identity, raw_signature
 from unialg.syntax import expressions as expr
 from unialg.objects import Type
 
@@ -104,20 +104,33 @@ class Optic:
     
 
 def _compose_optic(outer: Optic, inner: Optic) -> Optic:
-        """Compose two optics: focus through ``outer`` then ``inner``."""
-        composed_functor = outer.functor.compose(inner.functor)
-        fwd = outer.act_forward(inner.forward)
-        bwd = outer.act_backward(inner.backward)
-        return Optic(functor=composed_functor, forward=fwd, backward=bwd)
+    """Compose two optics, threading focus through ``outer`` and then ``inner``.
+
+    The composed functor is ``outer.functor ∘ inner.functor``.  Forward and
+    backward morphisms are built using the respective optic actions so that
+    the combined optic correctly decomposes and reconstructs both layers.
+    """
+    composed_functor = outer.functor.compose(inner.functor)
+    fwd = outer.act_forward(inner.forward)
+    bwd = outer.act_backward(inner.backward)
+    return Optic(functor=composed_functor, forward=fwd, backward=bwd)
     
 
 def _require_carrier(fp: Optic) -> Type:
+    """Return ``fp.carrier``, raising ``MorphismError`` if it is not set."""
     if fp.carrier is None:
         raise MorphismError("recursive optic must define carrier")
     return fp.carrier
 
 
 def algebra(fp: Optic, alg: Morphism, i: int) -> Morphism:
+    """Build a deferred catamorphism (``i=0``) or anamorphism (``i=1``) morphism.
+
+    Validates the algebra/coalgebra shape against the carrier, constructs a
+    ``SelfRef`` for the recursive call, builds the body equation using optic
+    actions, and returns a ``Morphism(AlgExpr(...))`` deferred node.  No Hydra
+    primitives are created here; ``structure/realize.py`` materializes the node.
+    """
     carrier = _require_carrier(fp)
     kind = ("cata", "ana")[i]
     MorphismError.check(
@@ -146,14 +159,25 @@ def algebra(fp: Optic, alg: Morphism, i: int) -> Morphism:
 
 
 def cata(fp: Optic, alg: Morphism) -> Morphism:
+    """Catamorphism: fold the carrier type ``μF`` using algebra ``alg : F(B) → B``.
+
+    Returns a deferred ``Morphism(Cata(...))`` node.  ``alg.dom()`` must equal
+    ``fp.functor.apply(alg.cod())``.
+    """
     return algebra(fp, alg, 0)
 
 
 def ana(fp: Optic, coalg: Morphism) -> Morphism:
+    """Anamorphism: unfold into the carrier type ``μF`` using coalgebra ``coalg : A → F(A)``.
+
+    Returns a deferred ``Morphism(Ana(...))`` node.  ``coalg.cod()`` must equal
+    ``fp.functor.apply(coalg.dom())``.
+    """
     return algebra(fp, coalg, 1)
 
 
 def hylo(fp: Optic, coalg: Morphism, alg: Morphism) -> Morphism:
+    """Hylomorphism: unfold with ``coalg`` then fold with ``alg``, sharing parameter context."""
     return compose(ana(fp, coalg), cata(fp, alg), shared_context=True)
 
 
@@ -164,14 +188,4 @@ def identity_optic(*, name: str, functor: Functor, focus: Type) -> Optic:
         functor=functor,
         forward=identity(carrier),
         backward=identity(carrier),
-    )
-
-
-def fixed_point_optic(*, functor: Functor, carrier: Type, unroll, roll, ) -> Optic:
-    layer = functor.apply(carrier)
-    return Optic(
-        functor=functor,
-        forward=Morphism(expr.Prim(unroll, carrier, layer)),
-        backward=Morphism(expr.Prim(roll, layer, carrier)),
-        carrier=carrier,
     )

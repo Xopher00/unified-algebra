@@ -35,10 +35,12 @@ def ExpType(left: Type, right: Type) -> TypeFunction:
 
 
 def ListType(inner: Type) -> TypeList:
+    """Build the list type constructor ``List[inner]``."""
     return cast(TypeList, T.list_(inner))
 
 
 def MaybeType(inner: Type) -> TypeMaybe:
+    """Build the maybe type constructor ``Maybe[inner]``."""
     return cast(TypeMaybe, T.maybe(inner))
 
 

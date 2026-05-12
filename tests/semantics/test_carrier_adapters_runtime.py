@@ -11,7 +11,8 @@ from hydra.graph import Primitive
 from unialg.syntax import expressions as expr
 from unialg.semantics import morphisms as ops
 from unialg.lowering import run
-from unialg.structure.recursion import ana, cata, hylo, recursive_carrier
+from unialg.structure.recursion import recursive_carrier
+from unialg.semantics.optics import ana, cata, hylo
 from unialg.objects import ExpType
 from support.strategies import INT
 

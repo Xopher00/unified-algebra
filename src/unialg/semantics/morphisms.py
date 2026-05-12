@@ -85,6 +85,12 @@ def raw_signature(param: Type, monad: Monad | None, dom: Type, cod: Type) -> tup
 
 def _contextual_binary(cls, f: Morphism, g: Morphism,
     dom: Type, cod: Type, *, shared_context: bool = False) -> Morphism:
+    """Construct a binary contextual morphism node, resolving monad and parameter context.
+
+    Wraps ``f`` and ``g`` into a ``cls`` node (one of ``Compose``, ``Parallel``,
+    ``Pair``, ``Case``) with the resolved combined domain and codomain.  Plain
+    morphisms are automatically embedded into a shared lax context.
+    """
     monad = _resolve_monad(f, g)
     param = (
         _share_param(f.param, g.param)
@@ -166,10 +172,12 @@ class Morphism:
 
 
 def _lr(t: TypePair | TypeEither) -> tuple[Type, Type]:
+    """Extract the left and right components from a product or sum type."""
     return (t.value.first, t.value.second) if isinstance(t, TypePair) else (t.value.left, t.value.right)
 
 
 def _is_assoc(dom: Type, cod: Type, cls: type) -> bool:
+    """Return True if (dom, cod) has the shape ``(A⋆B)⋆C → A⋆(B⋆C)`` for ``cls``."""
     if not (isinstance(dom, cls) and isinstance(cod, cls)):
         return False
     dl, dr = _lr(dom)
@@ -182,6 +190,7 @@ def _is_assoc(dom: Type, cod: Type, cls: type) -> bool:
 
 
 def _is_symmetry(dom: Type, cod: Type, cls: type) -> bool:
+    """Return True if (dom, cod) has the shape ``A⋆B → B⋆A`` for ``cls``."""
     if not (isinstance(dom, cls) and isinstance(cod, cls)):
         return False
     dl, dr = _lr(dom)
@@ -231,6 +240,10 @@ def signature(node: expr.MorphismExpr) -> tuple[Type, Type]:
         case expr.Prim(_, dom, cod):
             return dom, cod
         case expr.PolyFmap(dom=dom, cod=cod):
+            return dom, cod
+        case expr.SelfRef(dom=dom, cod=cod):
+            return dom, cod
+        case expr.AlgExpr(dom=dom, cod=cod):
             return dom, cod
         case _:
             raise TypeError(f"signature: unknown MorphismExpr {type(node).__name__!r}")

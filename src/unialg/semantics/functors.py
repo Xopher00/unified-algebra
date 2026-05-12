@@ -200,6 +200,7 @@ def exp(base: Type, body: expr.PolyExpr) -> expr.Exp:
 
 
 def list_(body: expr.PolyExpr) -> expr.List:
+    """Constructor for the list polynomial functor ``F(X) = List[body(X)]``."""
     return expr.List(body)
 
 

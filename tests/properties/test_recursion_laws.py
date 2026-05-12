@@ -4,7 +4,7 @@ from unialg.syntax import expressions as expr
 from unialg.semantics import morphisms as ops
 from unialg.semantics.functors import Functor
 from unialg.semantics.optics import Optic
-from unialg.structure.recursion import ana, cata, hylo
+from unialg.semantics.optics import ana, cata, hylo
 from unialg.objects import MAYBE
 from support.strategies import INT
 

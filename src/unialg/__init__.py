@@ -10,7 +10,8 @@ from .semantics.morphisms import (
 )
 from .tensors.semirings import Semiring
 from .semantics.optics import Optic
-from .structure.recursion import recursive_carrier, cata, ana, hylo
+from .structure.recursion import recursive_carrier
+from .semantics.optics import cata, ana, hylo
 from .lowering import lower, run
 
 __all__ = [

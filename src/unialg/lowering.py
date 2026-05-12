@@ -49,7 +49,7 @@ def run(morphism: Morphism, argument, ctx, graph):
     ``Term`` matching the morphism's raw domain.
     """
     extra_prims = []
+    term = lower(morphism, extra_prims)
     aux = morphism.aux_primitives + tuple(extra_prims)
     g = _augment_graph(graph, aux) if aux else graph
-    term = lower(morphism, extra_prims)
     return _apply_and_reduce(term, argument, ctx, g, morphism)

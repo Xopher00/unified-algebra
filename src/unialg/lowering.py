@@ -14,8 +14,7 @@ import hydra.lib.maps as HMaps
 import hydra.reduction as R
 
 from .semantics.morphisms import Morphism
-from .structure.realize import realize
-from .structure.terms import optimize_term
+from .structure.realize import realize_normalized
 
 
 def _augment_graph(graph, aux_primitives):
@@ -35,10 +34,9 @@ def _apply_and_reduce(term, argument, ctx, graph, label):
     raise RuntimeError(f"Reduction failed for {label}: {result}")
 
 
-def lower(morphism: Morphism, extra_prims=None):
+def lower(morphism: Morphism, graph, _extra_prims=None):
     """Realize a typed morphism as a raw Hydra term without evaluating it."""
-    # return optimize_term().value
-    return realize(morphism.node, extra_prims)
+    return realize_normalized(morphism.node, graph, _extra_prims)
 
 
 def run(morphism: Morphism, argument, ctx, graph):
@@ -49,7 +47,7 @@ def run(morphism: Morphism, argument, ctx, graph):
     ``Term`` matching the morphism's raw domain.
     """
     extra_prims = []
-    term = lower(morphism, extra_prims)
+    term = lower(morphism, graph, extra_prims)
     aux = morphism.aux_primitives + tuple(extra_prims)
     g = _augment_graph(graph, aux) if aux else graph
     return _apply_and_reduce(term, argument, ctx, g, morphism)

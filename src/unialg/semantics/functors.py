@@ -9,33 +9,15 @@ unifier rather than reimplementing type matching here.
 from __future__ import annotations
 from dataclasses import dataclass
 
-from hydra.dsl.python import Right
-import hydra.lib.maps as HMaps
-import hydra.unification as Unification
+from hydra.context import Context
 
 from . import morphisms
+from . import typeops as Ty
 from unialg.syntax import expressions as expr
 from unialg.objects import (
-    Name, Type, TypeUnit, TypeList, TypeMaybe, TypeVariable,
-    ProductType, SumType, ExpType, VoidType, show_type,
+    Type, TypeUnit, TypeList, TypeMaybe,
+    ProductType, SumType, ExpType, VoidType,
 )
-
-
-def _fresh_element_var(functor: "Functor", fa: Type) -> Name:
-    return Name(f"unialg.functor.unapply.{id(functor):x}.{id(fa):x}.A")
-
-
-def _unify_types(pattern: Type, actual: Type, comment: str):
-    result = Unification.unify_types(
-        None, HMaps.empty(), pattern, actual, comment,
-    )
-    if not isinstance(result, Right):
-        raise TypeError(
-            f"{comment}: cannot solve {show_type(pattern)} = "
-            f"{show_type(actual)}; error={result.value!r}"
-        )
-    return result.value.value
-
 
 @dataclass(frozen=True)
 class Functor:
@@ -89,40 +71,19 @@ class Functor:
             category=self.category,
         )
 
-    def unapply(self, fa: Type) -> Type:
-        """Solve ``F(A) = fa`` and return the recovered element type ``A``.
-
-        The pattern ``F(A)`` is built with a fresh Hydra type variable, then
-        Hydra's unifier solves it against ``fa``.  A final round-trip check
-        keeps this method a strict inverse of ``apply`` for compatible inputs.
-
-        Raises ``TypeError`` if the functor contains no ``Id`` position, if
-        Hydra cannot unify the pattern with ``fa``, or if unification does not
-        bind the element variable.
-        """
+    def unapply(self, fa: Type, cx: Context) -> tuple[Type, Context]:
+        """Solve ``F(A) = fa`` and return the recovered element type ``A``."""
         if self.x_arity() == 0:
             raise TypeError(
-                f"Functor {self.name!r}.unapply: body contains no Id; "
-                f"no element type A exists in F(A)"
+                f"Functor {self.name!r}.unapply: body contains no Id; no element type exists"
             )
 
-        element_var = _fresh_element_var(self, fa)
-        pattern = self.apply(TypeVariable(element_var))
-        subst = _unify_types(pattern, fa, f"Functor {self.name}.unapply")
-        if element_var not in subst:
-            raise TypeError(
-                f"Functor {self.name!r}.unapply: Hydra unification did not "
-                f"bind element variable {element_var.value!r}"
-            )
-
-        a = subst[element_var]
-        rebuilt = self.apply(a)
-        if rebuilt != fa:
-            raise TypeError(
-                f"Functor {self.name!r}.unapply: round-trip mismatch; "
-                f"F({show_type(a)})={show_type(rebuilt)} != {show_type(fa)}"
-            )
-        return a
+        a_var, cx = Ty.fresh_variable_type(cx)
+        pattern = self.apply(a_var)
+        match = Ty.unify(pattern, fa, f"{self.name}.unapply")
+        recovered = Ty.apply_subst(match.substitution, a_var)
+        Ty.roundtrip_equal(None, self.apply, recovered, fa, f"{self.name}.unapply round-trip")
+        return recovered, cx
     
     def map(self, h: morphisms.Morphism) -> morphisms.Morphism:
         """Semantic polynomial functor action on a typed morphism."""
@@ -291,3 +252,45 @@ def _collect_consts(node: expr.PolyExpr) -> list[Type]:
     if isinstance(node, (expr.List, expr.Maybe)):
         return _collect_consts(node.body)
     raise ValueError(f"_collect_consts: unknown PolyExpr {type(node).__name__!r}")
+
+
+
+# def _fresh_element_var(functor: "Functor", fa: Type) -> Name:
+#     return Name(f"unialg.functor.unapply.{id(functor):x}.{id(fa):x}.A")
+
+
+# def _unify_types(pattern: Type, actual: Type, comment: str):
+#     result = Unification.unify_types(
+#         None, HMaps.empty(), pattern, actual, comment,
+#     )
+#     if not isinstance(result, Right):
+#         raise TypeError(
+#             f"{comment}: cannot solve {show_type(pattern)} = "
+#             f"{show_type(actual)}; error={result.value!r}"
+#         )
+#     return result.value.value
+
+
+        # if self.x_arity() == 0:
+        #     raise TypeError(
+        #         f"Functor {self.name!r}.unapply: body contains no Id; "
+        #         f"no element type A exists in F(A)"
+        #     )
+
+        # element_var = _fresh_element_var(self, fa)
+        # pattern = self.apply(TypeVariable(element_var))
+        # subst = _unify_types(pattern, fa, f"Functor {self.name}.unapply")
+        # if element_var not in subst:
+        #     raise TypeError(
+        #         f"Functor {self.name!r}.unapply: Hydra unification did not "
+        #         f"bind element variable {element_var.value!r}"
+        #     )
+
+        # a = subst[element_var]
+        # rebuilt = self.apply(a)
+        # if rebuilt != fa:
+        #     raise TypeError(
+        #         f"Functor {self.name!r}.unapply: round-trip mismatch; "
+        #         f"F({show_type(a)})={show_type(rebuilt)} != {show_type(fa)}"
+        #     )
+        # return a

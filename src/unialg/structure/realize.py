@@ -17,6 +17,7 @@ from hydra.graph import Primitive
 from hydra.dsl.python import Right
 import hydra.dsl.terms as Terms
 import hydra.reduction as R
+import hydra.analysis as Analysis
 
 from . import terms as T
 from unialg.semantics.morphisms import Morphism
@@ -27,6 +28,36 @@ from unialg.objects import Name, Monad, Type, TypeUnit, TypePair, TypeEither, Ex
 def realize_term(node: expr.MorphismExpr, _prims=None) -> TTerm:
     """Translate a morphism expression into a typed Hydra term handle."""
     return TTerm(realize(node, _prims))
+
+
+def realize_term_normalized(node: expr.MorphismExpr, graph=None, _prims=None) -> TTerm:
+    """Translate and structurally normalize a morphism expression."""
+    return T.normalize_term(realize(node, _prims), graph)
+
+
+def realize_normalized(node: expr.MorphismExpr, graph=None, _prims: list | None = None) -> Term:
+    """Translate a morphism expression into a normalized raw Hydra term."""
+    return T.normalize_term(realize(node, _prims), graph).value
+
+
+def analyze_realized_function(node: expr.MorphismExpr, _prims=None):
+    """Analyze a realized Hydra function term."""
+    from hydra.context import Context
+    from hydra.graph import Graph
+
+    term = realize(node, _prims)
+    return Analysis.analyze_function_term(
+        Context(),
+        lambda g: g,
+        lambda g, _env: g,
+        Graph(),
+        term,
+    )
+
+
+def realized_is_self_tail_recursive(name: Name, node: expr.MorphismExpr, _prims=None) -> bool:
+    """Check whether a realized recursive body is self-tail-recursive."""
+    return Analysis.is_self_tail_recursive(name, realize(node, _prims))
 
 
 def primitive_from_raw(raw: TTerm, dom: Type, cod: Type, like: Morphism, extra: tuple = ()) -> tuple[TTerm, Morphism]:
@@ -277,3 +308,5 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
 
         case _:
             raise TypeError(f"realize: unknown MorphismExpr {type(node).__name__!r}")
+
+

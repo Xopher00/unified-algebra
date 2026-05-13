@@ -18,6 +18,12 @@ from functools import singledispatch
 from unialg.objects import Monad, Type, TypeEither, TypePair, show_type
 
 
+@dataclass(frozen=True)
+class BackendExor:
+    """"User defined backend syntax"""
+    space: Type
+
+
 # ---------------------------------------------------------------------------
 # MorphismExpr ADT
 # ---------------------------------------------------------------------------

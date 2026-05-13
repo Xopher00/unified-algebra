@@ -21,6 +21,9 @@ No Hydra imports.  No encoding logic.  The action lives in ``recursion.act``.
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+from hydra.context import Context
+
+from . import typeops as Ty
 from .functors import Functor
 from .morphisms import Morphism, MorphismError, compose, identity, raw_signature
 from unialg.syntax import expressions as expr
@@ -46,18 +49,32 @@ class Optic:
     _replacement: Type = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        cx = Context()
+
         try:
-            focus = self.functor.unapply(self.forward.cod())
+            focus, cx = self.functor.unapply(self.forward.cod(), cx)
+            Ty.roundtrip_equal(
+                None,
+                self.functor.apply,
+                focus,
+                self.forward.cod(),
+                "optic focus shape",
+            )
         except TypeError as e:
-            raise MorphismError(
-                f"invalid optic forward codomain: {e}"
-            ) from e
+            raise MorphismError(f"invalid optic forward codomain: {e}") from e
+
         try:
-            replacement = self.functor.unapply(self.backward.dom())
+            replacement, cx = self.functor.unapply(self.backward.dom(), cx)
+            Ty.roundtrip_equal(
+                None,
+                self.functor.apply,
+                replacement,
+                self.backward.dom(),
+                "optic replacement shape",
+            )
         except TypeError as e:
-            raise MorphismError(
-                f"invalid optic backward domain: {e}"
-            ) from e
+            raise MorphismError(f"invalid optic backward domain: {e}") from e
+
         object.__setattr__(self, "_focus", focus)
         object.__setattr__(self, "_replacement", replacement)
 
@@ -133,30 +150,31 @@ def algebra(fp: Optic, alg: Morphism, i: int) -> Morphism:
     """
     carrier = _require_carrier(fp)
     kind = ("cata", "ana")[i]
-    MorphismError.check(
-        (alg.dom(), alg.cod())[i],
-        fp.functor.apply((alg.cod(), alg.dom())[i]),
-        f"{kind} shape",
-    )
+    actual = (alg.dom(), alg.cod())[i]
+    expected = fp.functor.apply(carrier)
+    try:
+        Ty.require_equal(None, actual, expected, f"{kind} shape")
+    except TypeError as e:
+        raise MorphismError(str(e)) from e
     name = f"unialg.{kind}.{id(fp):x}.{id(alg):x}"
-    raw_dom, raw_cod = raw_signature(
-        alg.param, alg.monad,
-        (carrier, alg.dom())[i], (alg.cod(), carrier)[i],
-    )    
+    rec_dom = (carrier, alg.dom())[i]
+    rec_cod = (alg.cod(), carrier)[i]
+    raw_dom, raw_cod = raw_signature(alg.param, alg.monad, rec_dom, rec_cod)
     self_ref = Morphism(
         expr.SelfRef(name, raw_dom, raw_cod),
-        param=alg.param, monad=alg.monad,
+        param=alg.param,
+        monad=alg.monad,
     )
-    body = compose(
-        (fp.act_forward(self_ref), alg)[i],
-        (alg, fp.act_backward(self_ref))[i],
-        shared_context=True,
-    )
+    left = (fp.act_forward(self_ref), alg)[i]
+    right = (alg, fp.act_backward(self_ref))[i]
+    body = compose(left, right, shared_context=True)
     return Morphism(
         expr.AlgExpr(name=name, body=body.node, dom=raw_dom, cod=raw_cod),
-        param=alg.param, monad=alg.monad, aux_primitives=alg.aux_primitives,
+        param=alg.param,
+        monad=alg.monad,
+        aux_primitives=alg.aux_primitives,
     )
-
+    
 
 def cata(fp: Optic, alg: Morphism) -> Morphism:
     """Catamorphism: fold the carrier type ``μF`` using algebra ``alg : F(B) → B``.
@@ -189,3 +207,29 @@ def identity_optic(*, name: str, functor: Functor, focus: Type) -> Optic:
         forward=identity(carrier),
         backward=identity(carrier),
     )
+
+
+    # kind = ("cata", "ana")[i]
+    # MorphismError.check(
+    #     (alg.dom(), alg.cod())[i],
+    #     fp.functor.apply((alg.cod(), alg.dom())[i]),
+    #     f"{kind} shape",
+    # )
+    # name = f"unialg.{kind}.{id(fp):x}.{id(alg):x}"
+    # raw_dom, raw_cod = raw_signature(
+    #     alg.param, alg.monad,
+    #     (carrier, alg.dom())[i], (alg.cod(), carrier)[i],
+    # )    
+    # self_ref = Morphism(
+    #     expr.SelfRef(name, raw_dom, raw_cod),
+    #     param=alg.param, monad=alg.monad,
+    # )
+    # body = compose(
+    #     (fp.act_forward(self_ref), alg)[i],
+    #     (alg, fp.act_backward(self_ref))[i],
+    #     shared_context=True,
+    # )
+    # return Morphism(
+    #     expr.AlgExpr(name=name, body=body.node, dom=raw_dom, cod=raw_cod),
+    #     param=alg.param, monad=alg.monad, aux_primitives=alg.aux_primitives,
+    # )

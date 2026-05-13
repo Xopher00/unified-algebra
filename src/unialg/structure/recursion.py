@@ -26,8 +26,11 @@ def recursive_carrier(*, functor: Functor, carrier: Type, unroll, roll) -> Optic
     return a ``TTerm``.  They are wrapped as ``Prim`` morphisms via
     ``T.term_lambda`` and forwarded to ``fixed_point_optic``.
     """
+    unroll_term = T.normalize_term(T.term_lambda("x", unroll)).value
+    roll_term = T.normalize_term(T.term_lambda("layer", roll)).value
     return fixed_point_optic(
-        functor=functor, carrier=carrier,
-        unroll=T.term_lambda("x", unroll).value,
-        roll=T.term_lambda("layer", roll).value,
+        functor=functor,
+        carrier=carrier,
+        unroll=unroll_term,
+        roll=roll_term,
     )

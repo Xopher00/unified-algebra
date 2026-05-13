@@ -14,53 +14,36 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from . import typeops as Ty
 from unialg.syntax import expressions as expr
 from unialg.objects import (
     Monad, Type, TypeUnit, TypePair, TypeEither,
     ProductType, SumType, VoidType, show_type,
 )
 
-
+        
 class MorphismError(TypeError):
-    """Raised when a typed morphism contract is violated."""
-
     @classmethod
-    def check(cls, a: Type, b: Type, label: str) -> None:
-        if a != b:
-            raise cls(f"{label}: {show_type(a)} != {show_type(b)}")
+    def check(cls, graph, a: Type, b: Type, label: str) -> None:
+        try:
+            Ty.require_equal(graph, a, b, label)
+        except TypeError as e:
+            raise cls(str(e)) from e
 
 
 def _collect_aux_primitives(*morphisms: Morphism) -> tuple:
     return tuple(p for m in morphisms for p in m.aux_primitives)
 
 
-def _combine_param(f_param: Type, g_param: Type) -> Type:
-    """Combine contextual parameters for a binary morphism node.
-
-    ``Unit`` means "no parameter".  If both children are parametric, the second
-    child's parameter is placed first: ``g_param × f_param``.  This matches the
-    raw argument shape expected by contextual realizers for compose, par, pair,
-    and case.
-    """
-    if f_param == TypeUnit():
-        return g_param
-    if g_param == TypeUnit():
-        return f_param
-    return ProductType(g_param, f_param)
-
-
-def _share_param(f_param: Type, g_param: Type) -> Type:
-    """Share one contextual parameter between two sequential morphisms."""
-    if f_param == TypeUnit():
-        return g_param
-    if g_param == TypeUnit():
-        return f_param
-    if f_param == g_param:
-        return f_param
-    raise MorphismError(
-        "Cannot share distinct params: "
-        f"{show_type(f_param)} != {show_type(g_param)}"
-    )
+def _share_param(f_param: Type, g_param: Type, *, graph=None, allow_unification: bool = False) -> Type:
+    try:
+        return Ty.share_param(
+            graph, f_param, g_param,
+            "Cannot share contextual parameter",
+            allow_unification=allow_unification,
+        )
+    except TypeError as e:
+        raise MorphismError(str(e)) from e
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +65,17 @@ def raw_signature(param: Type, monad: Monad | None, dom: Type, cod: Type) -> tup
     return raw_dom, raw_cod
     
 
-
-def _contextual_binary(cls, f: Morphism, g: Morphism,
-    dom: Type, cod: Type, *, shared_context: bool = False) -> Morphism:
+def _contextual_binary(
+    cls,
+    f: Morphism,
+    g: Morphism,
+    dom: Type,
+    cod: Type,
+    *,
+    shared_context: bool = False,
+    graph=None,
+    allow_unification: bool = False,
+) -> Morphism:
     """Construct a binary contextual morphism node, resolving monad and parameter context.
 
     Wraps ``f`` and ``g`` into a ``cls`` node (one of ``Compose``, ``Parallel``,
@@ -93,9 +84,14 @@ def _contextual_binary(cls, f: Morphism, g: Morphism,
     """
     monad = _resolve_monad(f, g)
     param = (
-        _share_param(f.param, g.param)
+        _share_param(
+            f.param,
+            g.param,
+            graph=graph,
+            allow_unification=allow_unification,
+        )
         if shared_context else
-        _combine_param(f.param, g.param)
+        Ty.combine_params(f.param, g.param)
     )
     raw_dom, raw_cod = raw_signature(param, monad, dom, cod)
     return Morphism(
@@ -131,14 +127,10 @@ class Morphism:
     def dom(self) -> Type:
         """Return the visible domain, stripping a parameter prefix if present."""
         raw = dom_of(self.node)
-        if self.param == TypeUnit():
-            return raw
-        if not isinstance(raw, TypePair) or raw.value.first != self.param:
-            raise MorphismError(
-                "parametric morphism domain "
-                f"{show_type(raw)} does not match param {show_type(self.param)}"
-            )
-        return raw.value.second
+        try:
+            return Ty.visible_domain(raw, self.param, "parametric morphism domain")
+        except TypeError as e:
+            raise MorphismError(str(e)) from e
 
     def cod(self) -> Type:
         """Return the visible codomain, stripping the monad wrapper if present."""
@@ -322,7 +314,8 @@ def _symmetry(dom: TypePair | TypeEither) -> Morphism:
 # Plain combinators
 # ---------------------------------------------------------------------------
 
-def compose(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
+def compose(f: Morphism, g: Morphism, *, shared_context: bool = False, 
+            graph=None, allow_unification: bool = False) -> Morphism:
     """Compose ``f`` then ``g`` in diagrammatic order.
 
     Requires ``f.cod() == g.dom()``.  Plain morphisms are automatically embedded
@@ -332,11 +325,23 @@ def compose(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphi
     ``g.param × f.param``.  With ``shared_context=True``, matching non-unit
     params are shared instead; distinct non-unit params are rejected.
     """
-    MorphismError.check(f.cod(), g.dom(), "Cannot compose")
+    try:
+        Ty.unify_or_equal(
+            graph, f.cod(), g.dom(),
+            "Cannot compose morphisms",
+            allow_unification=allow_unification,
+        )
+    except TypeError as e:
+        raise MorphismError(str(e)) from e
     return _contextual_binary(
-        expr.Compose, f, g, 
-        f.dom(), g.cod(),
+        expr.Compose,
+        f,
+        g,
+        f.dom(),
+        g.cod(),
         shared_context=shared_context,
+        graph=graph,
+        allow_unification=allow_unification,
     )
 
 
@@ -354,29 +359,92 @@ def par(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
     )
 
 
-def pair(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
+def pair(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, allow_unification: bool = False) -> Morphism:
     """Product introduction ``<f, g> : A -> B × C``.
 
     Requires both morphisms to have the same visible domain.
     """
-    MorphismError.check(f.dom(), g.dom(), "Cannot build pair")
+    try:
+        Ty.unify_or_equal(
+            graph, f.dom(), g.dom(),
+            "Cannot build pair",
+            allow_unification=allow_unification,
+        )
+    except TypeError as e:
+        raise MorphismError(str(e)) from e
     return _contextual_binary(
-        expr.Pair, f, g, 
+        expr.Pair,
+        f,
+        g,
         f.dom(),
         ProductType(f.cod(), g.cod()),
         shared_context=shared_context,
+        graph=graph,
+        allow_unification=allow_unification,
     )
 
 
-def case(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
+def case(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, allow_unification: bool = False) -> Morphism:
     """Coproduct elimination ``[f, g] : A + B -> C``.
 
     Requires both branches to have the same visible codomain.
     """
-    MorphismError.check(f.cod(), g.cod(), "Cannot build case")
+    try:
+        Ty.unify_or_equal(
+            graph, f.cod(), g.cod(),
+            "Cannot build case",
+            allow_unification=allow_unification,
+        )
+    except TypeError as e:
+        raise MorphismError(str(e)) from e
+
     return _contextual_binary(
-        expr.Case, f, g,
-        SumType(f.dom(), g.dom()), 
+        expr.Case,
+        f,
+        g,
+        SumType(f.dom(), g.dom()),
         f.cod(),
         shared_context=shared_context,
+        graph=graph,
+        allow_unification=allow_unification,
     )
+
+
+
+    # def compose(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
+
+    # MorphismError.check(f.cod(), g.dom(), "Cannot compose")
+# def pair(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
+    # MorphismError.check(f.dom(), g.dom(), "Cannot build pair")
+# def case(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
+# class MorphismError(TypeError):
+#     """Raised when a typed morphism contract is violated."""
+
+#     @classmethod
+#     def check(cls, a: Type, b: Type, label: str) -> None:
+#         if a != b:
+#             raise cls(f"{label}: {show_type(a)} != {show_type(b)}")
+
+# def _share_param(f_param: Type, g_param: Type) -> Type:
+#     """Share one contextual parameter between two sequential morphisms."""
+#     if f_param == TypeUnit():
+#         return g_param
+#     if g_param == TypeUnit():
+#         return f_param
+#     if f_param == g_param:
+#         return f_param
+#     raise MorphismError(
+#         "Cannot share distinct params: "
+#         f"{show_type(f_param)} != {show_type(g_param)}"
+#     )
+
+        # raw = dom_of(self.node)
+        # if self.param == TypeUnit():
+        #     return raw
+        # if not isinstance(raw, TypePair) or raw.value.first != self.param:
+        #     raise MorphismError(
+        #         "parametric morphism domain "
+        #         f"{show_type(raw)} does not match param {show_type(self.param)}"
+        #     )
+        # return raw.value.second
+

@@ -14,11 +14,12 @@ import hydra.dsl.meta.phantoms as P
 import hydra.dsl.meta.lib.lists as Lists
 import hydra.dsl.meta.lib.maybes as Maybes
 import hydra.dsl.terms as Terms
-from hydra.core import Name
+from hydra.core import Name, Term
+from hydra.graph import Graph
 from hydra.lib import names as Names
 from hydra.phantoms import TTerm
+import hydra.hoisting as Hoisting
 import hydra.rewriting as Rewriting
-
 
 class MonadDescriptor(Protocol):
     """Minimal monad protocol used at the Hydra term boundary."""
@@ -97,14 +98,21 @@ def _structural_rewrite_once(t):
     return _variant_fields(t, "TermApplication", "function", "argument", then=rewrite_pair_app)
 
 
-def optimize_term(term: TTerm) -> TTerm:
-    """
-    Optimize a Hydra term after lowering from unialg morphism combinators.
-    """
+def optimize_term(term: TTerm | Term) -> TTerm:
+    """Optimize a Hydra term after lowering from unialg morphism combinators."""
     def rule(recurse, t):
         return _structural_rewrite_once(recurse(t))
-    tterm = term.value if isinstance(term, TTerm) else term
-    return TTerm(Rewriting.rewrite_term(rule, tterm))
+
+    raw = term.value if isinstance(term, TTerm) else term
+    return TTerm(Rewriting.rewrite_term(rule, raw))
+
+
+def normalize_term(term: TTerm | Term, graph: Graph | None = None) -> TTerm:
+    """Run structural normalization passes on a realized Hydra term."""
+    out = optimize_term(term)
+    if graph is not None:
+        out = TTerm(Hoisting.hoist_case_statements(graph, out.value))
+    return out
 
 
 def bind(monad: MonadDescriptor, value: TTerm, name: str,

@@ -38,15 +38,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from hydra.core import LiteralType, Name, Type, TypeLiteral
-from hydra.graph import Primitive
-from hydra.dsl.python import Right
+from hydra.context import Context
+from hydra.core import LiteralType, Name, Term, Type, TypeLiteral
+from hydra.dsl.python import Left, Right
+from hydra.graph import Graph, Primitive, TermCoder
+from hydra.lib import maps as Maps
+from hydra.packaging import Library, Namespace
 import hydra.dsl.meta.phantoms as P
 
 from unialg.objects import ExpType, TypeScheme, ProductType
 from unialg.semantics import morphisms
+from unialg.structure import terms as struct_terms
 from unialg.syntax import expressions as expr
 
+from hydra.lib import maps as Maps
 
 TYPE_REGISTRY: dict[str, Type] = {
     "INT":   TypeLiteral(LiteralType.INTEGER),
@@ -54,11 +59,55 @@ TYPE_REGISTRY: dict[str, Type] = {
 }
 
 # Each entry: (unwrap: Term -> Python, wrap: Python -> Term)
-CODEC_REGISTRY: dict[str, tuple[Callable, Callable]] = {
-    "int32":   (lambda t: t.value.value.value,   lambda x: P.int32(int(x)).value),
-    "int64":   (lambda t: t.value.value.value,   lambda x: P.int64(int(x)).value),
-    "float32": (lambda t: t.value.value.value,   lambda x: P.float32(float(x)).value),
-    "float64": (lambda t: t.value.value.value,   lambda x: P.float64(float(x)).value),
+def _expect_right(result, context: str):
+    """Unwrap a Hydra Either result or raise a readable error."""
+    if isinstance(result, Left):
+        raise TypeError(f"{context}: {result.value!r}")
+    return result.value
+
+
+def _literal_value(term: Term, context: str):
+    """Extract the Python literal payload from a Hydra literal term."""
+    try:
+        return term.value.value.value
+    except Exception as e:
+        raise TypeError(f"{context}: expected literal term, got {term!r}") from e
+
+
+def _mk_term_coder(
+    typ: Type,
+    decode_term: Callable[[Term], object],
+    encode_value: Callable[[object], Term],
+) -> TermCoder:
+    """Construct a Hydra TermCoder from native decode/encode callables."""
+    return TermCoder(
+        type=typ,
+        encode=lambda _cx, _graph, term: Right(decode_term(term)),
+        decode=lambda _cx, value: Right(encode_value(value)),
+    )
+
+
+TERM_CODER_REGISTRY: dict[str, TermCoder] = {
+    "int32": _mk_term_coder(
+        TypeLiteral(LiteralType.INTEGER),
+        lambda t: int(_literal_value(t, "int32 coder")),
+        lambda x: P.int32(int(x)).value,
+    ),
+    "int64": _mk_term_coder(
+        TypeLiteral(LiteralType.INTEGER),
+        lambda t: int(_literal_value(t, "int64 coder")),
+        lambda x: P.int64(int(x)).value,
+    ),
+    "float32": _mk_term_coder(
+        TypeLiteral(LiteralType.FLOAT),
+        lambda t: float(_literal_value(t, "float32 coder")),
+        lambda x: P.float32(float(x)).value,
+    ),
+    "float64": _mk_term_coder(
+        TypeLiteral(LiteralType.FLOAT),
+        lambda t: float(_literal_value(t, "float64 coder")),
+        lambda x: P.float64(float(x)).value,
+    ),
 }
 
 _CANONICAL_PREFIX = "unialg.backend"
@@ -76,8 +125,10 @@ class BackendPrimitive:
 
     primitive: Primitive
     arity: int
-    arg_type: object
-    result_type: object
+    arg_type: Type
+    result_type: Type
+    arg_coder: TermCoder
+    result_coder: TermCoder
 
     @property
     def name(self) -> Name:
@@ -158,12 +209,12 @@ def product_arg(x, n):
 def register_backend_primitive(
     canonical_name: str,
     path: str,
-    arg_type,
+    arg_type: Type,
     arity: int,
     *,
-    unwrap: Callable,
-    wrap: Callable,
-    result_type=None,
+    arg_coder: TermCoder,
+    result_coder: TermCoder,
+    result_type: Type | None = None,
 ) -> BackendPrimitive:
     """Register a single backend function as a Hydra primitive.
 
@@ -192,15 +243,24 @@ def register_backend_primitive(
         constraints=None,
     )
 
-    def impl(_ctx, _graph, args):
-        py_args = [unwrap(a) for a in args]
-        return Right(wrap(fn(*py_args)))
+    def impl(ctx: Context, graph: Graph, args):
+        py_args = [
+            _expect_right(
+                arg_coder.encode(ctx, graph, arg),
+                f"decoding argument for {canonical_name}",
+            )
+            for arg in args
+        ]
+        py_result = fn(*py_args)
+        return result_coder.decode(ctx, py_result)
 
     return BackendPrimitive(
         primitive=Primitive(name, scheme, impl),
         arity=arity,
         arg_type=arg_type,
         result_type=result_type,
+        arg_coder=arg_coder,
+        result_coder=result_coder,
     )
 
 
@@ -216,7 +276,7 @@ def _primitive_morphism(bp: BackendPrimitive) -> morphisms.Morphism:
     term = P.primitive(bp.name)
     for arg in args:
         term = P.apply(term, arg)
-    raw = P.lam("x", term).value
+    raw = struct_terms.normalize_term(P.lam("x", term)).value
     dom = repeated_product(bp.arg_type, bp.arity)
     return morphisms.Morphism(
         expr.Prim(raw, dom, bp.result_type),
@@ -236,18 +296,32 @@ def load_spec(spec: dict | str | Path) -> dict[str, BackendPrimitive]:
     if isinstance(spec, (str, Path)):
         with open(spec) as f:
             spec = json.load(f)
+
     result: dict[str, BackendPrimitive] = {}
     for op_name, entry in spec["operations"].items():
         arg_type = TYPE_REGISTRY[entry["arg_type"]]
         result_type = TYPE_REGISTRY[entry.get("result_type", entry["arg_type"])]
-        unwrap, wrap = CODEC_REGISTRY[entry["codec"]]
+        coder = TERM_CODER_REGISTRY[entry["codec"]]
         canonical = f"{_CANONICAL_PREFIX}.{op_name}"
         result[op_name] = register_backend_primitive(
-            canonical, entry["path"], arg_type, entry["arity"],
-            unwrap=unwrap, wrap=wrap,
+            canonical,
+            entry["path"],
+            arg_type,
+            entry["arity"],
+            arg_coder=coder,
+            result_coder=coder,
             result_type=result_type,
         )
     return result
+
+
+def backend_library(primitives: dict[str, BackendPrimitive]) -> Library:
+    """Build a Hydra Library from registered backend primitives."""
+    return Library(
+        namespace=Namespace(_CANONICAL_PREFIX),
+        prefix="backend",
+        primitives=tuple(bp.primitive for bp in primitives.values()),
+    )
 
 
 class BackendOps:
@@ -268,6 +342,7 @@ class BackendOps:
 
     def __init__(self, primitives: dict[str, BackendPrimitive]):
         self._primitives = primitives
+        self._library = backend_library(primitives)
         self._morphisms: dict[str, morphisms.Morphism] = {
             name: _primitive_morphism(bp) for name, bp in primitives.items()
         }
@@ -276,6 +351,16 @@ class BackendOps:
     def from_spec(cls, spec: dict | str | Path) -> "BackendOps":
         """Construct from a JSON spec file path, path string, or parsed dict."""
         return cls(load_spec(spec))
+
+    @property
+    def library(self) -> Library:
+        """The Hydra-native primitive library for this backend."""
+        return self._library
+
+    @property
+    def primitives(self) -> dict[str, BackendPrimitive]:
+        """The registered backend primitives keyed by logical op name."""
+        return self._primitives
 
     def __getitem__(self, name: str) -> morphisms.Morphism:
         """Return the morphism for logical op ``name`` (e.g. ``"add"``)."""
@@ -287,3 +372,106 @@ class BackendOps:
     def keys(self):
         """Return all registered logical op names."""
         return self._morphisms.keys()
+
+    @property
+    def op_names(self) -> frozenset[str]:
+        """Logical operation names supported by this backend."""
+        return frozenset(self._morphisms.keys())
+
+    @property
+    def hydra_names(self) -> frozenset[Name]:
+        """Canonical Hydra primitive names supported by this backend."""
+        return frozenset(bp.name for bp in self._primitives.values())
+
+    def to_graph(self, base: Graph | None = None) -> Graph:
+        """Install this backend's primitives into a Hydra Graph."""
+        return library_to_graph(self._library, base)
+
+    def coverage(self, required: set[str] | frozenset[str]) -> dict[str, frozenset[str]]:
+        """Report supported and missing logical ops for this backend."""
+        return backend_coverage(self, required)
+
+
+
+def library_primitives_map(library: Library):
+    """Convert a Hydra Library into a Graph.primitives-style map."""
+    return Maps.from_dict({prim.name: prim for prim in library.primitives})
+
+
+def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
+    """Install a backend Library's primitives into a Hydra Graph."""
+    base = base or Graph(
+        bound_terms=Maps.empty(),
+        bound_types=Maps.empty(),
+        class_constraints=Maps.empty(),
+        lambda_variables=frozenset(),
+        metadata=Maps.empty(),
+        primitives=Maps.empty(),
+        schema_types=Maps.empty(),
+        type_variables=frozenset(),
+    )
+
+    prims = dict(base.primitives)
+    for prim in library.primitives:
+        prims[prim.name] = prim
+
+    return Graph(
+        bound_terms=base.bound_terms,
+        bound_types=base.bound_types,
+        class_constraints=base.class_constraints,
+        lambda_variables=base.lambda_variables,
+        metadata=base.metadata,
+        primitives=Maps.from_dict(prims),
+        schema_types=base.schema_types,
+        type_variables=base.type_variables,
+    )
+
+
+def backend_graph(ops: "BackendOps", base: Graph | None = None) -> Graph:
+    """Create a Hydra Graph containing all primitives for a backend."""
+    return library_to_graph(ops.library, base)
+
+
+def backend_op_names(ops: "BackendOps") -> frozenset[str]:
+    """Return the logical op names supported by a backend."""
+    return frozenset(ops.keys())
+
+
+def backend_hydra_names(ops: "BackendOps") -> frozenset[Name]:
+    """Return canonical Hydra primitive names for a backend."""
+    return frozenset(bp.name for bp in ops.primitives.values())
+
+
+def backend_coverage(ops: "BackendOps", required: set[str] | frozenset[str]) -> dict[str, frozenset[str]]:
+    """Report supported and missing logical ops for a backend."""
+    available = backend_op_names(ops)
+    required = frozenset(required)
+    return {
+        "available": available,
+        "required": required,
+        "supported": frozenset(sorted(available & required)),
+        "missing": frozenset(sorted(required - available)),
+        "extra": frozenset(sorted(available - required)),
+    }
+
+
+def compare_backend_coverage(left: "BackendOps", right: "BackendOps") -> dict[str, frozenset[str]]:
+    """Compare logical op coverage between two backends."""
+    left_ops = backend_op_names(left)
+    right_ops = backend_op_names(right)
+    return {
+        "shared": frozenset(sorted(left_ops & right_ops)),
+        "left_only": frozenset(sorted(left_ops - right_ops)),
+        "right_only": frozenset(sorted(right_ops - left_ops)),
+    }
+
+
+def backend_has_coverage(ops: "BackendOps", required: set[str] | frozenset[str]) -> bool:
+    """Return True iff the backend supports every required logical op."""
+    return frozenset(required).issubset(backend_op_names(ops))
+
+
+def backend_required_for_term(required_ops: set[str] | frozenset[str], *candidates: "BackendOps") -> list["BackendOps"]:
+    """Return the candidate backends which satisfy a required logical op set."""
+    needed = frozenset(required_ops)
+    return [ops for ops in candidates if backend_has_coverage(ops, needed)]

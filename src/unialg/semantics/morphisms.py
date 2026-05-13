@@ -410,41 +410,25 @@ def case(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, 
     )
 
 
-
-    # def compose(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
-
-    # MorphismError.check(f.cod(), g.dom(), "Cannot compose")
-# def pair(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
-    # MorphismError.check(f.dom(), g.dom(), "Cannot build pair")
-# def case(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
-# class MorphismError(TypeError):
-#     """Raised when a typed morphism contract is violated."""
-
-#     @classmethod
-#     def check(cls, a: Type, b: Type, label: str) -> None:
-#         if a != b:
-#             raise cls(f"{label}: {show_type(a)} != {show_type(b)}")
-
-# def _share_param(f_param: Type, g_param: Type) -> Type:
-#     """Share one contextual parameter between two sequential morphisms."""
-#     if f_param == TypeUnit():
-#         return g_param
-#     if g_param == TypeUnit():
-#         return f_param
-#     if f_param == g_param:
-#         return f_param
-#     raise MorphismError(
-#         "Cannot share distinct params: "
-#         f"{show_type(f_param)} != {show_type(g_param)}"
-#     )
-
-        # raw = dom_of(self.node)
-        # if self.param == TypeUnit():
-        #     return raw
-        # if not isinstance(raw, TypePair) or raw.value.first != self.param:
-        #     raise MorphismError(
-        #         "parametric morphism domain "
-        #         f"{show_type(raw)} does not match param {show_type(self.param)}"
-        #     )
-        # return raw.value.second
+# ---------------------------------------------------------------------------
+# Tensor type helper — PLACEHOLDER (not yet implemented)
+# ---------------------------------------------------------------------------
+#
+# Responsibility: semantics layer (this file or a dedicated helper in semantics/).
+#
+# A tensor of shape I over element type A is represented as the function type
+# ExpType(I, A), i.e. an index set I → A.  For example:
+#   - A vector of floats indexed by ℝⁿ:  ExpType(Rn, FLOAT)
+#   - A matrix A[i,j]:                   ExpType(Pair(I, J), FLOAT)
+#
+# What is needed:
+#   tensor_type(index: Type, element: Type) -> Type
+#     Returns ExpType(index, element).  Pure type algebra — no Hydra terms.
+#
+# Dependencies: only objects.ExpType (already imported via unialg.objects).
+# No MorphismExpr subclass is needed; tensors are ordinary morphisms whose
+# domain is an index type and whose codomain is the element type.
+#
+# Do not implement until contract_morphism in semantics/contractions.py
+# is designed and the index-type encoding is settled.
 

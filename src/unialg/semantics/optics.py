@@ -203,29 +203,3 @@ def identity_optic(*, name: str, functor: Functor, focus: Type) -> Optic:
         forward=identity(carrier),
         backward=identity(carrier),
     )
-
-
-    # kind = ("cata", "ana")[i]
-    # MorphismError.check(
-    #     (alg.dom(), alg.cod())[i],
-    #     fp.functor.apply((alg.cod(), alg.dom())[i]),
-    #     f"{kind} shape",
-    # )
-    # name = f"unialg.{kind}.{id(fp):x}.{id(alg):x}"
-    # raw_dom, raw_cod = raw_signature(
-    #     alg.param, alg.monad,
-    #     (carrier, alg.dom())[i], (alg.cod(), carrier)[i],
-    # )    
-    # self_ref = Morphism(
-    #     expr.SelfRef(name, raw_dom, raw_cod),
-    #     param=alg.param, monad=alg.monad,
-    # )
-    # body = compose(
-    #     (fp.act_forward(self_ref), alg)[i],
-    #     (alg, fp.act_backward(self_ref))[i],
-    #     shared_context=True,
-    # )
-    # return Morphism(
-    #     expr.AlgExpr(name=name, body=body.node, dom=raw_dom, cod=raw_cod),
-    #     param=alg.param, monad=alg.monad, aux_primitives=alg.aux_primitives,
-    # )

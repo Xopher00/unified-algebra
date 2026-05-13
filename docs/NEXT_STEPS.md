@@ -248,6 +248,100 @@ For multi-headed and branching architectures. Tensor products of morphisms, bili
 
 Lax para composition handles parameter threading with shared context plus `bind`/lambda capture. No explicit strength morphism is part of the current semantics.
 
+## Tensor contraction: open design questions (2026-05-13)
+
+These gaps must be resolved before any tensor contraction code is written.
+Ordered by how much they block forward progress.
+
+### 1. Index type encoding — DECISION REQUIRED (blocks everything)
+
+`tensor_type(index, element)` in `semantics/morphisms.py` and the dom/cod of
+`contract_morphism` in `semantics/contractions.py` both depend on what Hydra
+`Type` represents an index set.
+
+Options:
+- **Nominal** — `Name("I")`, `Name("J")` as opaque phantom types.  Sufficient
+  for checking that `contract_morphism` output type matches a downstream
+  morphism's input type.  Does not encode size.
+- **TypeVariable** — polymorphic; `contract_morphism` returns a scheme not a
+  monotype.  Clean but harder to instantiate in practice.
+- **Nat-indexed** — encodes concrete sizes statically.  Precise but requires
+  size arithmetic in the type system; more than is needed now.
+
+Nominal is the likely starting point.  Decide before touching `tensor_type()`
+or any `contract_morphism` dom/cod.
+
+### 2. Structural tensor ops not in backend specs — needs placement decision
+
+`structure/tensor_lowering.py` needs `expand_dims` and `transpose` for the
+alignment step (unsqueeze + permute input tensors to `output_vars ++ reduced_vars`
+dim order).  These are **not** in `tensors/backends/*.json`, which only carries
+elementwise binary, unary, and reduce ops.
+
+Options:
+- Add them to the existing JSON specs under a `"structural"` kind.
+- Register them separately in `structure/tensor_lowering.py` outside the JSON
+  spec mechanism (direct `register_backend_primitive` calls).
+- Handle alignment at the Hydra term level using existing pair/list primitives
+  rather than delegating to the backend.
+
+Decide before implementing `structure/tensor_lowering.py`.
+
+### 3. Batching via poly_fmap needs grounding
+
+The claim is that `bij,bjk->bik` = `poly_fmap(BatchFunctor, contract_morphism(sr, "ij,jk->ik"))`.
+The existing functor machinery handles **polynomial** endofunctors (Prod, Sum,
+Const, Id, Comp).  A function-space functor `(B → -)` is exponential, not
+polynomial.
+
+For finite batch dimensions it collapses to `Prod(Id, Id, ..., Id)` — a
+product functor — which `poly_fmap` can handle.  But this requires:
+- The batch index type to be finite and explicitly encoded as a product.
+- A clear statement of what the `BatchFunctor` PolyExpr looks like.
+
+Decide whether batching is handled by poly_fmap over a product functor, or
+by a separate mechanism (e.g. explicit loop / vmap primitive), before
+implementing `semantics/contractions.py`.
+
+### 4. CompiledEquation has no layer home
+
+The equation parser (`compile_einsum` from `unified-algebra/algebra/contraction.py`)
+is pure data — no backend coupling.  It parses a string like `"ij,jk->ik"` into
+`input_vars`, `output_vars`, `reduced_vars` index structures.
+
+Candidate placements:
+- `syntax/` — it is string parsing, which is syntax-layer work.
+- Private helper inside `semantics/contractions.py` — keeps it close to its
+  only consumer.
+
+Decide before implementing `contract_morphism`.
+
+### 5. Post-contraction nonlinearity — hook needed
+
+The old `Equation` had an optional nonlinearity applied after contraction
+(`contract_and_apply`).  This is common in practice: sigmoid/relu/softmax after
+a semiring contraction.  In the new system, this is just morphism composition
+(`compose(contract_morphism(sr, eq), nl)`), but `contract_morphism` should note
+this as the intended pattern so users know not to bake it into the semiring.
+
+No implementation needed now — note the pattern in `semantics/contractions.py`.
+
+### 6. No Semiring law-checking equivalent
+
+The old `Semiring.check_laws` verified associativity, commutativity, identity,
+annihilation, and distributivity on scalar samples before the semiring was used.
+The new `Semiring` has no equivalent.  Useful for custom and research semirings.
+
+Add as a future method on `Semiring` in `semantics/semirings.py`, gated behind
+a flag (default off for performance, on for development/research use).
+
+### 7. Import linter boundary rules not updated
+
+The new files (`semantics/semirings.py`, `semantics/contractions.py`,
+`structure/tensor_lowering.py`, `structure/semiring_factory.py`) are not
+reflected in `.importlinter`.  Update after skeletons are finalised and before
+any implementation is merged.
+
 ## Deferred
 
 - Surface syntax / grammar (no timeline)

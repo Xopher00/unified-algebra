@@ -36,6 +36,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -135,7 +136,7 @@ def repeated_product(t, n):
 
 def register_backend_primitive(
     canonical_name: str,
-    path: str,
+    path: str | Callable,
     arg_type: Type,
     arity: int,
     *,
@@ -161,7 +162,7 @@ def register_backend_primitive(
         A ``BackendPrimitive`` whose ``primitive`` field is registered under
         ``canonical_name`` with the appropriate curried ``TypeScheme``.
     """
-    fn = resolve_function(path)
+    fn = resolve_function(path) if isinstance(path, str) else path
     result_type = result_type or arg_type
     name = Name(canonical_name)
     scheme = TypeScheme(
@@ -288,6 +289,20 @@ class BackendOps:
     def primitives(self) -> dict[str, BackendPrimitive]:
         """The registered backend primitives keyed by logical op name."""
         return self._primitives
+
+    def register(self, name: str, bp: BackendPrimitive) -> None:
+        """Register a custom BackendPrimitive under logical op name ``name``.
+
+        After registration, ``ops[name]`` returns the corresponding Morphism,
+        identically to built-in ops loaded from a JSON spec.  Callers
+        (structure/semiring_factory.py) use this to register custom callables
+        before constructing a Semiring.
+        """
+        self._primitives[name] = bp
+        m = _primitive_morphism(bp)
+        self._morphisms[name] = m
+        # Re-build the library so to_graph() picks up the new primitive.
+        self._library = backend_library(self._primitives)
 
     def __getitem__(self, name: str) -> morphisms.Morphism:
         """Return the morphism for logical op ``name`` (e.g. ``"add"``)."""

@@ -9,7 +9,23 @@ from .semantics.morphisms import (
     compose, par, pair, case, absurd,
 )
 from .tensors.semirings import Semiring
-from .semantics.optics import Optic
+from .semantics.optics import Optic, _compose_optic
+
+
+def act(optic: Optic, h) -> "Morphism":
+    return optic.act(h)
+
+
+def act_forward(optic: Optic, h) -> "Morphism":
+    return optic.act_forward(h)
+
+
+def act_backward(optic: Optic, h) -> "Morphism":
+    return optic.act_backward(h)
+
+
+compose_optic = _compose_optic
+
 from .structure.recursion import recursive_carrier
 from .semantics.optics import cata, ana, hylo
 from .lowering import lower, run
@@ -62,4 +78,8 @@ __all__ = [
     "cata",
     "ana",
     "hylo",
+    "act",
+    "act_forward",
+    "act_backward",
+    "compose_optic",
 ]

@@ -308,5 +308,3 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
 
         case _:
             raise TypeError(f"realize: unknown MorphismExpr {type(node).__name__!r}")
-
-

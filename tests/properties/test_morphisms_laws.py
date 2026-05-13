@@ -15,6 +15,7 @@ from hydra.core import (
 from unialg.syntax import expressions as expr
 from unialg.semantics import morphisms as ops
 from unialg.semantics import functors as sem
+from unialg.semantics import typeops as Ty
 from unialg.objects import LIST, MAYBE
 from support.strategies import (
     UNIT,
@@ -349,9 +350,9 @@ def test_case_validity_and_type_law(pair):
 @settings(max_examples=60)
 @given(type_values(), type_values())
 def test_param_combination_law(p, q):
-    assert ops._combine_param(UNIT, p) == p
-    assert ops._combine_param(p, UNIT) == p
-    assert ops._combine_param(p, q) == (q if p == UNIT else p if q == UNIT else ops.ProductType(q, p))
+    assert Ty.combine_params(UNIT, p) == p
+    assert Ty.combine_params(p, UNIT) == p
+    assert Ty.combine_params(p, q) == (q if p == UNIT else p if q == UNIT else ops.ProductType(q, p))
 
 
 @settings(max_examples=60)

@@ -6,7 +6,9 @@ build-backend = "hatchling.build"
 name = "unialg"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "hypothesis>=6.152.5",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.4.2,<9.0.0", "pytest-testmon", "hypothesis>=6.152.4", "pynguin>=0.45.0", "numpy", "scipy", "hatchling", "psutil"]

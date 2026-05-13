@@ -1,0 +1,37 @@
+{
+  "backend": "jax",
+  "operations": {
+    "add":              {"kind": "elementwise binary", "path": "jax.numpy.add",           "arity": 2, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "subtract":         {"kind": "elementwise binary", "path": "jax.numpy.subtract",      "arity": 2, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "multiply":         {"kind": "elementwise binary", "path": "jax.numpy.multiply",      "arity": 2, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "divide":           {"kind": "elementwise binary", "path": "jax.numpy.divide",        "arity": 2, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "power":            {"kind": "elementwise binary", "path": "jax.numpy.power",         "arity": 2, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "minimum":          {"kind": "elementwise binary", "path": "jax.numpy.minimum",       "arity": 2, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "maximum":          {"kind": "elementwise binary", "path": "jax.numpy.maximum",       "arity": 2, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "logaddexp":        {"kind": "elementwise binary", "path": "jax.numpy.logaddexp",     "arity": 2, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+
+    "tanh":             {"kind": "unary", "path": "jax.numpy.tanh",                       "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "exp":              {"kind": "unary", "path": "jax.numpy.exp",                        "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "log":              {"kind": "unary", "path": "jax.numpy.log",                        "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "log1p":            {"kind": "unary", "path": "jax.numpy.log1p",                      "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "sqrt":             {"kind": "unary", "path": "jax.numpy.sqrt",                       "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "abs":              {"kind": "unary", "path": "jax.numpy.abs",                        "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "reciprocal":       {"kind": "unary", "path": "jax.numpy.reciprocal",                 "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "sign":             {"kind": "unary", "path": "jax.numpy.sign",                       "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "square":           {"kind": "unary", "path": "jax.numpy.square",                     "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "sin":              {"kind": "unary", "path": "jax.numpy.sin",                        "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "cos":              {"kind": "unary", "path": "jax.numpy.cos",                        "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "neg":              {"kind": "unary", "path": "jax.numpy.negative",                   "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+
+    "relu":             {"kind": "unary", "path": "jax.nn.relu",                          "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "sigmoid":          {"kind": "unary", "path": "jax.nn.sigmoid",                       "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "softmax":          {"kind": "unary", "path": "jax.nn.softmax",                       "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "softplus":         {"kind": "unary", "path": "jax.nn.softplus",                      "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "reduce.logaddexp": {"kind": "reduce", "path": "jax.scipy.special.logsumexp",         "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+
+    "reduce.add":       {"kind": "reduce", "path": "jax.numpy.sum",                       "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "reduce.multiply":  {"kind": "reduce", "path": "jax.numpy.prod",                      "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "reduce.minimum":   {"kind": "reduce", "path": "jax.numpy.min",                       "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"},
+    "reduce.maximum":   {"kind": "reduce", "path": "jax.numpy.max",                       "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT", "codec": "float64"}
+  }
+}

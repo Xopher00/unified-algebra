@@ -21,8 +21,6 @@ No Hydra imports.  No encoding logic.  The action lives in ``recursion.act``.
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from hydra.context import Context
-
 from . import typeops as Ty
 from .functors import Functor
 from .morphisms import Morphism, MorphismError, compose, identity, raw_signature
@@ -49,10 +47,8 @@ class Optic:
     _replacement: Type = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        cx = Context()
-
         try:
-            focus, cx = self.functor.unapply(self.forward.cod(), cx)
+            focus = self.functor.unapply(self.forward.cod())
             Ty.roundtrip_equal(
                 None,
                 self.functor.apply,
@@ -64,7 +60,7 @@ class Optic:
             raise MorphismError(f"invalid optic forward codomain: {e}") from e
 
         try:
-            replacement, cx = self.functor.unapply(self.backward.dom(), cx)
+            replacement = self.functor.unapply(self.backward.dom())
             Ty.roundtrip_equal(
                 None,
                 self.functor.apply,

@@ -31,16 +31,16 @@ Spec format (JSON)::
     }
 """
 
+from __future__ import annotations
+
 import importlib
 import inspect
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from hydra.context import Context
-from hydra.core import LiteralType, Name, Term, Type, TypeLiteral
-from hydra.dsl.python import Left, Right
+from hydra.core import Name, Type
 from hydra.graph import Graph, Primitive, TermCoder
 from hydra.lib import maps as Maps
 from hydra.packaging import Library, Namespace
@@ -48,67 +48,11 @@ import hydra.dsl.meta.phantoms as P
 
 from unialg.objects import ExpType, TypeScheme, ProductType
 from unialg.semantics import morphisms
+from unialg.semantics.typeops import _EMPTY_GRAPH
 from unialg.structure import terms as struct_terms
 from unialg.syntax import expressions as expr
 
-from hydra.lib import maps as Maps
-
-TYPE_REGISTRY: dict[str, Type] = {
-    "INT":   TypeLiteral(LiteralType.INTEGER),
-    "FLOAT": TypeLiteral(LiteralType.FLOAT),
-}
-
-# Each entry: (unwrap: Term -> Python, wrap: Python -> Term)
-def _expect_right(result, context: str):
-    """Unwrap a Hydra Either result or raise a readable error."""
-    if isinstance(result, Left):
-        raise TypeError(f"{context}: {result.value!r}")
-    return result.value
-
-
-def _literal_value(term: Term, context: str):
-    """Extract the Python literal payload from a Hydra literal term."""
-    try:
-        return term.value.value.value
-    except Exception as e:
-        raise TypeError(f"{context}: expected literal term, got {term!r}") from e
-
-
-def _mk_term_coder(
-    typ: Type,
-    decode_term: Callable[[Term], object],
-    encode_value: Callable[[object], Term],
-) -> TermCoder:
-    """Construct a Hydra TermCoder from native decode/encode callables."""
-    return TermCoder(
-        type=typ,
-        encode=lambda _cx, _graph, term: Right(decode_term(term)),
-        decode=lambda _cx, value: Right(encode_value(value)),
-    )
-
-
-TERM_CODER_REGISTRY: dict[str, TermCoder] = {
-    "int32": _mk_term_coder(
-        TypeLiteral(LiteralType.INTEGER),
-        lambda t: int(_literal_value(t, "int32 coder")),
-        lambda x: P.int32(int(x)).value,
-    ),
-    "int64": _mk_term_coder(
-        TypeLiteral(LiteralType.INTEGER),
-        lambda t: int(_literal_value(t, "int64 coder")),
-        lambda x: P.int64(int(x)).value,
-    ),
-    "float32": _mk_term_coder(
-        TypeLiteral(LiteralType.FLOAT),
-        lambda t: float(_literal_value(t, "float32 coder")),
-        lambda x: P.float32(float(x)).value,
-    ),
-    "float64": _mk_term_coder(
-        TypeLiteral(LiteralType.FLOAT),
-        lambda t: float(_literal_value(t, "float64 coder")),
-        lambda x: P.float64(float(x)).value,
-    ),
-}
+from .codecs import TYPE_REGISTRY, TERM_CODER_REGISTRY, _expect_right
 
 _CANONICAL_PREFIX = "unialg.backend"
 
@@ -188,23 +132,6 @@ def repeated_product(t, n):
     return out
 
 
-def product_arg(x, n):
-    """Destructure a left-nested Hydra pair term into a list of ``n`` component terms.
-
-    Mirrors the shape produced by ``repeated_product``: the first ``n-1``
-    components are extracted with successive ``fst`` projections; the last
-    component is the final ``snd``.
-    """
-    if n == 1:
-        return [x]
-    vals = []
-    cur = x
-    for _ in range(n - 1):
-        vals.append(P.first(cur))
-        cur = P.second(cur)
-    vals.append(cur)
-    return vals
-
 
 def register_backend_primitive(
     canonical_name: str,
@@ -225,8 +152,8 @@ def register_backend_primitive(
         arg_type: Hydra ``Type`` for all input arguments (homogeneous).
         arity: Number of arguments the function takes.  Must be provided
             explicitly — do not rely on ``infer_arity`` for arbitrary APIs.
-        unwrap: Converts a Hydra term to a Python value before calling ``fn``.
-        wrap: Converts the Python result back to a raw Hydra term.
+        arg_coder: TermCoder used to decode arguments before calling the function.
+        result_coder: TermCoder used to encode the Python result back to a Hydra term.
         result_type: Hydra ``Type`` for the return value.  Defaults to
             ``arg_type`` when omitted.
 
@@ -272,7 +199,7 @@ def _primitive_morphism(bp: BackendPrimitive) -> morphisms.Morphism:
     can register it in a temporary graph automatically.
     """
     x = P.var("x")
-    args = product_arg(x, bp.arity)
+    args = struct_terms.product_arg(x, bp.arity)
     term = P.primitive(bp.name)
     for arg in args:
         term = P.apply(term, arg)
@@ -392,7 +319,6 @@ class BackendOps:
         return backend_coverage(self, required)
 
 
-
 def library_primitives_map(library: Library):
     """Convert a Hydra Library into a Graph.primitives-style map."""
     return Maps.from_dict({prim.name: prim for prim in library.primitives})
@@ -400,16 +326,7 @@ def library_primitives_map(library: Library):
 
 def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
     """Install a backend Library's primitives into a Hydra Graph."""
-    base = base or Graph(
-        bound_terms=Maps.empty(),
-        bound_types=Maps.empty(),
-        class_constraints=Maps.empty(),
-        lambda_variables=frozenset(),
-        metadata=Maps.empty(),
-        primitives=Maps.empty(),
-        schema_types=Maps.empty(),
-        type_variables=frozenset(),
-    )
+    base = base or _EMPTY_GRAPH
 
     prims = dict(base.primitives)
     for prim in library.primitives:

@@ -9,8 +9,6 @@ unifier rather than reimplementing type matching here.
 from __future__ import annotations
 from dataclasses import dataclass
 
-from hydra.context import Context
-
 from . import morphisms
 from . import typeops as Ty
 from unialg.syntax import expressions as expr
@@ -71,19 +69,19 @@ class Functor:
             category=self.category,
         )
 
-    def unapply(self, fa: Type, cx: Context) -> tuple[Type, Context]:
+    def unapply(self, fa: Type) -> Type:
         """Solve ``F(A) = fa`` and return the recovered element type ``A``."""
         if self.x_arity() == 0:
             raise TypeError(
                 f"Functor {self.name!r}.unapply: body contains no Id; no element type exists"
             )
 
-        a_var, cx = Ty.fresh_variable_type(cx)
+        a_var = Ty.fresh_type_var()
         pattern = self.apply(a_var)
         match = Ty.unify(pattern, fa, f"{self.name}.unapply")
         recovered = Ty.apply_subst(match.substitution, a_var)
         Ty.roundtrip_equal(None, self.apply, recovered, fa, f"{self.name}.unapply round-trip")
-        return recovered, cx
+        return recovered
     
     def map(self, h: morphisms.Morphism) -> morphisms.Morphism:
         """Semantic polynomial functor action on a typed morphism."""

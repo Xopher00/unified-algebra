@@ -49,21 +49,34 @@ Do not conflate these layers:
 - Lenses and optics are focus/update abstractions built above morphisms; they do **not** belong inside `recursion.py`.
 - Height-2 or polynomial lenses belong near the functor/shape layer, depending on `PolyExpr`, `apply_poly`, `poly_fmap`, and `Morphism`.
 
-## Package layout (flat, as of 2026-05-08)
+## Package layout (as of 2026-05-13)
+
+The package now uses subdirectories matching the architectural layers.
 
 ```
 src/unialg/
-├── space.py        Space hierarchy + Monad descriptor — pure Python, no Hydra
-├── expressions.py  MorphismExpr + PolyExpr ADTs — pure Python, no Hydra
-├── morphisms.py   dom_of/cod_of + combinators (compose/par/pair/case/embed) — Hydra-free
-├── functors.py     Functor + PolyExpr object/introspection helpers — Hydra type unification, no terms
-├── hydra_primitives.py  Hydra primitive catalog and thin wrappers
-├── realize.py       realize(MorphismExpr) — raw Hydra term construction
-├── actions.py     poly_fmap — derived compiler actions
-├── optics.py       Unified polynomial functor Optic; no Hydra term construction
-├── recursion.py    act/act_forward/act_backward/compose_optic/list_carrier/cata/ana/hylo — optic actions + recursion schemes
-├── lowering.py     lower/run — execution boundary
-└── __init__.py     public surface
+├── syntax/
+│   └── expressions.py     MorphismExpr + PolyExpr ADTs — pure Python, no Hydra
+├── semantics/
+│   ├── morphisms.py        dom_of/cod_of + combinators — Hydra-free
+│   ├── functors.py         Functor + PolyExpr helpers — Hydra type unification only
+│   ├── optics.py           Unified polynomial functor Optic — no Hydra terms
+│   └── typeops.py          _EMPTY_GRAPH, fresh_type_var, require_equal, etc.
+├── structure/
+│   ├── realize.py          realize(MorphismExpr) → raw Hydra term
+│   ├── recursion.py        act/act_forward/act_backward, cata/ana/hylo — optic actions + recursion schemes
+│   ├── terms.py            Hydra primitive name catalog + term helpers (includes product_arg)
+│   ├── backend.py          BackendPrimitive, register_backend_primitive, BackendOps, load_spec
+│   ├── codecs.py           TYPE_REGISTRY, TERM_CODER_REGISTRY — Python scalar ↔ Hydra literal
+│   └── backends/           JSON backend specs (numpy, torch, jax, cupy)
+├── objects.py              Type aliases, TypeScheme, show_type, ProductType, SumType, Monad, etc.
+├── lowering.py             lower/run — execution boundary
+├── tensors/                Tensor-specific files; most content is stale experiments
+│   ├── semirings.py        Semiring dataclass — correct semantics layer placement
+│   ├── tensorexpressions.py  STUB — contradicts layer constraints; delete before proceeding
+│   ├── equations.py        STUB — contradicts layer constraints; delete before proceeding
+│   └── old/                Archived attempts — do not reference
+└── __init__.py             Public surface
 ```
 
 ### Layer responsibilities
@@ -159,6 +172,40 @@ src/unialg/
 
 ### Public surface (`__init__.py`)
 - Spaces, Morphism, combinators, PolyExpr types, Functor, recursion exports, lower, run
+
+## structure/ layer (as of 2026-05-13)
+
+### backend.py
+- `BackendPrimitive(primitive, arity, arg_type, result_type, arg_coder, result_coder)` — resolved backend op
+- `register_backend_primitive(canonical_name, path, arg_type, arity, ...)` → `BackendPrimitive`
+- `_primitive_morphism(bp)` → `Morphism` — wraps a `BackendPrimitive`; builds curried lambda over product domain; uses `struct_terms.product_arg`
+- `load_spec(spec)` — loads JSON, returns `dict[str, BackendPrimitive]`
+- `BackendOps.from_spec(path)` — top-level entry point; morphisms keyed by logical op name
+- `library_to_graph(library, base)` — installs backend Library into a Hydra Graph; uses `_EMPTY_GRAPH` from `semantics.typeops` as default base
+- Canonical primitive names follow `unialg.backend.<op>` pattern
+- `backend_coverage`, `compare_backend_coverage`, `backend_required_for_term` — utility queries
+
+### codecs.py
+- Pure value-boundary layer: no morphism or expression dependencies
+- `TYPE_REGISTRY` maps `"INT"` / `"FLOAT"` to `TypeLiteral(LiteralType.INTEGER/FLOAT)`
+- `TERM_CODER_REGISTRY` maps `"int32"` / `"int64"` / `"float32"` / `"float64"` to `TermCoder` instances
+- `_expect_right`, `_literal_value`, `_mk_term_coder` — helpers only
+
+### terms.py additions
+- `product_arg(x: TTerm, n: int) → list[TTerm]` — destructures a left-nested Hydra pair into n components; lives here alongside other pair utilities (`pair_first`, `pair_second`, `pair_swap`, `pairs_bimap`)
+
+## Hydra API survey (2026-05-13)
+
+Surveyed with `pkgutils.walk_packages` + `importlib`/`inspect`. Key findings relevant to tensor contraction:
+
+- **No built-in einsum/tensor operations** in Hydra's standard library (`hydra.lib.math` has scalar math only)
+- `hydra.reduction.contract_term` — beta-reduction cleanup (NOT tensor contraction; name is misleading)
+- `hydra.rewriting.rewrite_term` — bottom-up term rewriter; available and correct for contraction fusion
+- `hydra.differentiation.differentiate_term` — symbolic differentiation; knows about binary op names via `primitive_derivative`; works at Hydra term level
+- `hydra.parsers` — parser combinator library (for Hydra-internal parsing, not for user-facing einsum syntax)
+- `hydra.ast` — code-generation pretty-printing AST; not relevant
+
+Constraint derived: **Do not create new `MorphismExpr` subclasses for tensor operations without clear justification** that Hydra cannot represent the same concept natively. The existing `Prim` node (raw Hydra term escape) plus correctly named `BackendPrimitive` registration is likely sufficient.
 
 ## What has been verified
 - `import unialg` clean

@@ -247,6 +247,24 @@ def maybes_just() -> TTerm:
     return term_lambda("just_value", lambda x: TTerm(Terms.just(x.value)))
 
 
+def product_arg(x: TTerm, n: int) -> list[TTerm]:
+    """Destructure a left-nested Hydra pair term into ``n`` component terms.
+
+    Mirrors the left-nested product shape built by ``backend.repeated_product``:
+    the first ``n-1`` components come from successive ``fst`` projections; the
+    last is the final element.
+    """
+    if n == 1:
+        return [x]
+    vals = []
+    cur = x
+    for _ in range(n - 1):
+        vals.append(P.first(cur))
+        cur = P.second(cur)
+    vals.append(cur)
+    return vals
+
+
 def pair_swap() -> TTerm:
     """Swap a Hydra pair: A × B → B × A."""
     return term_lambda("p", lambda p:

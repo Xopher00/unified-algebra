@@ -26,12 +26,49 @@ Tests revised. 94 passing. No references to old API remain in live tests; legacy
 - 8 unified Hypothesis property tests (type laws + rejection laws), 103 tests total passing
 - No Hydra term construction in `optics.py`; action in `actions.py` preserves layer discipline
 
-## Next: tensor operations
+## Next: tensor operations (revised 2026-05-13)
 
-- ~/.claude/plans/fluffy-tinkering-whistle.md
-- Core api flow is stable enough we may begin implementing tensor operations on top of it
-- we already have the backends being loaded
-- see plan file for details
+### What was tried and why it failed
+
+Three distinct attempts all broke down in the same ways:
+
+1. **Parallel expression language** — each attempt invented `TensorExpr`, `TensorVar`, `ContractExpr`, or `TensorSemiring` as a new syntax tree running beside `MorphismExpr`. This duplicates the semantic layer.
+2. **Python-native evaluator** — each attempt ended with a `_RUNTIME` dict (op name → numpy function) that bypasses Hydra entirely. This defeats the purpose of the backend/Hydra machinery.
+3. **`ContractSpec` embedded in `Prim`** — the most mature attempt (notebook cells 66–89) correctly used `Morphism` as the carrier but then stuffed semantic metadata into `Prim(raw, dom, cod)`, which takes a raw Hydra `Term`, not a dataclass.
+
+### What the Hydra API survey ruled out (2026-05-13)
+
+- Hydra has **no built-in einsum/tensor operations**. `hydra.lib.math` is scalar-only.
+- `hydra.reduction.contract_term` is beta-reduction cleanup — unrelated to tensor contraction despite the name.
+- `hydra.parsers` is a Hydra-internal parser combinator library — not a surface syntax parser for user expressions.
+- Creating new `MorphismExpr` subclasses needs stronger justification: Hydra's `TermPrimitive` + correctly named `BackendPrimitive` registration may be sufficient representation.
+
+### Hard constraints for any implementation
+
+- **No new expression language under `tensors/`** — new semantic files belong in `semantics/`, new structure files in `structure/`, following the existing layer split.
+- **No Python-native evaluator** — execution must go through `run()` → `structure/realize.py` → Hydra reduction.
+- **No new `MorphismExpr` subclass without clear justification** — exhaust `Prim` + named primitive first.
+- **Explore Hydra before adding** — use `pkgutils`/`importlib`/`inspect` to verify a capability does not already exist.
+- **`tensors/semirings.py`** is correctly placed (semantics layer); extend it in place rather than moving it.
+- **`tensors/tensorexpressions.py` and `tensors/equations.py`** are stubs that contradict the above constraints — they should be removed, not extended.
+
+### Correct layer mapping (to validate before implementing)
+
+| Concern | Layer | Correct file | Status |
+|---------|-------|--------------|--------|
+| Subscript parsing (`"ij,jk->ik"`) | Syntax | `syntax/expressions.py` or keep as `str` | Unclear — may not need a node |
+| Semiring dataclass | Semantics | `tensors/semirings.py` | Exists ✓ |
+| `from_backend` factory + `op_env` | Semantics | `tensors/semirings.py` | Missing |
+| Tensor type `ExpType(I, A)` | Semantics | `semantics/morphisms.py` (helper) | Missing |
+| `contract_morphism(sr, eq) → Morphism` | Semantics | `semantics/` | Missing |
+| Contract fusion rewrite | Structure | `structure/` | Missing (notebook only) |
+| Contraction kernel registration | Structure | `structure/` | Missing |
+
+### Before writing any code
+
+1. Delete `tensors/tensorexpressions.py` and `tensors/equations.py` — they contradict the design.
+2. Write skeleton files (docstring + comments only, no logic) for each new file, getting sign-off on placement before filling in.
+3. For each piece, ask: does Hydra already provide this? Check with `importlib`/`inspect` before implementing.
 
 
 ## Next: Clarify the core API flow

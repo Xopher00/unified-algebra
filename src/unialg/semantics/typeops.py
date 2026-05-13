@@ -5,12 +5,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hydra.context import Context
-from hydra.dsl.python import Left, Right
+from hydra.dsl.python import Right
+from hydra.graph import Graph
 import hydra.checking as Checking
 import hydra.inference as Inference
 import hydra.lib.maps as HMaps
 import hydra.substitution as Substitution
 import hydra.unification as Unification
+
+_EMPTY_GRAPH = Graph(
+    bound_terms=HMaps.empty(),
+    bound_types=HMaps.empty(),
+    class_constraints=HMaps.empty(),
+    lambda_variables=frozenset(),
+    metadata=HMaps.empty(),
+    primitives=HMaps.empty(),
+    schema_types=HMaps.empty(),
+    type_variables=frozenset(),
+)
 
 from unialg.objects import (
     Type,
@@ -37,12 +49,12 @@ def normalized(typ: Type) -> Type:
 
 def effectively_equal(graph, left: Type, right: Type) -> bool:
     """Hydra-backed semantic type equality."""
-    return Checking.types_effectively_equal(graph, left, right)
+    return Checking.types_effectively_equal(graph or _EMPTY_GRAPH, left, right)
 
 
 def require_equal(graph, left: Type, right: Type, context: str) -> None:
     """Raise if two types are not effectively equal."""
-    if not effectively_equal(graph, left, right):
+    if not effectively_equal(graph or _EMPTY_GRAPH, left, right):
         raise TypeError(
             f"{context}: {show_type(normalized(left))} != {show_type(normalized(right))}"
         )
@@ -50,7 +62,7 @@ def require_equal(graph, left: Type, right: Type, context: str) -> None:
 
 def require_all_equal(graph, types: tuple[Type, ...], context: str) -> Type:
     """Require a list of types to be effectively equal."""
-    if not Checking.types_all_effectively_equal(graph, types):
+    if not Checking.types_all_effectively_equal(graph or _EMPTY_GRAPH, types):
         shown = ", ".join(show_type(normalized(t)) for t in types)
         raise TypeError(f"{context}: types do not agree: {shown}")
     return normalized(types[0])
@@ -64,11 +76,7 @@ def unify(pattern: Type, actual: Type, context: str) -> TypeMatch:
             f"{context}: cannot unify {show_type(pattern)} with {show_type(actual)}: {result!r}"
         )
 
-    subst = result.value.value
-    checked = Checking.check_type_subst(None, None, subst)
-    if isinstance(checked, Left):
-        raise TypeError(f"{context}: invalid substitution: {checked.value!r}")
-
+    subst = result.value
     return TypeMatch(pattern=pattern, actual=actual, substitution=subst)
 
 
@@ -78,10 +86,7 @@ def unify_lists(patterns: tuple[Type, ...], actuals: tuple[Type, ...], context: 
     if not isinstance(result, Right):
         raise TypeError(f"{context}: cannot unify type lists: {result!r}")
 
-    subst = result.value.value
-    checked = Checking.check_type_subst(None, None, subst)
-    if isinstance(checked, Left):
-        raise TypeError(f"{context}: invalid substitution: {checked.value!r}")
+    subst = result.value
 
     return subst
 
@@ -189,8 +194,18 @@ def share_param(
 
 
 def fresh_variable_type(cx: Context) -> tuple[Type, Context]:
-    """Generate a truly fresh Hydra type variable."""
+    """Generate a truly fresh Hydra type variable, threading context."""
     return Inference.fresh_variable_type(cx)
+
+
+def fresh_type_var() -> Type:
+    """Generate a single fresh type variable without threading context.
+
+    Safe when the variable is immediately eliminated by substitution (e.g. unapply).
+    """
+    cx = Context((), (), HMaps.empty())
+    var, _ = Inference.fresh_variable_type(cx)
+    return var
 
 
 def roundtrip_equal(graph, builder, recovered: Type, original: Type, context: str) -> None:

@@ -31,6 +31,7 @@ _SU = SumType(_U, _U)
 # ---------------------------------------------------------------------------
 
 def createOp(symbol: str, padding: bool, precedence: int, associativity: str = "left"):
+    """Create Hydra operator metadata for a surface syntax operator."""
     ws = hast.WsSpace if padding else hast.WsNone
     return hast.Op(
         ser.sym(symbol),
@@ -43,6 +44,9 @@ COMPOSE_OP = createOp(symbol=">>", padding=True, precedence=60, associativity="l
 PAIR_OP    = createOp("&", True, 70, "left")
 PAR_OP     = createOp("||", True, 65, "left")
 CASE_OP    = createOp("|", True, 50, "left")
+INDEX_OP   = createOp("[", False, 90, "left")
+COPY_OP    = createOp("^", False, 90, "left")
+INJECT_OP  = createOp("?", False, 90, "left")
 
 # Functor operators
 FSTAR_OP = createOp(symbol="*", padding=False, precedence=80, associativity="left")
@@ -55,6 +59,9 @@ _MORPHISM_OPS: dict[str, hast.Op] = {
     "PAIR":    PAIR_OP,
     "PAR":     PAR_OP,
     "CASE":    CASE_OP,
+    "LBRACKET": INDEX_OP,
+    "CARET": COPY_OP,
+    "QUESTION": INJECT_OP,
 }
 
 _FUNCTOR_OPS: dict[str, hast.Op] = {
@@ -65,6 +72,7 @@ _FUNCTOR_OPS: dict[str, hast.Op] = {
 
 
 def _op_bp(op: hast.Op) -> tuple[int, int]:
+    """Convert Hydra operator metadata into Pratt left/right binding powers."""
     p = op.precedence.value
     match op.associativity:
         case hast.Associativity.LEFT:  return (p, p + 1)
@@ -73,10 +81,12 @@ def _op_bp(op: hast.Op) -> tuple[int, int]:
 
 
 def morphism_bp() -> dict[str, tuple[int, int]]:
+    """Return Pratt binding powers for morphism token kinds."""
     return {k: _op_bp(op) for k, op in _MORPHISM_OPS.items()}
 
 
 def functor_bp() -> dict[str, tuple[int, int]]:
+    """Return Pratt binding powers for functor token kinds."""
     return {k: _op_bp(op) for k, op in _FUNCTOR_OPS.items()}
 
 
@@ -85,22 +95,26 @@ def functor_bp() -> dict[str, tuple[int, int]]:
 # ---------------------------------------------------------------------------
 
 def make_compose(f: MorphismExpr, g: MorphismExpr) -> Compose:
+    """Build a placeholder-typed sequential composition node."""
     return Compose(f=f, g=g, f_param=_U, g_param=_U,
                    param=_U, monad=None, dom=_U, cod=_U)
 
 
 def make_pair(f: MorphismExpr, g: MorphismExpr) -> Pair:
+    """Build a placeholder-typed product-introduction node."""
     return Pair(f=f, g=g, f_param=_U, g_param=_U,
                 param=_U, monad=None, dom=_U, cod=ProductType(_U, _U))
 
 
 def make_par(f: MorphismExpr, g: MorphismExpr) -> Parallel:
+    """Build a placeholder-typed parallel product node."""
     return Parallel(f=f, g=g, f_param=_U, g_param=_U,
                     param=_U, monad=None,
                     dom=ProductType(_U, _U), cod=ProductType(_U, _U))
 
 
 def make_case(f: MorphismExpr, g: MorphismExpr) -> Case:
+    """Build a placeholder-typed coproduct elimination node."""
     return Case(f=f, g=g, f_param=_U, g_param=_U,
                 param=_U, monad=None, dom=SumType(_U, _U), cod=_U)
 
@@ -114,6 +128,7 @@ _MORPHISM_BUILDERS: dict[str, Any] = {
 
 
 def make_binary(kind: str, left: MorphismExpr, right: MorphismExpr) -> MorphismExpr:
+    """Dispatch a binary morphism token kind to its node constructor."""
     return _MORPHISM_BUILDERS[kind](left, right)
 
 
@@ -122,14 +137,17 @@ def make_binary(kind: str, left: MorphismExpr, right: MorphismExpr) -> MorphismE
 # ---------------------------------------------------------------------------
 
 def make_prod(l: PolyExpr, r: PolyExpr) -> Prod:
+    """Build a product polynomial functor node."""
     return Prod(l, r)
 
 
 def make_sum(l: PolyExpr, r: PolyExpr) -> Sum:
+    """Build a sum polynomial functor node."""
     return Sum(l, r)
 
 
 def make_list(body: PolyExpr) -> PolyList:
+    """Build a list polynomial functor node."""
     return PolyList(body)
 
 
@@ -138,12 +156,15 @@ def make_list(body: PolyExpr) -> PolyList:
 # ---------------------------------------------------------------------------
 
 def atom_expr(name: str) -> hast.Expr:
+    """Build a Hydra rendering expression for an atom name."""
     return hast.ExprConst(ser.sym(name))
 
 
 def binary_expr(op: hast.Op, left: hast.Expr, right: hast.Expr) -> hast.Expr:
+    """Build a Hydra rendering expression for a binary operation."""
     return hast.ExprOp(hast.OpExpr(op, left, right))
 
 
 def render(expr: hast.Expr) -> str:
+    """Render a Hydra expression with parser-compatible parentheses."""
     return ser.print_expr(ser.parenthesize(expr))

@@ -14,6 +14,7 @@ Led = Callable[["PrattParser", object, Token, int], object]
 
 
 class ParseError(Exception):
+    """Raised when token streams do not match the active Pratt grammar."""
     pass
 
 
@@ -34,15 +35,19 @@ class TokenCursor:
 
     @property
     def pos(self) -> int:
+        """Return the current token index."""
         return self._pos
 
     def seek(self, pos: int) -> None:
+        """Move the cursor to an absolute token index."""
         self._pos = pos
 
     def peek(self) -> Token:
+        """Return the next token without consuming it."""
         return self._tokens[self._pos] if self._pos < len(self._tokens) else self._eof_token
 
     def advance(self) -> Token:
+        """Consume and return the next token."""
         if self._pos >= len(self._tokens):
             raise ParseError(f"{self._label}: unexpected end of input")
         tok = self._tokens[self._pos]
@@ -50,6 +55,7 @@ class TokenCursor:
         return tok
 
     def expect(self, kind: str, msg: str = "") -> Token:
+        """Consume the next token, requiring it to have ``kind``."""
         tok = self.advance()
         if tok[0] != kind:
             suffix = f": {msg}" if msg else ""
@@ -60,6 +66,8 @@ class TokenCursor:
 
 
 class PrattParser(TokenCursor):
+    """Generic Pratt parser parameterized by grammar callbacks."""
+
     def __init__(
         self,
         tokens: Sequence[Token],
@@ -76,6 +84,7 @@ class PrattParser(TokenCursor):
         self._led = led
 
     def parse(self, min_bp: int = 0) -> object:
+        """Parse an expression whose operators bind at least ``min_bp``."""
         tok = self.advance()
         if tok[0] == "ERROR":
             raise ParseError(f"{self._label}: {tok[1]}")
@@ -94,6 +103,7 @@ class PrattParser(TokenCursor):
         return left
 
     def parse_args(self, *, close: str, sep: str = "COMMA") -> list[object]:
+        """Parse a separator-delimited argument list ending with ``close``."""
         args = [self.parse(0)]
         while self._pos < len(self._tokens) and self.peek()[0] == sep:
             self.advance()
@@ -102,6 +112,7 @@ class PrattParser(TokenCursor):
         return args
 
     def parse_all(self) -> object:
+        """Parse one expression and reject trailing tokens."""
         result = self.parse(0)
         if self.peek()[0] != "EOF":
             raise ParseError(f"{self._label}: trailing token {self.peek()}")
@@ -116,6 +127,7 @@ def run_pratt(
     nud: Nud,
     led: Led,
 ) -> object:
+    """Convenience wrapper for one-shot Pratt parsing."""
     return PrattParser(
         tokens, label=label, binding_powers=binding_powers, nud=nud, led=led,
     ).parse_all()

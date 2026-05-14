@@ -161,6 +161,7 @@ def _mk_child_call(
     the argument is passed through unchanged.
     """
     def call(v: TTerm) -> TTerm:
+        """Apply the child term, prepending its contextual parameter if needed."""
         child_param_term = _child_param(param_term, param, child_param, side)
         arg = v if child_param_term is None else P.pair(child_param_term, v)
         return P.apply(child_term, arg)
@@ -174,6 +175,7 @@ def _contextual_term(node: expr.ContextualBinary, build, _prims=None) -> Term:
     g_term = realize_term(node.g, _prims)
 
     def wrapped(x: TTerm) -> TTerm:
+        """Split contextual input and delegate to the node-specific builder."""
         param_term, value = split_input(x, node.param)
         call_f = _mk_child_call(f_term, node.f_param, "right", node.param, param_term)
         call_g = _mk_child_call(g_term, node.g_param, "left", node.param, param_term)
@@ -287,6 +289,7 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
             raw_body_ref = [None]
 
             def impl(ctx, graph, args):
+                """Hydra primitive implementation for a deferred recursive equation."""
                 term = Terms.apply(raw_body_ref[0].value, args[0])
                 result = R.reduce_term(ctx, graph, True, term)
                 if isinstance(result, Right):
@@ -295,7 +298,7 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
 
             prim = Primitive(
                 prim_name,
-                TypeScheme(variables=frozenset(), body=ExpType(dom, cod), constraints=None),
+                TypeScheme((), ExpType(dom, cod), None),
                 impl,
             )
             if _prims is not None:

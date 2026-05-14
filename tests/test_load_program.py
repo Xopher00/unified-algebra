@@ -3,7 +3,7 @@
 Verifies that `load <backend>` directives bind real Prim nodes (not Ref
 placeholders) so parsed morphisms are fully resolved and ready to lower.
 """
-from unialg.main import load_program
+from unialg.main import compile_program, load_program
 from unialg.syntax.expressions import Compose, Prim, Ref
 
 
@@ -38,3 +38,16 @@ def test_without_load_aliases_are_refs():
 def test_load_records_in_program():
     prog, _ = load_program("load numpy\nroute f = add")
     assert prog.loads == ("numpy",)
+
+
+def test_compile_program_runs_structural_unit_program():
+    src = """
+    map Nat = 1 | x
+    route zero = ! >> ?0
+    route successor = ?1
+    route one = zero >> successor
+    route two = one >> Nat{successor}
+    route three = two >> Nat{Nat{successor}}
+    route count = three
+    """
+    assert compile_program(src).run() == ("right", ("right", ("right", ("left", None))))

@@ -37,6 +37,8 @@ from unialg.objects import (
 
 @dataclass(frozen=True)
 class TypeMatch:
+    """Result of solving a type-unification problem."""
+
     pattern: Type
     actual: Type
     substitution: object
@@ -152,10 +154,12 @@ def visible_domain(raw_domain: Type, param: Type, context: str, *, graph=None) -
 
 
 def product(left: Type, right: Type) -> Type:
+    """Construct a product type from two component types."""
     return ProductType(left, right)
 
 
 def sum_(left: Type, right: Type) -> Type:
+    """Construct a sum type from two component types."""
     return SumType(left, right)
 
 

@@ -71,11 +71,6 @@ Key changes sealed:
 
 Layer discipline preserved: `syntax/` imports only `objects` + `expressions`; `main.py` owns the backend wiring via `load_handler` callback injected into `parse_program`.
 
-## Unresolved: compile-time type checking for parsed compositions
-
-`compile_program("load numpy\nroute bad = tanh >> add")` compiles without error and only fails at `run()` time (Hydra extraction error). The `Compose`/`Pair`/`Case` nodes parsed by the grammar carry `dom=TypeUnit()` and `cod=TypeUnit()` placeholders — `morphisms.py` type checking never fires because these nodes go directly to `realize_normalized` without passing through the semantic layer.
-
-Grimp analysis (2026-05-14): `morphisms.py` imports `typeops` directly. The fix must live inside `morphisms.py` by understanding how `dom_of`/`cod_of` interact with the `ContextualBinary` case for parsed nodes. Investigation was interrupted — resume there.
 
 ## Package layout (as of 2026-05-14)
 

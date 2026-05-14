@@ -38,6 +38,8 @@ _DECL_KINDS = {"ROUTE", "MAP", "LOAD", "EOF"}
 
 @dataclass(frozen=True)
 class Program:
+    """Parsed top-level source with loads, routes, and named functors."""
+
     loads:     tuple[str, ...]         = ()
     morphisms: dict[str, MorphismExpr] = field(default_factory=dict)
     functors:  dict[str, PolyExpr]     = field(default_factory=dict)
@@ -86,7 +88,7 @@ def parse_program(
         cursor.seek(end)
 
         if kw_tok[0] == "ROUTE":
-            nud, led, bp = make_morphism_grammar(menv)
+            nud, led, bp = make_morphism_grammar(menv, fenv)
             p = PrattParser(rhs_tokens, label=f"route {name}", binding_powers=bp, nud=nud, led=led)
             expr: MorphismExpr = p.parse_all()  # type: ignore[assignment]
             morphisms[name] = expr
@@ -101,14 +103,20 @@ def parse_program(
     return Program(loads=tuple(loads), morphisms=morphisms, functors=functors)
 
 
-def parse_morphism(src: str, env: MEnv | None = None) -> MorphismExpr:
+def parse_morphism(
+    src: str,
+    env: MEnv | None = None,
+    functor_env: FEnv | None = None,
+) -> MorphismExpr:
+    """Parse one morphism expression with optional route and functor environments."""
     tokens = tokenize_morphism(src)
-    nud, led, bp = make_morphism_grammar(env)
+    nud, led, bp = make_morphism_grammar(env, functor_env)
     p = PrattParser(tokens, label="morphism", binding_powers=bp, nud=nud, led=led)
     return p.parse_all()  # type: ignore[return-value]
 
 
 def parse_functor(src: str, env: FEnv | None = None) -> PolyExpr:
+    """Parse one polynomial functor expression with an optional functor environment."""
     tokens = tokenize_functor(src)
     nud, led, bp = make_functor_grammar(env)
     p = PrattParser(tokens, label="functor", binding_powers=bp, nud=nud, led=led)

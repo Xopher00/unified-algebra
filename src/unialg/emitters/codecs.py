@@ -9,7 +9,17 @@ from __future__ import annotations
 
 from typing import Callable
 
-from hydra.core import LiteralType, Term, Type, TypeLiteral
+from hydra.core import (
+    LiteralType,
+    Term,
+    TermEither,
+    TermList,
+    TermLiteral,
+    TermPair,
+    TermUnit,
+    Type,
+    TypeLiteral,
+)
 from hydra.dsl.python import Left, Right
 from hydra.graph import TermCoder
 import hydra.dsl.meta.phantoms as P
@@ -28,6 +38,26 @@ def _literal_value(term: Term, context: str):
         return term.value.value.value
     except Exception as e:
         raise TypeError(f"{context}: expected literal term, got {term!r}") from e
+
+
+def _term_value(term: Term, context: str):
+    """Decode ordinary Hydra values into small Python structures."""
+    match term:
+        case TermLiteral():
+            return _literal_value(term, context)
+        case TermUnit():
+            return None
+        case TermPair(value=pair):
+            left, right = pair
+            return (_term_value(left, context), _term_value(right, context))
+        case TermList(value=items):
+            return [_term_value(item, context) for item in items]
+        case TermEither(value=branch):
+            if isinstance(branch, Left):
+                return ("left", _term_value(branch.value, context))
+            if isinstance(branch, Right):
+                return ("right", _term_value(branch.value, context))
+    raise TypeError(f"{context}: expected value term, got {term!r}")
 
 
 def _mk_term_coder(

@@ -180,6 +180,7 @@ def pretty(expr) -> str:
 
 @pretty.register(MorphismExpr)
 def _pretty_morphism(expr: MorphismExpr) -> str:
+    """Render a morphism expression node for diagnostics and notebooks."""
     match expr:
         case Identity():
             return "id"
@@ -355,6 +356,7 @@ class Ana(AlgExpr):
 
 @pretty.register(PolyExpr)
 def _pretty_poly(expr: PolyExpr) -> str:
+    """Render a polynomial functor expression for diagnostics and notebooks."""
     if isinstance(expr, Zero):
         return "0"
     if isinstance(expr, One):
@@ -385,4 +387,3 @@ def _pretty_poly(expr: PolyExpr) -> str:
     if isinstance(expr, PolyRef):
         return expr.name
     raise ValueError(f"pretty: unknown PolyExpr {type(expr).__name__!r}")
-

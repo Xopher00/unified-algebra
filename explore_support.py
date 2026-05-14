@@ -27,30 +27,28 @@ from hydra.core import (
 )
 from hydra.dsl.python import Just, Nothing
 
-from unialg import (
-    LIST,
-    MAYBE,
+from unialg.main import lower as _lower_node, run
+from unialg.objects import LIST, MAYBE, ProductType, SumType
+from unialg.semantics.functors import Functor
+from unialg.semantics.morphisms import (
     Morphism,
-    ProductType,
-    SumType,
-    delete,
-    identity,
-    compose,
+    _assoc as assoc,
+    _delete as delete,
+    _inl as inl,
+    _inr as inr,
+    _symmetry as symmetry,
     case,
-    inl,
-    inr,
-    lower,
-    run,
-    Functor,
-    Optic,
-    Semiring,
-    assoc,
-    symmetry,
-    cata,
-    ana,
-    hylo,
+    compose,
+    identity,
 )
+from unialg.semantics.optics import Optic, ana, cata, hylo
+from unialg.tensors.semirings import Semiring
 from unialg.syntax import expressions as expr
+
+
+def lower(morphism: Morphism, graph=None):
+    """Lower a notebook Morphism through the current source API."""
+    return _lower_node(morphism.node, graph)
 
 
 def make_graph():

@@ -22,6 +22,7 @@ Env = dict[str, PolyExpr]
 
 
 def _nud(env: Env, p: PrattParser, tok: Token) -> PolyExpr:
+    """Parse a functor atom or parenthesized functor expression."""
     kind, val = tok
     if kind == "LPAREN":
         inner = p.parse(0)
@@ -43,6 +44,7 @@ def _nud(env: Env, p: PrattParser, tok: Token) -> PolyExpr:
 
 
 def _led(p: PrattParser, left: PolyExpr, tok: Token, rbp: int) -> PolyExpr:
+    """Parse a functor postfix or infix operator after ``left``."""
     kind = tok[0]
     if kind == "STAR":
         return make_list(left)
@@ -55,12 +57,15 @@ def _led(p: PrattParser, left: PolyExpr, tok: Token, rbp: int) -> PolyExpr:
 
 
 def make_functor_grammar(env: Env | None = None) -> tuple[Any, Any, dict]:
+    """Return Pratt callbacks and binding powers for functor parsing."""
     _env: Env = env or {}
 
     def nud(p: PrattParser, tok: Token) -> PolyExpr:
+        """Parse a null-denotation functor token using the captured environment."""
         return _nud(_env, p, tok)
 
     def led(p: PrattParser, left: object, tok: Token, rbp: int) -> PolyExpr:
+        """Parse a left-denotation functor token using the captured environment."""
         return _led(p, left, tok, rbp)  # type: ignore[arg-type]
 
     return nud, led, functor_bp()

@@ -14,6 +14,7 @@ import dataclasses
 from pathlib import Path
 
 from hydra.dsl.python import Right
+import hydra.dsl.meta.phantoms as P
 import hydra.dsl.terms as Terms
 import hydra.lib.maps as HMaps
 import hydra.lexical as L
@@ -26,7 +27,7 @@ from .semantics.morphisms import Morphism
 from .semantics.typeops import _EMPTY_GRAPH
 from .structure.realize import realize_normalized
 from .emitters.backend import BackendOps
-from .emitters.codecs import _literal_value, _expect_right
+from .emitters.codecs import _term_value, _expect_right
 
 _BACKEND_DIR = Path(__file__).parent / "emitters" / "backends"
 _DEFAULT_GRAPH = None
@@ -58,6 +59,7 @@ def default_graph():
 # ---------------------------------------------------------------------------
 
 def _load_backend(name: str) -> tuple[BackendOps, dict[str, MorphismExpr]]:
+    """Load a backend spec and expose its primitive aliases to the parser."""
     ops = BackendOps.from_spec(_BACKEND_DIR / f"{name}.json")
     return ops, {alias: ops[alias].node for alias in ops.keys()}
 
@@ -67,6 +69,7 @@ def load_program(src: str) -> tuple[Program, dict[str, BackendOps]]:
     backends: dict[str, BackendOps] = {}
 
     def handler(name: str) -> dict[str, MorphismExpr]:
+        """Load one backend directive and return parser environment bindings."""
         ops, env = _load_backend(name)
         backends[name] = ops
         return env
@@ -79,6 +82,7 @@ def load_program(src: str) -> tuple[Program, dict[str, BackendOps]]:
 # ---------------------------------------------------------------------------
 
 def _augment_graph(graph, aux_primitives):
+    """Return ``graph`` with auxiliary primitives merged by name."""
     if not aux_primitives:
         return graph
     prims = dict(graph.primitives)
@@ -88,6 +92,7 @@ def _augment_graph(graph, aux_primitives):
 
 
 def _apply_and_reduce(term, argument, ctx, graph, label):
+    """Apply a raw term to one raw argument and unwrap Hydra reduction success."""
     result = R.reduce_term(ctx, graph, True, Terms.apply(term, argument))
     if isinstance(result, Right):
         return result.value
@@ -129,12 +134,15 @@ class CompiledProgram:
 
     def run(self, *args):
         """Run the compiled program with Python scalar arguments."""
-        if self._arg_coder is None:
-            raise ValueError("run: no backend loaded — cannot encode arguments")
-        encoded = [_expect_right(self._arg_coder.decode(self._ctx, v), "run") for v in args]
-        argument = Terms.pair(encoded[0], encoded[1]) if len(encoded) == 2 else encoded[0]
+        if args:
+            if self._arg_coder is None:
+                raise ValueError("run: no backend loaded — cannot encode arguments")
+            encoded = [_expect_right(self._arg_coder.decode(self._ctx, v), "run") for v in args]
+            argument = Terms.pair(encoded[0], encoded[1]) if len(encoded) == 2 else encoded[0]
+        else:
+            argument = P.unit().value
         result = _apply_and_reduce(self._term, argument, self._ctx, self._graph, "program")
-        return _literal_value(result, "program")
+        return _term_value(result, "program")
 
 
 def compile_program(src: str) -> CompiledProgram:

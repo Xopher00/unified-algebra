@@ -58,6 +58,8 @@ No Hydra terms. No imports from other unialg modules.
 
 Two frozen-dataclass hierarchies: `MorphismExpr` (arrow expressions) and `PolyExpr`
 (functor shape expressions). These are pure data — no type checking, no realization.
+For the concrete ASCII language that parses into these nodes, see
+[`SURFACE_SYNTAX.md`](SURFACE_SYNTAX.md).
 
 **`MorphismExpr` nodes:**
 

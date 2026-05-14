@@ -23,8 +23,11 @@ from unialg.objects import (
 
         
 class MorphismError(TypeError):
+    """Raised when semantic morphism construction violates type boundaries."""
+
     @classmethod
     def check(cls, graph, a: Type, b: Type, label: str) -> None:
+        """Require two types to agree, re-raising as ``MorphismError``."""
         try:
             Ty.require_equal(graph, a, b, label)
         except TypeError as e:
@@ -32,10 +35,12 @@ class MorphismError(TypeError):
 
 
 def _collect_aux_primitives(*morphisms: Morphism) -> tuple:
+    """Concatenate auxiliary Hydra primitives carried by morphisms."""
     return tuple(p for m in morphisms for p in m.aux_primitives)
 
 
 def _share_param(f_param: Type, g_param: Type, *, graph=None, allow_unification: bool = False) -> Type:
+    """Resolve a shared parameter type and translate errors to ``MorphismError``."""
     try:
         return Ty.share_param(
             graph, f_param, g_param,
@@ -72,6 +77,8 @@ def _contextual_binary(
     dom: Type,
     cod: Type,
     *,
+    equal: tuple[Type, Type] | None = None,
+    msg: str = "",
     shared_context: bool = False,
     graph=None,
     allow_unification: bool = False,
@@ -81,7 +88,18 @@ def _contextual_binary(
     Wraps ``f`` and ``g`` into a ``cls`` node (one of ``Compose``, ``Parallel``,
     ``Pair``, ``Case``) with the resolved combined domain and codomain.  Plain
     morphisms are automatically embedded into a shared lax context.
+
+    If ``equal`` is provided, checks that the two types are compatible before
+    constructing the node.
     """
+    if equal is not None:
+        try:
+            Ty.unify_or_equal(
+                graph, equal[0], equal[1], msg,
+                allow_unification=allow_unification,
+            )
+        except TypeError as e:
+            raise MorphismError(str(e)) from e
     monad = _resolve_monad(f, g)
     param = (
         _share_param(
@@ -316,7 +334,7 @@ def _symmetry(dom: TypePair | TypeEither) -> Morphism:
 # Plain combinators
 # ---------------------------------------------------------------------------
 
-def compose(f: Morphism, g: Morphism, *, shared_context: bool = False, 
+def compose(f: Morphism, g: Morphism, *, shared_context: bool = False,
             graph=None, allow_unification: bool = False) -> Morphism:
     """Compose ``f`` then ``g`` in diagrammatic order.
 
@@ -327,88 +345,39 @@ def compose(f: Morphism, g: Morphism, *, shared_context: bool = False,
     ``g.param × f.param``.  With ``shared_context=True``, matching non-unit
     params are shared instead; distinct non-unit params are rejected.
     """
-    try:
-        Ty.unify_or_equal(
-            graph, f.cod(), g.dom(),
-            "Cannot compose morphisms",
-            allow_unification=allow_unification,
-        )
-    except TypeError as e:
-        raise MorphismError(str(e)) from e
     return _contextual_binary(
-        expr.Compose,
-        f,
-        g,
-        f.dom(),
-        g.cod(),
-        shared_context=shared_context,
-        graph=graph,
-        allow_unification=allow_unification,
+        expr.Compose, f, g, f.dom(), g.cod(),
+        equal=(f.cod(), g.dom()), msg="Cannot compose morphisms",
+        shared_context=shared_context, graph=graph, allow_unification=allow_unification,
     )
 
 
 def par(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
-    """Parallel product ``f × g : A × C -> B × D``.
-
-    Works uniformly for plain, parametric, and lax morphisms after resolving a
-    parameter and monad context.
-    """
+    """Parallel product ``f × g : A × C -> B × D``."""
     return _contextual_binary(
         expr.Parallel, f, g,
-        ProductType(f.dom(), g.dom()),
-        ProductType(f.cod(), g.cod()),
+        ProductType(f.dom(), g.dom()), ProductType(f.cod(), g.cod()),
         shared_context=shared_context,
     )
 
 
-def pair(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, allow_unification: bool = False) -> Morphism:
-    """Product introduction ``<f, g> : A -> B × C``.
-
-    Requires both morphisms to have the same visible domain.
-    """
-    try:
-        Ty.unify_or_equal(
-            graph, f.dom(), g.dom(),
-            "Cannot build pair",
-            allow_unification=allow_unification,
-        )
-    except TypeError as e:
-        raise MorphismError(str(e)) from e
+def pair(f: Morphism, g: Morphism, *, shared_context: bool = False,
+         graph=None, allow_unification: bool = False) -> Morphism:
+    """Product introduction ``<f, g> : A -> B × C``. Requires same visible domain."""
     return _contextual_binary(
-        expr.Pair,
-        f,
-        g,
-        f.dom(),
-        ProductType(f.cod(), g.cod()),
-        shared_context=shared_context,
-        graph=graph,
-        allow_unification=allow_unification,
+        expr.Pair, f, g, f.dom(), ProductType(f.cod(), g.cod()),
+        equal=(f.dom(), g.dom()), msg="Cannot build pair",
+        shared_context=shared_context, graph=graph, allow_unification=allow_unification,
     )
 
 
-def case(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, allow_unification: bool = False) -> Morphism:
-    """Coproduct elimination ``[f, g] : A + B -> C``.
-
-    Requires both branches to have the same visible codomain.
-    """
-    try:
-        Ty.unify_or_equal(
-            graph, f.cod(), g.cod(),
-            "Cannot build case",
-            allow_unification=allow_unification,
-        )
-    except TypeError as e:
-        raise MorphismError(str(e)) from e
-
+def case(f: Morphism, g: Morphism, *, shared_context: bool = False,
+         graph=None, allow_unification: bool = False) -> Morphism:
+    """Coproduct elimination ``[f, g] : A + B -> C``. Requires same visible codomain."""
     return _contextual_binary(
-        expr.Case,
-        f,
-        g,
-        SumType(f.dom(), g.dom()),
-        f.cod(),
-        shared_context=shared_context,
-        graph=graph,
-        allow_unification=allow_unification,
+        expr.Case, f, g, SumType(f.dom(), g.dom()), f.cod(),
+        equal=(f.cod(), g.cod()), msg="Cannot build case",
+        shared_context=shared_context, graph=graph, allow_unification=allow_unification,
     )
 
 
@@ -433,4 +402,3 @@ def case(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, 
 #
 # Do not implement until contract_morphism in semantics/contractions.py
 # is designed and the index-type encoding is settled.
-

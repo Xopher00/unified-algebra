@@ -134,9 +134,108 @@ def test_copy():
     assert isinstance(r, Copy)
 
 
+def test_copy_power_two():
+    r = parse_morphism("^2")
+    assert isinstance(r, Copy)
+
+
+def test_copy_power_three_left_nested():
+    r = parse_morphism("^3")
+    assert isinstance(r, Pair)
+    assert isinstance(r.f, Copy)
+    assert isinstance(r.g, Identity)
+
+
+def test_copy_power_is_not_fixed_arity():
+    r = parse_morphism("^5")
+    for _ in range(3):
+        assert isinstance(r, Pair)
+        assert isinstance(r.g, Identity)
+        r = r.f
+    assert isinstance(r, Copy)
+
+
+def test_postfix_copy_power_two():
+    r = parse_morphism("morph^2")
+    assert isinstance(r, Compose)
+    assert isinstance(r.f, Ref) and r.f.name == "morph"
+    assert isinstance(r.g, Copy)
+
+
+def test_postfix_copy_power_is_not_fixed_arity():
+    r = parse_morphism("morph^5")
+    assert isinstance(r, Compose)
+    assert isinstance(r.f, Ref) and r.f.name == "morph"
+    copied = r.g
+    for _ in range(3):
+        assert isinstance(copied, Pair)
+        assert isinstance(copied.g, Identity)
+        copied = copied.f
+    assert isinstance(copied, Copy)
+
+
+def test_postfix_copy_power_has_high_precedence():
+    r = parse_morphism("f^2 >> g")
+    assert isinstance(r, Compose)
+    assert isinstance(r.f, Compose)
+    assert isinstance(r.f.f, Ref) and r.f.f.name == "f"
+    assert isinstance(r.f.g, Copy)
+    assert isinstance(r.g, Ref) and r.g.name == "g"
+
+
+def test_postfix_copy_power_requires_at_least_two():
+    with pytest.raises(ParseError, match="integer >= 2"):
+        parse_morphism("morph^1")
+
+
+def test_copy_power_requires_at_least_two():
+    with pytest.raises(ParseError, match="integer >= 2"):
+        parse_morphism("^1")
+
+
+def test_copy_power_requires_integer():
+    with pytest.raises(ParseError, match="copy power"):
+        parse_morphism("^")
+
+
 def test_fst():
     r = parse_morphism("fst")
     assert isinstance(r, First)
+
+
+def test_postfix_projection_first():
+    r = parse_morphism("morph[0]")
+    assert isinstance(r, Compose)
+    assert isinstance(r.f, Ref) and r.f.name == "morph"
+    assert isinstance(r.g, First)
+
+
+def test_postfix_projection_second():
+    r = parse_morphism("morph[1]")
+    assert isinstance(r, Compose)
+    assert isinstance(r.f, Ref) and r.f.name == "morph"
+    assert isinstance(r.g, Second)
+
+
+def test_postfix_projection_on_grouped_pair():
+    r = parse_morphism("(f & g)[0]")
+    assert isinstance(r, Compose)
+    assert isinstance(r.f, Pair)
+    assert isinstance(r.g, First)
+
+
+def test_postfix_projection_has_high_precedence():
+    r = parse_morphism("f & g[1]")
+    assert isinstance(r, Pair)
+    assert isinstance(r.f, Ref) and r.f.name == "f"
+    assert isinstance(r.g, Compose)
+    assert isinstance(r.g.f, Ref) and r.g.f.name == "g"
+    assert isinstance(r.g.g, Second)
+
+
+def test_postfix_projection_rejects_other_indexes():
+    with pytest.raises(ParseError, match="0 or 1"):
+        parse_morphism("morph[2]")
 
 
 def test_snd():
@@ -147,6 +246,49 @@ def test_snd():
 def test_inl():
     r = parse_morphism("inl")
     assert isinstance(r, Left)
+
+
+def test_case_injection_zero():
+    r = parse_morphism("?0")
+    assert isinstance(r, Left)
+
+
+def test_case_injection_one():
+    r = parse_morphism("?1")
+    assert isinstance(r, Right)
+
+
+def test_case_injection_rejects_other_indexes():
+    with pytest.raises(ParseError, match="0 or 1"):
+        parse_morphism("?2")
+
+
+def test_case_injection_requires_integer():
+    with pytest.raises(ParseError, match="case injection"):
+        parse_morphism("?")
+
+
+def test_postfix_case_injection_zero():
+    r = parse_morphism("morph?0")
+    assert isinstance(r, Compose)
+    assert isinstance(r.f, Ref) and r.f.name == "morph"
+    assert isinstance(r.g, Left)
+
+
+def test_postfix_case_injection_one():
+    r = parse_morphism("morph?1")
+    assert isinstance(r, Compose)
+    assert isinstance(r.f, Ref) and r.f.name == "morph"
+    assert isinstance(r.g, Right)
+
+
+def test_postfix_case_injection_has_high_precedence():
+    r = parse_morphism("f?0 | g")
+    assert isinstance(r, Case)
+    assert isinstance(r.f, Compose)
+    assert isinstance(r.f.f, Ref) and r.f.f.name == "f"
+    assert isinstance(r.f.g, Left)
+    assert isinstance(r.g, Ref) and r.g.name == "g"
 
 
 def test_inr():
@@ -426,6 +568,16 @@ def test_program_map_references_earlier_map():
     b = prog.functors["B"]
     assert isinstance(b, Sum)
     assert isinstance(b.left, List)
+
+
+def test_program_route_fmap_references_earlier_map():
+    src = "map Pair = x & x\nroute gated = Pair{tanh}"
+    prog = parse_program(src)
+    gated = prog.morphisms["gated"]
+    assert isinstance(gated, PolyFmap)
+    assert isinstance(gated.body, Prod)
+    assert isinstance(gated.body.left, Id)
+    assert isinstance(gated.body.right, Id)
 
 
 def test_program_empty():

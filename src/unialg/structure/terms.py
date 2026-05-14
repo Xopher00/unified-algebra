@@ -67,6 +67,7 @@ def lam2(name1: str, name2: str, body: Callable[[TTerm, TTerm], TTerm]) -> TTerm
 
 
 def _variant_fields(t, variant: str, *fields, then, otherwise):
+    """Match a Hydra variant by class name and extract selected value fields."""
     if type(t).__name__ != variant:
         return otherwise
     v = getattr(t, "value", None)
@@ -86,6 +87,7 @@ def _structural_rewrite_once(t):
     swap(pair(a, b)) -> pair(b, a)
     """
     def rewrite_pair_app(f, x):
+        """Rewrite known pair primitive applications against a pair argument."""
         return _variant_fields(
             x, "TermPair", "left", "right", otherwise=t,
             then=lambda a, b: (
@@ -102,6 +104,7 @@ def _structural_rewrite_once(t):
 def optimize_term(term: TTerm | Term) -> TTerm:
     """Optimize a Hydra term after lowering from unialg morphism combinators."""
     def rule(recurse, t):
+        """Apply one structural rewrite after recursively rewriting children."""
         return _structural_rewrite_once(recurse(t))
 
     raw = term.value if isinstance(term, TTerm) else term
@@ -195,6 +198,7 @@ def eithers_either(left: TTerm, right: TTerm) -> TTerm:
 
 
 def _injection(make_term: Callable) -> TTerm:
+    """Build a unary injection function from a Hydra Either constructor."""
     return term_lambda("injected_", lambda x: TTerm(make_term(x.value)))
 
 

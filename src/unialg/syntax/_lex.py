@@ -22,17 +22,21 @@ Token = tuple[str, object]
 # ---------------------------------------------------------------------------
 
 def _ws_char():
+    """Parse one whitespace character recognized by the surface language."""
     return P.satisfy(lambda c: chr(c) in " \t\n\r")
 
 def _not_nl():
+    """Parse one character that is not a line break."""
     return P.satisfy(lambda c: chr(c) not in "\n\r")
 
 def _comment():
+    """Parse a line comment beginning with ``#`` and discard its contents."""
     return P.bind(P.char(ord("#")), lambda _:
            P.bind(P.many(_not_nl()), lambda _:
            P.pure(None)))
 
 def _skip():
+    """Parse any amount of insignificant whitespace and comments."""
     return P.bind(
         P.many(P.alt(
             P.bind(_ws_char(), lambda _: P.pure(None)),
@@ -42,6 +46,7 @@ def _skip():
     )
 
 def _raw_ident():
+    """Parse an identifier before keyword classification."""
     id_start = P.satisfy(lambda c: chr(c).isalpha() or chr(c) == "_")
     id_rest  = P.many(P.satisfy(lambda c: chr(c).isalnum() or chr(c) == "_"))
     return P.bind(id_start, lambda c:
@@ -49,16 +54,19 @@ def _raw_ident():
            P.pure(chr(c) + "".join(chr(x) for x in cs))))
 
 def _raw_int():
+    """Parse a non-negative decimal integer."""
     return P.bind(
         P.some(P.satisfy(lambda c: chr(c).isdigit())),
         lambda ds: P.pure(int("".join(chr(c) for c in ds))),
     )
 
 def _lit(text: str, kind: str, value: object = None):
+    """Build a parser for a fixed literal token."""
     v = text if value is None else value
     return P.bind(P.string(text), lambda _: P.pure((kind, v)))
 
 def _tokenize(raw_token):
+    """Wrap a token parser with whitespace/comment skipping."""
     skip = _skip()
     return P.bind(skip, lambda _:
            P.many(P.bind(raw_token, lambda t:
@@ -66,6 +74,7 @@ def _tokenize(raw_token):
            P.pure(t)))))
 
 def _run(parser, src: str) -> list[Token]:
+    """Run a tokenizer parser and require all non-whitespace input to be consumed."""
     result = P.run_parser(parser, src)
     if not isinstance(result, ParseResultSuccess):
         raise ValueError(f"tokenization failed near: {src[:60]!r}")
@@ -85,6 +94,7 @@ _KEYWORDS: dict[str, str] = {"route": "ROUTE", "map": "MAP", "load": "LOAD"}
 
 
 def _morphism_token():
+    """Return the token parser used for morphism expressions and programs."""
     return P.choice((
         _lit(">>", "COMPOSE"),
         _lit("||", "PAR"),
@@ -99,6 +109,8 @@ def _morphism_token():
         _lit(")",  "RPAREN"),
         _lit(",",  "COMMA"),
         _lit("!",  "BANG"),
+        _lit("^",  "CARET"),
+        _lit("?",  "QUESTION"),
         _lit("=",  "EQ"),
         _lit(";",  "ERROR", "use '>>' instead of ';'"),
         P.bind(_raw_int(),   lambda n: P.pure(("INT",  n))),
@@ -107,6 +119,7 @@ def _morphism_token():
 
 
 def tokenize_morphism(src: str) -> list[Token]:
+    """Tokenize a morphism expression or full program source."""
     return _run(_tokenize(_morphism_token()), src)
 
 
@@ -119,6 +132,7 @@ tokenize = tokenize_morphism
 # ---------------------------------------------------------------------------
 
 def _functor_token():
+    """Return the smaller token parser used for standalone functor expressions."""
     return P.choice((
         _lit("*",  "STAR"),
         _lit("&",  "PAIR"),
@@ -130,4 +144,5 @@ def _functor_token():
     ))
 
 def tokenize_functor(src: str) -> list[Token]:
+    """Tokenize a standalone polynomial functor expression."""
     return _run(_tokenize(_functor_token()), src)

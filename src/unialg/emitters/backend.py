@@ -165,13 +165,10 @@ def register_backend_primitive(
     fn = resolve_function(path) if isinstance(path, str) else path
     result_type = result_type or arg_type
     name = Name(canonical_name)
-    scheme = TypeScheme(
-        variables=(),
-        body=_curried_type(arg_type, result_type, arity),
-        constraints=None,
-    )
+    scheme = TypeScheme((), _curried_type(arg_type, result_type, arity), None)
 
     def impl(ctx: Context, graph: Graph, args):
+        """Decode Hydra arguments, call the backend function, and re-encode."""
         py_args = [
             _expect_right(
                 arg_coder.encode(ctx, graph, arg),

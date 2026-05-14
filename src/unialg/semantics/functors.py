@@ -89,6 +89,7 @@ class Functor:
     
 
 def _has_exp(body: expr.PolyExpr) -> bool:
+    """Return whether a polynomial body contains an exponential node."""
     if isinstance(body, expr.Exp):
         return True
     if isinstance(body, (expr.Sum, expr.Prod)):
@@ -219,12 +220,14 @@ def apply_poly(body: expr.PolyExpr, space: Type) -> Type:
 
 
 def _flatten_sum(node: expr.PolyExpr) -> tuple[expr.PolyExpr, ...]:
+    """Return top-level sum summands from left to right."""
     if isinstance(node, expr.Sum):
         return _flatten_sum(node.left) + _flatten_sum(node.right)
     return (node,)
 
 
 def _count_id(node: expr.PolyExpr) -> int:
+    """Count occurrences of the identity hole in a polynomial body."""
     if isinstance(node, (expr.Zero, expr.One, expr.Const)):
         return 0
     if isinstance(node, expr.Id):
@@ -239,6 +242,7 @@ def _count_id(node: expr.PolyExpr) -> int:
 
 
 def _collect_consts(node: expr.PolyExpr) -> list[Type]:
+    """Collect constant spaces and exponential bases in depth-first order."""
     if isinstance(node, (expr.Zero, expr.One, expr.Id)):
         return []
     if isinstance(node, expr.Const):
@@ -250,5 +254,4 @@ def _collect_consts(node: expr.PolyExpr) -> list[Type]:
     if isinstance(node, (expr.List, expr.Maybe)):
         return _collect_consts(node.body)
     raise ValueError(f"_collect_consts: unknown PolyExpr {type(node).__name__!r}")
-
 

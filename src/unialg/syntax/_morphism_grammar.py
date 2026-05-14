@@ -23,10 +23,11 @@ from unialg.syntax.expressions import (
     Id, List as PolyList,
 )
 from unialg.syntax._pratt import PrattParser, ParseError
-from unialg.syntax._ops import _U, _PU, _SU, morphism_bp, make_binary
+from unialg.syntax._ops import _U, _PU, _SU, morphism_bp, make_binary, make_compose, make_pair
 
 Token = tuple[str, Any]
 Env = dict[str, MorphismExpr]
+FunctorEnv = dict[str, PolyExpr]
 
 
 def _poly_prefix(p: PrattParser, base: PolyExpr) -> PolyExpr:
@@ -38,7 +39,27 @@ def _poly_prefix(p: PrattParser, base: PolyExpr) -> PolyExpr:
     return body
 
 
-def _nud(env: Env, p: PrattParser, tok: Token) -> MorphismExpr:
+def _copy_power(count: int) -> MorphismExpr:
+    """Expand ``^n`` to a left-nested copy tree."""
+    if count < 2:
+        raise ParseError("copy power expects an integer >= 2")
+    out: MorphismExpr = Copy(_U)
+    for _ in range(2, count):
+        out = make_pair(out, Identity(_U))
+    return out
+
+
+def _case_injection(index: int) -> MorphismExpr:
+    """Expand ``?0``/``?1`` to the corresponding sum injection."""
+    if index == 0:
+        return Left(_SU)
+    if index == 1:
+        return Right(_SU)
+    raise ParseError("case injection index must be 0 or 1")
+
+
+def _nud(env: Env, fenv: FunctorEnv, p: PrattParser, tok: Token) -> MorphismExpr:
+    """Parse a morphism atom, prefix form, grouping, or functor action head."""
     kind, val = tok
 
     if kind == "LPAREN":
@@ -48,6 +69,18 @@ def _nud(env: Env, p: PrattParser, tok: Token) -> MorphismExpr:
 
     if kind == "BANG":
         return Delete(_U)
+
+    if kind == "CARET":
+        if p.peek()[0] != "INT":
+            raise ParseError("copy power expects an integer >= 2")
+        _, count = p.expect("INT", "copy power")
+        return _copy_power(count)
+
+    if kind == "QUESTION":
+        if p.peek()[0] != "INT":
+            raise ParseError("case injection expects index 0 or 1")
+        _, index = p.expect("INT", "case injection index")
+        return _case_injection(index)
 
     if kind == "INT":
         raise ParseError(f"integer {val!r} is not valid in morphism context")
@@ -97,8 +130,8 @@ def _nud(env: Env, p: PrattParser, tok: Token) -> MorphismExpr:
                 p.advance()
                 f = p.parse(0)
                 p.expect("RBRACE", "closing }")
-                body = env.get(aname, PolyRef(aname))  # type: ignore[arg-type]
-                return PolyFmap(body=body, f=f,  # type: ignore[arg-type]
+                body = fenv.get(aname, PolyRef(aname))
+                return PolyFmap(body=body, f=f,
                                 param=_U, monad=None, dom=_U, cod=_U)
             if aname in env:
                 return env[aname]
@@ -109,7 +142,7 @@ def _nud(env: Env, p: PrattParser, tok: Token) -> MorphismExpr:
             p.advance()
             f = p.parse(0)
             p.expect("RBRACE", "closing }")
-            return PolyFmap(body=PolyRef(name), f=f,  # type: ignore[arg-type]
+            return PolyFmap(body=fenv.get(name, PolyRef(name)), f=f,
                             param=_U, monad=None, dom=_U, cod=_U)
 
         # Generic name → env lookup or unresolved Ref
@@ -121,18 +154,44 @@ def _nud(env: Env, p: PrattParser, tok: Token) -> MorphismExpr:
 
 
 def _led(p: PrattParser, left: MorphismExpr, tok: Token, rbp: int) -> MorphismExpr:
+    """Parse a postfix or infix morphism operator after ``left``."""
     kind = tok[0]
+    if kind == "LBRACKET":
+        _, index = p.expect("INT", "projection index")
+        p.expect("RBRACKET", "closing ]")
+        if index == 0:
+            return make_compose(left, First(_PU))
+        if index == 1:
+            return make_compose(left, Second(_PU))
+        raise ParseError("projection index must be 0 or 1")
+    if kind == "CARET":
+        if p.peek()[0] != "INT":
+            raise ParseError("copy power expects an integer >= 2")
+        _, count = p.expect("INT", "copy power")
+        return make_compose(left, _copy_power(count))
+    if kind == "QUESTION":
+        if p.peek()[0] != "INT":
+            raise ParseError("case injection expects index 0 or 1")
+        _, index = p.expect("INT", "case injection index")
+        return make_compose(left, _case_injection(index))
     right: MorphismExpr = p.parse(rbp)  # type: ignore[assignment]
     return make_binary(kind, left, right)
 
 
-def make_morphism_grammar(env: Env | None = None) -> tuple[Any, Any, dict]:
+def make_morphism_grammar(
+    env: Env | None = None,
+    functor_env: FunctorEnv | None = None,
+) -> tuple[Any, Any, dict]:
+    """Return Pratt callbacks and binding powers for morphism parsing."""
     _env: Env = env or {}
+    _fenv: FunctorEnv = functor_env or {}
 
     def nud(p: PrattParser, tok: Token) -> MorphismExpr:
-        return _nud(_env, p, tok)
+        """Parse a null-denotation morphism token using captured environments."""
+        return _nud(_env, _fenv, p, tok)
 
     def led(p: PrattParser, left: object, tok: Token, rbp: int) -> MorphismExpr:
+        """Parse a left-denotation morphism token using captured environments."""
         return _led(p, left, tok, rbp)  # type: ignore[arg-type]
 
     return nud, led, morphism_bp()

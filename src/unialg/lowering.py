@@ -14,7 +14,7 @@ import hydra.lib.maps as HMaps
 import hydra.reduction as R
 
 from .semantics.morphisms import Morphism
-from .structure.realize import realize_normalized
+from .structure.realize import realize, realize_normalized, realize_term_normalized
 
 
 def _augment_graph(graph, aux_primitives):

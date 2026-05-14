@@ -148,6 +148,12 @@ class Case(ContextualBinary):
 
 
 @dataclass(frozen=True)
+class Ref(MorphismExpr):
+    """Unresolved name reference — resolved from env during parsing."""
+    name: str
+
+
+@dataclass(frozen=True)
 class Prim(MorphismExpr):
     """Already-built Hydra term with explicit domain and codomain.
 
@@ -213,6 +219,8 @@ def _pretty_morphism(expr: MorphismExpr) -> str:
             return f"cata({pretty(node.body)})"
         case Ana(node=node):
             return f"ana({pretty(node.body)})"
+        case Ref(name=name):
+            return name
         case Prim():
             return "prim"
         case _:
@@ -286,6 +294,12 @@ class List(PolyExpr):
 class Maybe(PolyExpr):
     """F(X) = Maybe[G(X)] — maybe type constructor lifted over a polynomial."""
     body: PolyExpr
+
+
+@dataclass(frozen=True)
+class PolyRef(PolyExpr):
+    """Unresolved name reference in functor position — resolved from env during parsing."""
+    name: str
 
 
 @dataclass(frozen=True)
@@ -368,5 +382,7 @@ def _pretty_poly(expr: PolyExpr) -> str:
         return f"List[{pretty(expr.body)}]"
     if isinstance(expr, Maybe):
         return f"Maybe[{pretty(expr.body)}]"
+    if isinstance(expr, PolyRef):
+        return expr.name
     raise ValueError(f"pretty: unknown PolyExpr {type(expr).__name__!r}")
 

@@ -18,6 +18,8 @@ from hydra.dsl.python import Right
 import hydra.dsl.terms as Terms
 import hydra.reduction as R
 import hydra.analysis as Analysis
+from hydra.context import Context
+from hydra.graph import Graph
 
 from . import terms as T
 from unialg.semantics.morphisms import Morphism
@@ -42,8 +44,6 @@ def realize_normalized(node: expr.MorphismExpr, graph=None, _prims: list | None 
 
 def analyze_realized_function(node: expr.MorphismExpr, _prims=None):
     """Analyze a realized Hydra function term."""
-    from hydra.context import Context
-    from hydra.graph import Graph
 
     term = realize(node, _prims)
     return Analysis.analyze_function_term(

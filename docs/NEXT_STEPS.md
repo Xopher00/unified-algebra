@@ -244,6 +244,128 @@ Design questions:
 
 For multi-headed and branching architectures. Tensor products of morphisms, bilinearity. See `docs/ALGEBRA.md` / `claude-mdtopics/ALGEBRA.md` for context.
 
+## Deferred: Python operator syntax via Hydra Expr
+
+The Pratt parser (string path) is implemented in `syntax/`. A Python operator
+path — where users compose `Morphism` objects with `>>`, `&`, `|` directly — is
+the natural next step. This section records the Hydra mechanisms discovered
+during exploration (2026-05-14).
+
+### Hydra infrastructure available
+
+- `hydra.ast.Op(symbol, padding, precedence, associativity)` — operator metadata.
+  Shared `Op` objects are already defined in `syntax/_ops.py` for `>>`, `&`, `||`, `|`.
+- `hydra.ast.Expr` — generic expression ADT: `ExprConst(Symbol)`, `ExprOp(OpExpr)`,
+  `ExprBrackets(BracketExpr)`, `ExprSeq(SeqExpr)`.
+- `hydra.serialization.sym(name) -> Symbol` — creates a named symbol.
+- `hydra.serialization.print_expr(expr) -> str` — renders an `Expr` tree to surface
+  syntax with operator symbols and whitespace.
+- `hydra.serialization.parenthesize(expr) -> Expr` — precedence-aware parenthesization.
+- `hydra.dsl.ast.op_expr(op, lhs, rhs) -> TTerm` — builds an `OpExpr` term
+  (phantom-typed, returns Hydra `Term`, not `MorphismExpr`).
+
+These together give: build an `Expr` tree with `ExprConst`/`ExprOp`, call
+`print_expr(parenthesize(expr))`, and get readable surface syntax like
+`(f & g) >> h` back. Verified working.
+
+### Design direction
+
+Operator dunders (`__rshift__`, `__and__`, `__or__`) live in `syntax/`, not on
+`Morphism` in `semantics/`. They wrap **expressions** (`MorphismExpr`), not
+semantic objects (`Morphism`). The syntax layer owns the surface representation;
+semantics owns typed composition. The dunders build `MorphismExpr` trees and
+parallel `hydra.ast.Expr` trees — they do not call semantic combinators directly.
+
+Each operator call:
+1. Constructs a `MorphismExpr` node (e.g., `Compose`, `Pair`) via shared
+   constructors in `_ops.py`.
+2. Builds a parallel `hydra.ast.Expr` tree for rendering.
+3. `__repr__` calls `print_expr(parenthesize(expr))` for readable display.
+
+`||` cannot be overloaded in Python. Alternative: `//` (`__floordiv__`) for `par`,
+or a `.par()` method.
+
+### Exploratory: automatic Python-to-Hydra Expr parsing
+
+Python's `ast` module can inspect operator expressions at the source level. An
+alternative to manual dunder overloads: intercept a Python function or lambda via
+`inspect.getsource` or `ast.parse`, walk the AST, and translate `BinOp` nodes
+(`>>`, `&`, `|`) directly into `hydra.ast.Expr` trees (`ExprOp` with the
+corresponding `Op` objects from `_ops.py`). Name nodes become `ExprConst(sym(name))`.
+
+This would allow writing plain Python:
+
+```python
+def transformer(x, attention, add, layer_norm, token_ffn):
+    return ((x & attention) >> add >> layer_norm) >> \
+           ((x & x_star(token_ffn)) >> add >> layer_norm)
+```
+
+and extracting the `Expr` tree automatically without executing the function or
+requiring operator overloads at all. The `Expr` tree feeds into the same
+`print_expr` rendering and could lower to `MorphismExpr` via the shared
+lowering path.
+
+This approach has tradeoffs (source inspection is fragile, closures lose source,
+notebooks may need cell-level AST hooks) but is worth prototyping as a
+zero-boilerplate alternative to the dunder approach.
+
+### Shared infrastructure (already in place)
+
+`syntax/_ops.py` defines shared `Op` objects, BP derivation (`morphism_bp()`,
+`functor_bp()`), binary `MorphismExpr` constructors (`make_compose`, `make_pair`,
+`make_par`, `make_case`), and `Expr` builder + render helpers (`atom_expr`,
+`binary_expr`, `render`). Both the string parser grammar and the future Python
+operator interface use these.
+
+### Constraint
+
+All operator syntax code lives in `syntax/`. The `syntax/` layer NEVER imports
+from `semantics/`. The operator interface must call semantic combinators through
+a boundary that respects this (e.g., the user passes `Morphism` objects in, and
+the syntax layer wraps the result).
+
+## Next: Einsum specs and backend-to-expression mapping
+
+### Einsum spec files
+
+Einsum specs register the einsum methods that every backend provides — `einsum`
+is a backend primitive like `add`, `softmax`, `gelu`, and `layer_norm`. The spec
+file declares that the backend HAS an einsum operation; the equation strings
+are supplied at use-time by architecture code.
+
+The spec does not name or own specific contraction patterns. Names like
+`linear_seq` or `attention_score` are architecture-level choices — the user
+passes the equation string when instantiating a parametric morphism from the
+einsum atom.
+
+### Backend loading as expressions
+
+A backend spec (e.g., `backends/numpy.json`) already registers primitives via
+`BackendOps.from_spec()`. The next step: automatically map each registered
+backend primitive to a `MorphismExpr` node (or a `Morphism` with its `Prim` node)
+that the surface syntax can reference directly.
+
+The flow:
+
+1. Load a backend spec: `ops = BackendOps.from_spec("backends/numpy.json")`
+2. Auto-generate an expression environment: `env = backend_to_env(ops)` — each
+   op name maps to a `MorphismExpr` (or `Ref` resolved to its `Prim`-backed node).
+3. The parser's `env` parameter accepts this: `parse_morphism("f >> add >> gelu", env=env)`
+   resolves `add` and `gelu` to their concrete backend-backed expressions.
+4. For the Python operator path: the env entries are directly usable as expression
+   operands — no manual atom construction needed.
+
+This closes the gap between "user loads a backend" and "user writes expressions
+that reference backend primitives by name." The einsum specs and backend env
+together give the testing scaffold described in `notes/syntax.md` deliverable #4.
+
+### Constraint
+
+Einsum specs define reusable contraction equations only. They do not encode
+q/k/v, attention, FFN, GNN, transformer, or multimodal blocks. Backend loading
+produces primitive-backed expressions — it does not define architecture layers.
+
 ## Watch: Strength and distributivity
 
 Lax para composition handles parameter threading with shared context plus `bind`/lambda capture. No explicit strength morphism is part of the current semantics.

@@ -237,6 +237,8 @@ def signature(node: expr.MorphismExpr) -> tuple[Type, Type]:
             return dom, cod
         case expr.AlgExpr(dom=dom, cod=cod):
             return dom, cod
+        case expr.Ref(name=name):
+            raise MorphismError(f"signature: unresolved reference {name!r}")
         case _:
             raise TypeError(f"signature: unknown MorphismExpr {type(node).__name__!r}")
 

@@ -16,7 +16,7 @@ from unialg.semantics import morphisms as ops
 from unialg.semantics import functors as sem
 from unialg.semantics.functors import poly_fmap
 from unialg.structure.realize import realize
-from unialg.lowering import run
+from unialg.main import run
 from unialg.objects import MAYBE
 from support.strategies import INT, UNIT, maybe_lax_morphisms, parametric_plain_morphisms, plain_morphisms, poly_values
 

@@ -30,26 +30,24 @@ _SU = SumType(_U, _U)
 # Hydra Op objects — canonical operator metadata
 # ---------------------------------------------------------------------------
 
-def createOp(symbol: str, padding: bool, precedence: int, associativity: int):
-    _SYM = ser.sym(symbol)
-    if padding:
-        _PAD = hast.Padding(hast.WsSpace(), hast.WsSpace())
-    else:
-        _PAD = hast.Padding(hast.WsNone(), hast.WsNone())
-    _PREC = hast.Precedence(precedence)
-    _ASSOC = (hast.Associativity.LEFT, hast.Associativity.RIGHT)[associativity]
-    return hast.Op(_SYM, _PAD, _PREC, _ASSOC)
+def createOp(symbol: str, padding: bool, precedence: int, associativity: str = "left"):
+    ws = hast.WsSpace if padding else hast.WsNone
+    return hast.Op(
+        ser.sym(symbol),
+        hast.Padding(ws(), ws()),
+        hast.Precedence(precedence),
+        {"left": hast.Associativity.LEFT, "right": hast.Associativity.RIGHT}[associativity],
+    )
     
-
-COMPOSE_OP = createOp(symbol=">>", padding=True, precedence=60, associativity=0) 
-PAIR_OP    = createOp("&", True, 70, 0) 
-PAR_OP     = createOp("||", True, 65, 0) 
-CASE_OP    = createOp("|", True, 50, 0)
+COMPOSE_OP = createOp(symbol=">>", padding=True, precedence=60, associativity="left") 
+PAIR_OP    = createOp("&", True, 70, "left")
+PAR_OP     = createOp("||", True, 65, "left")
+CASE_OP    = createOp("|", True, 50, "left")
 
 # Functor operators
-FSTAR_OP = createOp(symbol="*", padding=False, precedence=80, associativity=0)
-FPROD_OP = createOp("&", True, 70, 0)
-FSUM_OP  = createOp("|", True, 60, 0)
+FSTAR_OP = createOp(symbol="*", padding=False, precedence=80, associativity="left")
+FPROD_OP = createOp("&", True, 70, "left")
+FSUM_OP  = createOp("|", True, 60, "left")
 
 # Token kind → Op mapping for morphism operators
 _MORPHISM_OPS: dict[str, hast.Op] = {

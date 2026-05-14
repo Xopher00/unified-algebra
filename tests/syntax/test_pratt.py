@@ -10,7 +10,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from unialg.syntax.parse import parse_morphism, parse_functor, ParseError
+from unialg.syntax.parse import parse_morphism, parse_functor, parse_program, Program, ParseError
 from unialg.syntax.expressions import (
     Compose, Pair, Parallel, Case,
     Identity, Delete, Copy, First, Second, Left, Right, Absurd, Assoc, Symmetry,
@@ -377,3 +377,122 @@ def test_transformer():
     )
     r = parse_morphism(src)
     assert isinstance(r, Compose)
+
+
+# ---------------------------------------------------------------------------
+# Program-level parsing (route / map)
+# ---------------------------------------------------------------------------
+
+def test_program_single_route():
+    prog = parse_program("route copy_id = copy")
+    assert isinstance(prog, Program)
+    assert "copy_id" in prog.morphisms
+    assert isinstance(prog.morphisms["copy_id"], Copy)
+
+
+def test_program_single_map():
+    prog = parse_program("map ListF = x*")
+    assert "ListF" in prog.functors
+    assert isinstance(prog.functors["ListF"], List)
+
+
+def test_program_multiple_routes():
+    src = "route f = copy\nroute g = delete"
+    prog = parse_program(src)
+    assert isinstance(prog.morphisms["f"], Copy)
+    assert isinstance(prog.morphisms["g"], Delete)
+
+
+def test_program_mixed():
+    src = "route f = fst\nmap F = 1 | x\n"
+    prog = parse_program(src)
+    assert isinstance(prog.morphisms["f"], First)
+    assert isinstance(prog.functors["F"], Sum)
+
+
+def test_program_route_references_earlier_route():
+    # second route references the first by name — env propagation
+    src = "route f = copy\nroute g = f >> fst"
+    prog = parse_program(src)
+    g = prog.morphisms["g"]
+    assert isinstance(g, Compose)
+    assert isinstance(g.f, Copy)
+    assert isinstance(g.g, First)
+
+
+def test_program_map_references_earlier_map():
+    src = "map A = x*\nmap B = A | 1"
+    prog = parse_program(src)
+    b = prog.functors["B"]
+    assert isinstance(b, Sum)
+    assert isinstance(b.left, List)
+
+
+def test_program_empty():
+    prog = parse_program("")
+    assert prog.morphisms == {}
+    assert prog.functors == {}
+
+
+def test_program_bad_keyword():
+    with pytest.raises(ParseError, match="expected"):
+        parse_program("define f = copy")
+
+
+def test_program_missing_name():
+    with pytest.raises(ParseError):
+        parse_program("route = copy")
+
+
+def test_program_missing_eq():
+    with pytest.raises(ParseError):
+        parse_program("route f copy")
+
+
+# ---------------------------------------------------------------------------
+# load directive — parser-only (stub handler, no real backend)
+# ---------------------------------------------------------------------------
+
+def _stub_handler(name: str):
+    """Return fake Prim nodes for 'add' and 'multiply' regardless of backend."""
+    from unialg.syntax.expressions import Prim
+    from unialg.objects import TypeUnit
+    tu = TypeUnit()
+    return {"add": Prim(object(), tu, tu), "multiply": Prim(object(), tu, tu)}
+
+
+def test_load_records_backend():
+    prog = parse_program("load numpy", load_handler=_stub_handler)
+    assert prog.loads == ("numpy",)
+
+
+def test_load_binds_aliases():
+    prog = parse_program("load numpy\nroute f = add", load_handler=_stub_handler)
+    from unialg.syntax.expressions import Prim
+    assert isinstance(prog.morphisms["f"], Prim)
+
+
+def test_load_no_handler_records_only():
+    # Without a handler, directive is still recorded but no env binding.
+    prog = parse_program("load numpy\nroute g = unknown_op")
+    assert prog.loads == ("numpy",)
+    from unialg.syntax.expressions import Ref
+    assert isinstance(prog.morphisms["g"], Ref)
+
+
+def test_load_two_backends():
+    prog = parse_program("load numpy\nload jax", load_handler=_stub_handler)
+    assert prog.loads == ("numpy", "jax")
+
+
+def test_load_then_route_composes():
+    prog = parse_program("load numpy\nroute f = add >> multiply", load_handler=_stub_handler)
+    from unialg.syntax.expressions import Compose, Prim
+    assert isinstance(prog.morphisms["f"], Compose)
+    assert isinstance(prog.morphisms["f"].f, Prim)
+    assert isinstance(prog.morphisms["f"].g, Prim)
+
+
+def test_load_bad_token():
+    with pytest.raises(ParseError):
+        parse_program("load >>", load_handler=_stub_handler)

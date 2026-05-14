@@ -336,7 +336,7 @@ class BackendOps:
 
 def library_primitives_map(library: Library):
     """Convert a Hydra Library into a Graph.primitives-style map."""
-    return Maps.from_dict({prim.name: prim for prim in library.primitives})
+    return Maps.from_list(list({prim.name: prim for prim in library.primitives}.items()))
 
 
 def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
@@ -353,7 +353,7 @@ def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
         class_constraints=base.class_constraints,
         lambda_variables=base.lambda_variables,
         metadata=base.metadata,
-        primitives=Maps.from_dict(prims),
+        primitives=Maps.from_list(list(prims.items())),
         schema_types=base.schema_types,
         type_variables=base.type_variables,
     )

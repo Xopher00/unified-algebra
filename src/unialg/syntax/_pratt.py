@@ -17,31 +17,34 @@ class ParseError(Exception):
     pass
 
 
-class PrattParser:
+class TokenCursor:
+    """Lightweight token stream cursor — peek, advance, expect."""
+
     def __init__(
         self,
         tokens: Sequence[Token],
         *,
-        label: str,
-        binding_powers: BindingPowers,
-        nud: Nud,
-        led: Led,
+        label: str = "",
         eof_token: Token = ("EOF", None),
     ):
         self._tokens = list(tokens)
         self._label = label
-        self._binding_powers = binding_powers
-        self._nud = nud
-        self._led = led
         self._eof_token = eof_token
         self._pos = 0
+
+    @property
+    def pos(self) -> int:
+        return self._pos
+
+    def seek(self, pos: int) -> None:
+        self._pos = pos
 
     def peek(self) -> Token:
         return self._tokens[self._pos] if self._pos < len(self._tokens) else self._eof_token
 
     def advance(self) -> Token:
         if self._pos >= len(self._tokens):
-            raise ParseError(f"{self._label}: unexpected end of expression")
+            raise ParseError(f"{self._label}: unexpected end of input")
         tok = self._tokens[self._pos]
         self._pos += 1
         return tok
@@ -54,6 +57,23 @@ class PrattParser:
                 f"{self._label}: expected {kind!r}, got {tok[0]!r} ({tok[1]!r}){suffix}"
             )
         return tok
+
+
+class PrattParser(TokenCursor):
+    def __init__(
+        self,
+        tokens: Sequence[Token],
+        *,
+        label: str,
+        binding_powers: BindingPowers,
+        nud: Nud,
+        led: Led,
+        eof_token: Token = ("EOF", None),
+    ):
+        super().__init__(tokens, label=label, eof_token=eof_token)
+        self._binding_powers = binding_powers
+        self._nud = nud
+        self._led = led
 
     def parse(self, min_bp: int = 0) -> object:
         tok = self.advance()
@@ -83,7 +103,7 @@ class PrattParser:
 
     def parse_all(self) -> object:
         result = self.parse(0)
-        if self._pos < len(self._tokens):
+        if self.peek()[0] != "EOF":
             raise ParseError(f"{self._label}: trailing token {self.peek()}")
         return result
 

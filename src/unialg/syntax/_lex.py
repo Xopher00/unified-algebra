@@ -1,7 +1,11 @@
 """Tokenizer for the unialg surface syntax, built on hydra.parsers combinators.
 
+  tokenize(src)          -> list[Token]   full token set (superset)
   tokenize_morphism(src) -> list[Token]   morphism expression tokens
   tokenize_functor(src)  -> list[Token]   functor expression tokens
+
+Reserved keywords: 'route' → ROUTE, 'map' → MAP. These may not be used
+as atom names inside expressions.
 
 Imports: hydra.parsers only. No unialg imports.
 """
@@ -76,6 +80,10 @@ def _run(parser, src: str) -> list[Token]:
 # Multi-char tokens (>>, ||) listed before their single-char prefixes.
 # ---------------------------------------------------------------------------
 
+# Reserved top-level keywords — cannot be used as expression atom names.
+_KEYWORDS: dict[str, str] = {"route": "ROUTE", "map": "MAP", "load": "LOAD"}
+
+
 def _morphism_token():
     return P.choice((
         _lit(">>", "COMPOSE"),
@@ -94,11 +102,16 @@ def _morphism_token():
         _lit("=",  "EQ"),
         _lit(";",  "ERROR", "use '>>' instead of ';'"),
         P.bind(_raw_int(),   lambda n: P.pure(("INT",  n))),
-        P.bind(_raw_ident(), lambda s: P.pure(("NAME", s))),
+        P.bind(_raw_ident(), lambda s: P.pure((_KEYWORDS.get(s, "NAME"), s))),
     ))
+
 
 def tokenize_morphism(src: str) -> list[Token]:
     return _run(_tokenize(_morphism_token()), src)
+
+
+# Full token set — superset of morphism + functor; used for program parsing.
+tokenize = tokenize_morphism
 
 
 # ---------------------------------------------------------------------------

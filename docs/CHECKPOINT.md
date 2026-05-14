@@ -49,7 +49,35 @@ Do not conflate these layers:
 - Lenses and optics are focus/update abstractions built above morphisms; they do **not** belong inside `recursion.py`.
 - Height-2 or polynomial lenses belong near the functor/shape layer, depending on `PolyExpr`, `apply_poly`, `poly_fmap`, and `Morphism`.
 
-## Package layout (as of 2026-05-13)
+## Surface syntax layer — sealed (2026-05-14)
+
+The `load`/`route`/`map` program syntax is implemented end-to-end. A user can write:
+
+```python
+from unialg import compile_program
+compiled = compile_program("load numpy\nroute f = add >> tanh")
+compiled.run(2.0, 3.0)   # → 0.9999...
+```
+
+Key changes sealed:
+- `syntax/_lex.py` — `_KEYWORDS` dict resolves `load`/`route`/`map` to token kinds; `tokenize = tokenize_morphism` alias
+- `syntax/_pratt.py` — `TokenCursor` (pos/seek/peek/advance/expect) split from `PrattParser`; used by program-level parser to slice declaration boundaries
+- `syntax/parse.py` — `Program(loads, morphisms, functors)`, `parse_program(src, load_handler)`, `_DECL_KINDS`
+- `main.py` — single entry point; `load_program`, `compile_program(src) → CompiledProgram`, `lower`, `run`; `lowering.py` deleted and merged here
+- `CompiledProgram` — holds one term (last route); `run(*args)` encodes Python scalars internally using cached `_arg_coder`; no Hydra imports required by caller
+- `__init__.py` — reduced to 3 lines: exports only `load_program, compile_program, CompiledProgram, lower, run`
+- `_augment_graph` — batched: one `dataclasses.replace` for all aux primitives instead of O(n)
+- `default_graph()` — uses `_augment_graph(_EMPTY_GRAPH, primitives)` instead of `L.graph_with_primitives`; fixes Pyright `frozenlist` errors and reuses existing `_EMPTY_GRAPH` from `semantics/typeops.py`
+
+Layer discipline preserved: `syntax/` imports only `objects` + `expressions`; `main.py` owns the backend wiring via `load_handler` callback injected into `parse_program`.
+
+## Unresolved: compile-time type checking for parsed compositions
+
+`compile_program("load numpy\nroute bad = tanh >> add")` compiles without error and only fails at `run()` time (Hydra extraction error). The `Compose`/`Pair`/`Case` nodes parsed by the grammar carry `dom=TypeUnit()` and `cod=TypeUnit()` placeholders — `morphisms.py` type checking never fires because these nodes go directly to `realize_normalized` without passing through the semantic layer.
+
+Grimp analysis (2026-05-14): `morphisms.py` imports `typeops` directly. The fix must live inside `morphisms.py` by understanding how `dom_of`/`cod_of` interact with the `ContextualBinary` case for parsed nodes. Investigation was interrupted — resume there.
+
+## Package layout (as of 2026-05-14)
 
 The package now uses subdirectories matching the architectural layers.
 

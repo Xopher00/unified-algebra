@@ -26,6 +26,21 @@ Tests revised. 94 passing. No references to old API remain in live tests; legacy
 - 8 unified Hypothesis property tests (type laws + rejection laws), 103 tests total passing
 - No Hydra term construction in `optics.py`; action in `actions.py` preserves layer discipline
 
+## Done: surface syntax layer (2026-05-14)
+
+`load`/`route`/`map` program syntax works end-to-end. `compile_program(src).run(...)` requires no Hydra imports from the caller. See CHECKPOINT.md for full change list.
+
+## Immediate: compile-time type checking for parsed compositions
+
+**Problem:** `compile_program("load numpy\nroute bad = tanh >> add")` silently compiles. Type mismatch (`FLOAT → FLOAT×FLOAT`) only surfaces at `run()` time as a Hydra reduction error.
+
+**Investigation so far:**
+- `morphisms.py` imports `typeops` directly — the type checking infrastructure is already there
+- `Compose`/`Pair`/`Case` nodes carry `dom=TypeUnit()`, `cod=TypeUnit()` from the parser (correct: semantics owns type derivation per `parse.py` docstring)
+- The fix belongs inside `morphisms.py` — it must handle the case where these nodes arrive with placeholder types and need to derive real types from their `f`/`g` children
+- Grimp shows: importers of `typeops` are `main`, `semantics.functors`, `semantics.morphisms`, `semantics.optics` — no new import edges are needed
+- **Resume:** read `morphisms.py` to understand how `dom_of`/`cod_of` (or `signature`) handles `ContextualBinary` with placeholder fields, and where the existing check for `Morphism`-built compositions lives — that is the pattern to follow for parsed nodes
+
 ## Next: tensor operations (revised 2026-05-13)
 
 ### What was tried and why it failed
@@ -463,6 +478,23 @@ The new files (`semantics/semirings.py`, `semantics/contractions.py`,
 `structure/tensor_lowering.py`, `structure/semiring_factory.py`) are not
 reflected in `.importlinter`.  Update after skeletons are finalised and before
 any implementation is merged.
+
+## Deferred: Surface grammar — remaining gaps
+
+`parse_program` now handles `route NAME = <morphism-expr>` and
+`map NAME = <functor-expr>` as a multi-definition program. Remaining gaps:
+
+- **Other declaration forms not yet supported**: `data`, `type`, imports,
+  inline comments, multi-line bodies, forward references across definitions.
+- **Test files**: `tests/syntax/test_pratt.py` covers the new program API.
+  Check all other test files (e.g. regression tests, strategy tests) to confirm
+  no remaining calls to `parse_morphism`/`parse_functor` that should now
+  flow through `parse_program` instead.
+- **`tests/support/strategies.py`**: The Hypothesis strategies currently generate
+  isolated expression strings. They should be reviewed and extended with a
+  `program_strategy` that generates full `route`/`map` programs for property
+  testing the whole pipeline. Confirm `strategies.py` is still aligned with the
+  current expression ADT after the `Ref`/`PolyRef` additions.
 
 ## Deferred
 

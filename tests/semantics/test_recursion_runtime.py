@@ -9,7 +9,7 @@ from unialg.syntax import expressions as expr
 from unialg.structure import terms as H
 from unialg.semantics import morphisms as ops
 from unialg.semantics.functors import Functor
-from unialg.lowering import run
+from unialg.main import run
 from unialg.semantics.optics import Optic
 from unialg.semantics.optics import ana, cata, hylo
 from unialg.objects import MAYBE

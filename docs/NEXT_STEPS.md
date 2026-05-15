@@ -30,6 +30,75 @@ Tests revised. 94 passing. No references to old API remain in live tests; legacy
 
 `load`/`route`/`map` program syntax works end-to-end. `compile_program(src).run(...)` requires no Hydra imports from the caller. See CHECKPOINT.md for full change list.
 
+## Next: Variable support in morphism composition
+
+### Goal
+
+Allow named variables to be introduced and used at arbitrary points inside morphism composition in the DSL, without implementing Turner/SKI abstraction elimination. The immediate motivator is Para route parameters (`route f(theta, bias) = theta >> linear >> bias.add`) but the requirement is general: any DSL expression should support variable introduction and use. Variable names are arbitrary identifiers — not special-cased.
+
+### What Hydra already provides (from agent API survey, session 2026-05-15)
+
+Confirmed available in `hydra.core`:
+- `TermLambda(Lambda(parameter: Name, domain: Type, body: Term))` — lambda binder
+- `TermVariable(Name(...))` — free/bound variable reference
+- `TermLet(Let(...))` — let binding (fields TBD — see ambiguities)
+- `TermApplication(...)` — explicit application (vs. `P.apply` phantom helper)
+- `TypeVariable` — IS `hydra.core.TypeVariable`, same class as `unialg.objects.TypeVariable`
+- `TypeScheme(variables, body, constraints)` — polymorphic type
+- `TypeForall` — universal quantification
+- `TypeLambda` — type-level lambda
+
+Confirmed available utility functions (location TBD — likely `hydra.reduction` or `hydra.analysis`):
+- `free_variables_in_term` — collect free term variables
+- `count_var_occurrences` — count free occurrences of a variable
+- `replace_free_term_variable` — capture-avoiding substitution
+- `is_free_variable_in_type` — check if a TypeVariable occurs free in a type
+
+Confirmed: `reduce_term` in `hydra.reduction` handles beta reduction of `TermLambda` + `TermApplication`. Already called in `realize.py` via `AlgExpr` primitive impl.
+
+### Current DSL AST representation
+
+Para route parameters parsed as `Ref(name)` nodes when not in parse env. `Program.morphism_params: dict[str, tuple[str, ...]]` records the param name tuple for each Para route — names are arbitrary strings, not hardcoded. The `Morphism.param: Type` field already exists for parameter threading. `_contextual_term` uses `split_input` + `_mk_child_call` to thread the combined `P × X` input to children.
+
+### Ambiguities that must be resolved before implementation
+
+1. **`_contextual_term` applies every child as a function.** `_mk_child_call` always calls `P.apply(child_term, arg)`. A bare `TermVariable(Name(v))` is a data value, not a function — applying it to an argument is wrong at the term level. Either: (a) a variable reference must not be a direct child of a composition node, (b) it must be wrapped in a constant lambda `λ_. v` so it behaves as a function from the composition's perspective, or (c) the variable must be introduced by a different construct that does not go through `_contextual_term`. This is the central blocking question.
+
+2. **Does `T.term_lambda` in `terms.py` use `TermLambda` or some phantom helper?** `_contextual_term` calls `T.term_lambda("ctx_x", wrapped)` and `T.lam2`. If these emit `TermLambda` nodes with a named parameter, a variable named `v` inside the body is in scope only if the enclosing lambda binds `v`. Need to verify exactly what `terms.py` emits and how variable names are scoped.
+
+3. **What does `main.py` do with routes and `morphism_params`?** It is unknown whether main.py calls `realize()` directly, routes through `lowering.py`, or uses a reduction step. This determines where TermLambda wrapping (if needed) would happen and whether main.py can be kept unchanged.
+
+4. **`signature()` param-context propagation.** Making `signature()` return `TypeVariable(Name(v))` for a named param `Ref(v)` requires the caller to supply the param name set. But internal binary constructors call `dom_of(f.node)` without access to that set. The propagation mechanism is undefined.
+
+5. **`TermLet` exact constructor fields.** The session confirmed `TermLet` exists but did not verify its `Let` dataclass fields (variable name, value term, environment term, or other shape). Needed to decide whether let-binding is preferable to lambda for sequential variable introduction.
+
+6. **Is a new AST node needed?** Options: (a) new `Bind(name, val_expr, body_expr)` MorphismExpr node, (b) `Prim(raw_term, dom, cod)` with raw TermLambda/TermLet pre-constructed, (c) thread TermVariable through existing Ref and fix the apply-as-function conflict upstream. Option (b) means the semantic layer never sees the variable node — type checking responsibility shifts entirely to the caller.
+
+7. **How type information attaches.** Hydra checking can validate lambda terms if the `TermLambda`'s `domain` field is set to `TypeVariable(Name(v))`. But unialg's `signature()` / `Morphism.param` plumbing needs to produce compatible types. Need to confirm how `hydra.checking` resolves TypeVariable against the concrete type supplied at call time.
+
+8. **Calling convention: `λ(P × x).body` vs. `λp. λx. body`.** The existing `split_input` / `_contextual_term` convention is `λ(ctx_x). body` where `ctx_x = P × X` is a pair. TermLambda wrapping would produce curried `λp. λx. body`. These have different call sites. Mixing the two conventions in the same composition chain will break.
+
+### Required investigation before writing code
+
+Read these files fully:
+- `src/unialg/structure/terms.py` — exact helpers, especially `term_lambda`, `lam2`, any let/variable helpers
+- `src/unialg/structure/main.py` — where routes are compiled, how morphism_params is used, whether reduce_term is called
+- Hydra reduction source for `TermLambda`, `TermLet`, `TermVariable` handling
+- Hydra checking source for how lambda-bound variable types are resolved
+
+### Design questions to answer
+
+1. How is a variable *introduced* in the DSL AST?
+2. How is a variable *used* in the DSL AST?
+3. How does a variable-bearing expression lower to Hydra `TermLambda` or `TermLet`?
+4. How do variables remain in scope across composed stages?
+5. How does this interact with `_contextual_term` (which assumes children are functions)?
+6. New AST node for let/lambda/bind, or reuse `Prim` with raw terms?
+7. How does type information attach for Hydra checking?
+8. What tests prove variables can be introduced, used before, between, and after ordinary composition?
+
+---
+
 ## Immediate: add `reduce.add_axis` to backend specs
 
 `reduce.add` maps to `numpy.sum(arr)` with no axis argument — it collapses all dimensions to a scalar. Single-call 2D matmul requires a reduce that operates along one axis.

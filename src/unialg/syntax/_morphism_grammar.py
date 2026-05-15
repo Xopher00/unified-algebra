@@ -84,6 +84,10 @@ def _nud(env: Env, fenv: FunctorEnv, p: PrattParser, tok: Token) -> MorphismExpr
         return _case_injection(index)
 
     if kind == "INT":
+        if val == 0:
+            return Absurd(_U)
+        if val == 1:
+            return Delete(_U)
         raise ParseError(f"integer {val!r} is not valid in morphism context")
 
     if kind == "NAME":

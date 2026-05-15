@@ -13,7 +13,10 @@ Imports: objects, syntax/expressions, syntax/_pratt only. No semantics imports.
 from __future__ import annotations
 from typing import Any
 
-from unialg.syntax.expressions import PolyExpr, Zero, One, Id, PolyRef
+from unialg.syntax.expressions import (
+    PolyExpr, Zero, One, Id, PolyRef,
+    List as PolyList, Maybe as PolyMaybe,
+)
 from unialg.syntax._pratt import PrattParser, ParseError
 from unialg.syntax._ops import functor_bp, make_list, make_prod, make_sum
 
@@ -28,6 +31,9 @@ def _nud(env: Env, p: PrattParser, tok: Token) -> PolyExpr:
         inner = p.parse(0)
         p.expect("RPAREN", "closing )")
         return inner  # type: ignore[return-value]
+    if kind == "QUESTION":
+        # ?body — prefix Maybe; binds tighter than & and | but looser than *
+        return PolyMaybe(p.parse(75))
     if kind == "INT":
         if val == 0:
             return Zero()
@@ -35,8 +41,18 @@ def _nud(env: Env, p: PrattParser, tok: Token) -> PolyExpr:
             return One()
         raise ParseError(f"unexpected integer {val!r} in functor expression")
     if kind == "NAME":
-        if val == "x":
+        if val in ("x", "id"):
             return Id()
+        if val == "List":
+            p.expect("LBRACKET", "[")
+            inner = p.parse(0)
+            p.expect("RBRACKET", "]")
+            return PolyList(inner)
+        if val == "Maybe":
+            p.expect("LBRACKET", "[")
+            inner = p.parse(0)
+            p.expect("RBRACKET", "]")
+            return PolyMaybe(inner)
         if val in env:
             return env[val]
         return PolyRef(val)

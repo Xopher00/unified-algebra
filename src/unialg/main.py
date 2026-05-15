@@ -19,18 +19,16 @@ import hydra.dsl.terms as Terms
 import hydra.lib.maps as HMaps
 import hydra.lexical as L
 import hydra.reduction as R
-import hydra.sources.libraries as Libs
+import hydra.inference as HI
+from hydra.core import TypeFunction
 
-from .syntax.parse import parse_program, Program
-from .syntax.expressions import MorphismExpr
-from .semantics.morphisms import Morphism
-from .semantics.typeops import _EMPTY_GRAPH
-from .structure.realize import realize_normalized
-from .emitters.backend import BackendOps
-from .emitters.codecs import _term_value, _expect_right, coder_for_type
+from .syntax import parse_program, Program, MorphismExpr
+from .semantics import Morphism
+from .structure import realize_normalized
+from .emitters import BackendOps, coder_for_type
+from .emitters.codecs import _term_value, expect_right
 
 _BACKEND_DIR = Path(__file__).parent / "emitters" / "backends"
-_DEFAULT_GRAPH = None
 _DEFAULT_CTX = None
 
 
@@ -40,18 +38,6 @@ def default_context():
     if _DEFAULT_CTX is None:
         _DEFAULT_CTX = L.empty_context()
     return _DEFAULT_CTX
-
-
-def default_graph():
-    """Return the standard Hydra graph with all built-in library primitives."""
-    global _DEFAULT_GRAPH
-    if _DEFAULT_GRAPH is None:
-        primitives = []
-        for attr in dir(Libs):
-            if attr.startswith("register_") and attr.endswith("_primitives"):
-                primitives.extend(getattr(Libs, attr)().values())
-        _DEFAULT_GRAPH = _augment_graph(_EMPTY_GRAPH, primitives)
-    return _DEFAULT_GRAPH
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +99,16 @@ def run(morphism: Morphism, argument, ctx, graph):
     return _apply_and_reduce(term, argument, ctx, g, morphism)
 
 
+def _pack_args(args: tuple):
+    """Pack positional run args into the left-nested product shape."""
+    if len(args) == 1:
+        return args[0]
+    out = (args[0], args[1])
+    for arg in args[2:]:
+        out = (out, arg)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Whole-program compilation
 # ---------------------------------------------------------------------------
@@ -123,23 +119,18 @@ class CompiledProgram:
     Build with ``compile_program``; call ``run(argument)`` to reduce.
     """
 
-    def __init__(self, term, graph, ctx, backends: dict):
+    def __init__(self, term, graph, ctx, backends: dict, input_type, output_type):
         self._term = term
         self._graph = graph
         self._ctx = ctx
+        self._input_type = input_type
+        self._output_type = output_type
         # Find first backend with a binary adapter — drives store-based execution path.
         self._backend_ops: BackendOps | None = None
         for ops in backends.values():
             if ops.binary_adapter is not None:
                 self._backend_ops = ops
                 break
-        # LEGACY/TEMPORARY: derive arg coder from the first backend primitive's declared type.
-        # Compatibility bridge for homogeneous single-backend programs.
-        first_bp = next(
-            (bp for ops in backends.values() for bp in ops.primitives.values()),
-            None,
-        )
-        self._arg_coder = coder_for_type(first_bp.arg_type) if first_bp is not None else None
 
     def run(self, *args):
         """Run the compiled program, returning a native backend value or Python scalar."""
@@ -148,30 +139,32 @@ class CompiledProgram:
             store.reset()
         try:
             if args:
-                if self._arg_coder is None:
-                    raise ValueError("run: no backend loaded — cannot encode arguments")
+                input_coder = coder_for_type(self._input_type)
+                input_value = _pack_args(args)
                 if self._backend_ops is not None:
-                    _ops = self._backend_ops
-                    _coder = self._arg_coder
-                    _ctx = self._ctx
-                    def _encode(v):
-                        key = _ops.put_input(v)
-                        return _expect_right(_coder.decode(_ctx, key), "run")
-                    encoded = [_encode(v) for v in args]
-                else:
-                    encoded = [_expect_right(self._arg_coder.decode(self._ctx, v), "run") for v in args]
-                argument = Terms.pair(encoded[0], encoded[1]) if len(encoded) == 2 else encoded[0]
+                    input_value = self._backend_ops.encode_boundary_input(self._input_type, input_value)
+                argument = expect_right(input_coder.decode(self._ctx, input_value), "run")
             else:
                 argument = P.unit().value
             result = _apply_and_reduce(self._term, argument, self._ctx, self._graph, "program")
+            result_value = _term_value(result, "program")
             if self._backend_ops is not None:
-                result_key = _term_value(result, "program")
-                output = self._backend_ops.get_output(result_key)
-                return output
-            return _term_value(result, "program")
+                return self._backend_ops.decode_boundary_output(self._output_type, result_value)
+            return result_value
         finally:
             if store is not None:
                 store.reset()
+
+
+def _infer_boundary_types(term, ctx, graph):
+    """Infer the domain and codomain of a compiled morphism term via Hydra type inference."""
+    result = HI.infer_type_of_term(ctx, graph, term, "program boundary")
+    if not isinstance(result, Right):
+        raise RuntimeError(f"compile_program: could not infer boundary types: {result}")
+    fn_type = result.value.type
+    if not isinstance(fn_type, TypeFunction):
+        raise RuntimeError(f"compile_program: expected function type, got {type(fn_type).__name__}")
+    return fn_type.value.domain, fn_type.value.codomain
 
 
 def compile_program(src: str) -> CompiledProgram:
@@ -179,12 +172,12 @@ def compile_program(src: str) -> CompiledProgram:
     prog, backends = load_program(src)
     if not prog.morphisms:
         raise ValueError("compile_program: program defines no routes")
-    g = default_graph()
-    for ops in backends.values():
-        g = ops.to_graph(g)
+    g = BackendOps.build_graph(backends)
     term = None
     for _, expr_node in prog.morphisms.items():
         extra = []
         term = lower(expr_node, g, extra)
         g = _augment_graph(g, extra)
-    return CompiledProgram(term, g, default_context(), backends)
+    ctx = default_context()
+    input_type, output_type = _infer_boundary_types(term, ctx, g)
+    return CompiledProgram(term, g, ctx, backends, input_type, output_type)

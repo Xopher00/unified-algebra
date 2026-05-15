@@ -148,6 +148,19 @@ class Ref(MorphismExpr):
 
 
 @dataclass(frozen=True)
+class MorphismApp(MorphismExpr):
+    """Explicit application of a morphism to argument morphisms.
+
+    For parameterized morphisms (param_names non-empty): lowered as curried
+    TermApplication over a TermLambda-wrapped body.
+    For plain morphisms (param_names empty): lowered as (args paired) >> fun.
+    """
+    fun: MorphismExpr
+    args: tuple[MorphismExpr, ...]
+    param_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Prim(MorphismExpr):
     """Already-built Hydra term with explicit domain and codomain.
 
@@ -216,6 +229,8 @@ def _pretty_morphism(expr: MorphismExpr) -> str:
             return f"ana({pretty(node.body)})"
         case Ref(name=name):
             return name
+        case MorphismApp(fun=fun, args=args):
+            return f"{pretty(fun)}({', '.join(pretty(a) for a in args)})"
         case Prim():
             return "prim"
         case _:

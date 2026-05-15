@@ -15,7 +15,7 @@ import pytest
 from hydra.dsl.python import Left, Right
 
 from unialg.emitters.codecs import (
-    _expect_right,
+    expect_right,
     coder_for_type,
     type_from_spec,
 )
@@ -29,8 +29,8 @@ def roundtrip(spec, value):
     """Encode a Python value to a Term and back; return the recovered Python value."""
     typ = type_from_spec(spec)
     coder = coder_for_type(typ)
-    term = _expect_right(coder.decode(None, value), f"encode {spec}")
-    return _expect_right(coder.encode(None, None, term), f"decode {spec}")
+    term = expect_right(coder.decode(None, value), f"encode {spec}")
+    return expect_right(coder.encode(None, None, term), f"decode {spec}")
 
 
 # ---------------------------------------------------------------------------
@@ -135,49 +135,49 @@ def test_either_right_roundtrip():
 def test_float_rejects_bool():
     coder = coder_for_type(type_from_spec("FLOAT"))
     with pytest.raises(TypeError):
-        _expect_right(coder.decode(None, True), "encode FLOAT bool")
+        expect_right(coder.decode(None, True), "encode FLOAT bool")
 
 
 def test_float_rejects_string():
     coder = coder_for_type(type_from_spec("FLOAT"))
     with pytest.raises(TypeError):
-        _expect_right(coder.decode(None, "3.14"), "encode FLOAT str")
+        expect_right(coder.decode(None, "3.14"), "encode FLOAT str")
 
 
 def test_int_rejects_bool():
     coder = coder_for_type(type_from_spec("INT"))
     with pytest.raises(TypeError):
-        _expect_right(coder.decode(None, True), "encode INT bool")
+        expect_right(coder.decode(None, True), "encode INT bool")
 
 
 def test_int_rejects_float():
     coder = coder_for_type(type_from_spec("INT"))
     with pytest.raises(TypeError):
-        _expect_right(coder.decode(None, 1.0), "encode INT float")
+        expect_right(coder.decode(None, 1.0), "encode INT float")
 
 
 def test_bool_rejects_int():
     coder = coder_for_type(type_from_spec("BOOL"))
     with pytest.raises(TypeError):
-        _expect_right(coder.decode(None, 1), "encode BOOL int")
+        expect_right(coder.decode(None, 1), "encode BOOL int")
 
 
 def test_string_rejects_int():
     coder = coder_for_type(type_from_spec("STRING"))
     with pytest.raises(TypeError):
-        _expect_right(coder.decode(None, 42), "encode STRING int")
+        expect_right(coder.decode(None, 42), "encode STRING int")
 
 
 def test_binary_rejects_string():
     coder = coder_for_type(type_from_spec("BINARY"))
     with pytest.raises(TypeError):
-        _expect_right(coder.decode(None, "not bytes"), "encode BINARY str")
+        expect_right(coder.decode(None, "not bytes"), "encode BINARY str")
 
 
 def test_unit_rejects_non_none():
     coder = coder_for_type(type_from_spec("UNIT"))
     with pytest.raises(TypeError):
-        _expect_right(coder.decode(None, 0), "encode UNIT int")
+        expect_right(coder.decode(None, 0), "encode UNIT int")
 
 
 # ---------------------------------------------------------------------------

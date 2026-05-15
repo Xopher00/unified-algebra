@@ -67,3 +67,48 @@ def test_pretty_contextual_morphism_nodes():
 
     assert expr.pretty(composed) == "(id ; copy)"
     assert expr.pretty(paired) == "⟨id, copy⟩"
+
+
+# ---------------------------------------------------------------------------
+# TypeVariable in signature — param-aware type derivation
+# ---------------------------------------------------------------------------
+
+def test_signature_declared_param_returns_type_variable():
+    from unialg.semantics.morphisms import signature
+    from unialg.objects import TypeVariable, Name
+    for name in ("theta", "bias", "scale", "p", "x", "id"):
+        dom, cod = signature(expr.Ref(name), frozenset({name}))
+        assert dom == TypeVariable(Name(name))
+        assert cod == TypeVariable(Name(name))
+
+
+def test_signature_undeclared_ref_raises():
+    from unialg.semantics.morphisms import signature, MorphismError
+    import pytest
+    with pytest.raises(MorphismError, match="unresolved reference"):
+        signature(expr.Ref("typo"), frozenset({"theta"}))
+
+
+def test_signature_ref_without_param_names_raises():
+    from unialg.semantics.morphisms import signature, MorphismError
+    import pytest
+    with pytest.raises(MorphismError, match="unresolved reference"):
+        signature(expr.Ref("theta"))
+
+
+def test_type_variable_tracked_by_free_variables_in_type():
+    from unialg.objects import TypeVariable, Name
+    import hydra.variables as V
+    tv = TypeVariable(Name("theta"))
+    free = V.free_variables_in_type(tv)
+    assert Name("theta") in free
+
+
+def test_morphism_api_with_param_ref():
+    """Build a Morphism from a Ref node with TypeVariable signature."""
+    from unialg.semantics.morphisms import Morphism, signature
+    from unialg.objects import TypeVariable, Name
+    ref = expr.Ref("theta")
+    dom, cod = signature(ref, frozenset({"theta"}))
+    m = Morphism(node=ref, param=TypeVariable(Name("theta")))
+    assert m.param == TypeVariable(Name("theta"))

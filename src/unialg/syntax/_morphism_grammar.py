@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from unialg.syntax.expressions import (
-    MorphismExpr, PolyExpr, PolyFmap,
+    MorphismExpr, PolyExpr, PolyFmap, MorphismApp,
     Identity, Copy, Delete, First, Second, Left, Right,
     Absurd, Assoc, Symmetry, Ref, PolyRef,
     Id, List as PolyList,
@@ -28,6 +28,7 @@ from unialg.syntax._ops import _U, _PU, _SU, morphism_bp, make_binary, make_comp
 Token = tuple[str, Any]
 Env = dict[str, MorphismExpr]
 FunctorEnv = dict[str, PolyExpr]
+MorphismParams = dict[str, tuple[str, ...]]
 
 
 def _poly_prefix(p: PrattParser, base: PolyExpr) -> PolyExpr:
@@ -58,7 +59,19 @@ def _case_injection(index: int) -> MorphismExpr:
     raise ParseError("case injection index must be 0 or 1")
 
 
-def _nud(env: Env, fenv: FunctorEnv, p: PrattParser, tok: Token) -> MorphismExpr:
+def _parse_arg_list(p: PrattParser) -> tuple[MorphismExpr, ...]:
+    """Parse a parenthesized, comma-separated morphism argument list."""
+    p.expect("LPAREN", "(")
+    args: list[MorphismExpr] = [p.parse(0)]  # type: ignore[assignment]
+    while p.peek()[0] == "COMMA":
+        p.advance()
+        args.append(p.parse(0))  # type: ignore[arg-type]
+    p.expect("RPAREN", "closing )")
+    return tuple(args)
+
+
+def _nud(env: Env, fenv: FunctorEnv, mparams: MorphismParams,
+         lexical_params: frozenset[str], p: PrattParser, tok: Token) -> MorphismExpr:
     """Parse a morphism atom, prefix form, grouping, or functor action head."""
     kind, val = tok
 
@@ -92,6 +105,12 @@ def _nud(env: Env, fenv: FunctorEnv, p: PrattParser, tok: Token) -> MorphismExpr
 
     if kind == "NAME":
         name: str = val
+
+        if name in lexical_params:
+            if p.peek()[0] == "LPAREN":
+                args = _parse_arg_list(p)
+                return MorphismApp(Ref(name), args, ())
+            return Ref(name)
 
         if name == "x":
             body = _poly_prefix(p, Id())
@@ -159,6 +178,17 @@ def _nud(env: Env, fenv: FunctorEnv, p: PrattParser, tok: Token) -> MorphismExpr
             return PolyFmap(body=fenv.get(name, PolyRef(name)), f=f,
                             param=_U, monad=None, dom=_U, cod=_U)
 
+        # Body-position application: name(arg1, arg2, ...)
+        if name in env and p.peek()[0] == "LPAREN":
+            resolved = env[name]
+            args = _parse_arg_list(p)
+            params = mparams.get(name, ())
+            if params and len(args) != len(params):
+                raise ParseError(
+                    f"{name!r} expects {len(params)} arguments, got {len(args)}"
+                )
+            return MorphismApp(resolved, args, params)
+
         # Generic name → env lookup or unresolved Ref
         if name in env:
             return env[name]
@@ -197,14 +227,18 @@ def _led(p: PrattParser, left: MorphismExpr, tok: Token, rbp: int) -> MorphismEx
 def make_morphism_grammar(
     env: Env | None = None,
     functor_env: FunctorEnv | None = None,
+    morphism_params: MorphismParams | None = None,
+    lexical_params: frozenset[str] = frozenset(),
 ) -> tuple[Any, Any, dict]:
     """Return Pratt callbacks and binding powers for morphism parsing."""
     _env: Env = env or {}
     _fenv: FunctorEnv = functor_env or {}
+    _mparams: MorphismParams = morphism_params or {}
+    _lexical_params: frozenset[str] = lexical_params
 
     def nud(p: PrattParser, tok: Token) -> MorphismExpr:
         """Parse a null-denotation morphism token using captured environments."""
-        return _nud(_env, _fenv, p, tok)
+        return _nud(_env, _fenv, _mparams, _lexical_params, p, tok)
 
     def led(p: PrattParser, left: object, tok: Token, rbp: int) -> MorphismExpr:
         """Parse a left-denotation morphism token using captured environments."""

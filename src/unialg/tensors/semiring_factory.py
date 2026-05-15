@@ -23,10 +23,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from unialg.objects import Type
-from unialg.semantics.morphisms import Morphism
+from unialg.semantics import Morphism
 from unialg.tensors.semirings import Semiring
-from .backend import BackendOps, register_backend_primitive
-from .codecs import type_from_spec, coder_for_type
+from unialg.emitters import BackendOps, register_backend_primitive, type_from_spec, coder_for_type
 
 
 def _lookup(name: str, ops: BackendOps, label: str) -> Morphism:

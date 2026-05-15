@@ -41,18 +41,19 @@ from __future__ import annotations
 
 import importlib
 import inspect
-import io
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from hydra.context import Context
-from hydra.core import LiteralType, Name, Type, TypeLiteral
+from hydra.core import Name, Type
+from hydra.dsl.python import Nothing
 from hydra.graph import Graph, Primitive, TermCoder
 from hydra.lib import maps as Maps
 from hydra.packaging import Library, Namespace
 import hydra.dsl.meta.phantoms as P
+import hydra.sources.libraries as Libs
 
 from unialg.objects import ExpType, TypeScheme, ProductType
 from unialg.semantics import morphisms
@@ -60,53 +61,11 @@ from unialg.semantics.typeops import _EMPTY_GRAPH
 from unialg.structure import terms as struct_terms
 from unialg.syntax import expressions as expr
 
-from .codecs import type_from_spec, coder_for_type, _expect_right
+from .codecs import type_from_spec, coder_for_type, expect_right
+from .native_boundary import BinaryAdapter, is_binary_type, encode_boundary_input, decode_boundary_output
 from .runtime_store import RuntimeStore
 
 _CANONICAL_PREFIX = "unialg.backend"
-
-
-def _is_binary_type(typ: Type) -> bool:
-    return isinstance(typ, TypeLiteral) and typ.value == LiteralType.BINARY
-
-
-@dataclass(frozen=True)
-class BinaryAdapter:
-    """Generic boundary adapter: bytes ↔ native tensor, using BytesIO framing.
-
-    Resolved from the ``"binary_adapter"`` dict in a backend JSON spec.
-    Knows about calling conventions (``dump_style``) but not framework names.
-
-    ``dump_style`` values:
-      ``"file_first"``  — ``dump_fn(buf, value)``  e.g. ``numpy.save``, ``cupy.save``
-      ``"value_first"`` — ``dump_fn(value, buf)``  e.g. ``torch.save``
-
-    Unknown ``dump_style`` values raise ``ValueError`` at construction — no silent fallback.
-    ``load_kwargs`` are forwarded verbatim to ``load_fn`` (e.g. ``weights_only=False`` for torch).
-    """
-
-    dump_fn: Callable
-    load_fn: Callable
-    dump_style: str
-    load_kwargs: dict = field(default_factory=dict)
-
-    def __post_init__(self):
-        if self.dump_style not in ("file_first", "value_first"):
-            raise ValueError(
-                f"BinaryAdapter: unknown dump_style {self.dump_style!r}. "
-                "Expected 'file_first' or 'value_first'."
-            )
-
-    def dump(self, native) -> bytes:
-        buf = io.BytesIO()
-        if self.dump_style == "file_first":
-            self.dump_fn(buf, native)
-        elif self.dump_style == "value_first":
-            self.dump_fn(native, buf)
-        return buf.getvalue()
-
-    def load(self, b: bytes):
-        return self.load_fn(io.BytesIO(b), **self.load_kwargs)
 
 
 @dataclass(frozen=True)
@@ -220,19 +179,19 @@ def register_backend_primitive(
     fn = resolve_function(path) if isinstance(path, str) else path
     result_type = result_type or arg_type
     name = Name(canonical_name)
-    scheme = TypeScheme((), _curried_type(arg_type, result_type, arity), None)
+    scheme = TypeScheme((), _curried_type(arg_type, result_type, arity), Nothing())
 
     use_store = (
         binary_adapter is not None
         and store is not None
-        and _is_binary_type(arg_type)
-        and _is_binary_type(result_type)
+        and is_binary_type(arg_type)
+        and is_binary_type(result_type)
     )
 
     def impl(ctx: Context, graph: Graph, args):
         """Decode Hydra arguments, call the backend function, and re-encode."""
         py_args = [
-            _expect_right(
+            expect_right(
                 arg_coder.encode(ctx, graph, arg),
                 f"decoding argument for {canonical_name}",
             )
@@ -399,7 +358,7 @@ class BackendOps:
         """The RuntimeStore for native tensor lifetime, or None."""
         return self._store
 
-    def put_input(self, v) -> bytes:
+    def _put_input(self, v) -> bytes:
         """Convert an external input to native and return its store handle.
 
         If ``v`` is bytes, uses ``binary_adapter.load`` to deserialize.
@@ -409,9 +368,17 @@ class BackendOps:
         native = self._binary_adapter.load(v) if isinstance(v, bytes) else v
         return self._store.put(native)
 
-    def get_output(self, key: bytes):
+    def _get_output(self, key: bytes):
         """Retrieve the final native result from the store by handle bytes."""
         return self._store.get(key)
+
+    def encode_boundary_input(self, typ: Type, value):
+        """Encode a whole-program input at the backend/native boundary."""
+        return encode_boundary_input(typ, value, self._put_input)
+
+    def decode_boundary_output(self, typ: Type, value):
+        """Decode a whole-program output at the backend/native boundary."""
+        return decode_boundary_output(typ, value, self._get_output)
 
     def register(self, name: str, bp: BackendPrimitive) -> None:
         """Register a custom BackendPrimitive under logical op name ``name``.
@@ -450,7 +417,15 @@ class BackendOps:
 
     def to_graph(self, base: Graph | None = None) -> Graph:
         """Install this backend's primitives into a Hydra Graph."""
-        return library_to_graph(self._library, base)
+        return library_to_graph(self._library, base if base is not None else default_graph())
+
+    @staticmethod
+    def build_graph(backends: "dict[str, BackendOps]") -> Graph:
+        """Build a Hydra graph from a collection of backends, falling back to default_graph() when empty."""
+        g = default_graph()
+        for ops in backends.values():
+            g = ops.to_graph(g)
+        return g
 
     def coverage(self, required: set[str] | frozenset[str]) -> dict[str, frozenset[str]]:
         """Report supported and missing logical ops for this backend."""
@@ -530,3 +505,30 @@ def backend_required_for_term(required_ops: set[str] | frozenset[str], *candidat
     """Return the candidate backends which satisfy a required logical op set."""
     needed = frozenset(required_ops)
     return [ops for ops in candidates if backend_has_coverage(ops, needed)]
+
+
+_DEFAULT_GRAPH = None
+
+
+def default_graph() -> Graph:
+    """Return the standard Hydra graph with all built-in library primitives."""
+    global _DEFAULT_GRAPH
+    if _DEFAULT_GRAPH is None:
+        primitives = []
+        for attr in dir(Libs):
+            if attr.startswith("register_") and attr.endswith("_primitives"):
+                primitives.extend(getattr(Libs, attr)().values())
+        prims = dict(_EMPTY_GRAPH.primitives)
+        for prim in primitives:
+            prims[prim.name] = prim
+        _DEFAULT_GRAPH = Graph(
+            bound_terms=_EMPTY_GRAPH.bound_terms,
+            bound_types=_EMPTY_GRAPH.bound_types,
+            class_constraints=_EMPTY_GRAPH.class_constraints,
+            lambda_variables=_EMPTY_GRAPH.lambda_variables,
+            metadata=_EMPTY_GRAPH.metadata,
+            primitives=Maps.from_list(list(prims.items())),
+            schema_types=_EMPTY_GRAPH.schema_types,
+            type_variables=_EMPTY_GRAPH.type_variables,
+        )
+    return _DEFAULT_GRAPH

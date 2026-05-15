@@ -279,12 +279,47 @@ Dead code confirmed by `git grep`:
 - `_ctx_preamble` correctly closes over `param_term` in `call_f`/`call_g`; Hydra built-ins (P.compose, bimap) confirmed insufficient for para/lax
 - `MorphismError.check` replaces all `CompositionError`/`CaseError` call sites
 
+## Parametric morphisms — sealed (2026-05-15)
+
+`route f(x, y) = body` declares a parameterized morphism; `f(a, b)` in a route body
+explicitly instantiates it. Parameters are morphism-valued lexical variables.
+
+Key changes:
+- `MorphismApp(fun, args, param_names)` — new AST node in `expressions.py`
+- `_morphism_grammar.py` — lexical params checked FIRST in NAME handler (shadows builtins);
+  body-position `name(args)` produces `MorphismApp`; no parse-time substitution
+- `parse.py` — `_param_navigate`/`_param_projections` deleted; `validate_program` added;
+  duplicate param check; env shadowing for param names
+- `realize.py` — `Ref(name)` → `TermVariable(Name(name))`; `MorphismApp` → curried
+  `TermLambda` wrapping + `TermApplication`; Hydra beta-reduces
+- `morphisms.py` — `signature()` accepts `param_names`, returns `TypeVariable` for declared params
+- `main.py` — calls `validate_program` after parse; nothing else changed
+- `run()` — unchanged; only handles data input
+- Stale `test_carrier_adapters_runtime.py` deleted
+- 315 tests passing
+
+## What has been verified
+- `import unialg` clean
+- `SpaceT` fully eliminated; all types are native `hydra.core.Type` variants
+- `ProductType`/`SumType` constructors centralized in `space.py`
+- `Morphism.to_lax(monad)` — correct coercion; MonadicEmbed wraps node cleanly
+- `_resolve_monad` — correctly derives monad from set of morphisms
+- `compose` and `case` auto-embed plain into lax context
+- `embed` removed; no remaining references in codebase
+- `compose` type check correct for plain, lax, and para modes
+- `dom_of`/`cod_of` return correct `Type` instances for all MorphismExpr cases
+- `apply_poly` returns correct `Type` for all PolyExpr cases
+- `hydra.lib.lists.bind` and `hydra.lib.lists.pure` confirmed to exist ✓
+- `realize` produces valid Hydra terms (all MorphismExpr cases including new Compose/Parallel/Pair/Case subclasses)
+- `_poly_action_term` covers all plain and monadic PolyExpr cases; `One()` ≠ `Const(B)` distinction verified; monadic traversal raises for `Exp` as expected
+- Plain product functor mapping targets Hydra `pairs.bimap`; plain sum mapping targets Hydra `eithers.bimap`
+- `_ctx_preamble` correctly closes over `param_term` in `call_f`/`call_g`; Hydra built-ins (P.compose, bimap) confirmed insufficient for para/lax
+- `MorphismError.check` replaces all `CompositionError`/`CaseError` call sites
+- Parametric morphisms: param shadowing, arity checks, varied names, Hydra lambda/beta path all verified
+
 ## What is not yet implemented
-- **Tests updated** — live suite uses pytest + Hypothesis law tests; stale legacy tests remain quarantined under `tests/regression/stale_old_api/`; 103 tests passing
-- **Optics layer complete** — unified `Optic(functor, forward, backward)` subsumes Lens, Prism, and Traversal; height-2 optics supported via deeper polynomial bodies
-- **Recursion layer complete for current semantics** — `act`, `act_forward`, `act_backward`, `compose_optic`, `list_carrier`, `cata`, `ana`, `hylo`; plain/para/lax/lax-para algebras and coalgebras are represented as `Morphism` values
+- **Semantic elaboration pass** — ContextualBinary nodes still carry TypeUnit placeholders from parser; semantic layer should fill real types (including TypeVariable for params) before realization
 - Semiring tensor equations
-- Surface syntax / grammar
 - Algebra homomorphisms as first-class typed objects (`AlgebraHom(f, src, tgt)`)
 - Named algebra/coherence objects above the current `Morphism` semantics
 - Backend expansion beyond current Hydra primitives

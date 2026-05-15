@@ -52,7 +52,7 @@ import hydra.dsl.meta.phantoms as P
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _expect_right(result, context: str):
+def expect_right(result, context: str):
     """Unwrap a Hydra Either result or raise a readable error."""
     if isinstance(result, Left):
         raise TypeError(f"{context}: {result.value!r}")
@@ -159,10 +159,10 @@ def _list_coder(elem_coder: TermCoder) -> TermCoder:
     def decode_term(term):
         if not isinstance(term, TermList):
             raise TypeError(f"list coder: expected TermList, got {type(term).__name__}")
-        return [_expect_right(elem_coder.encode(None, None, item), "list coder") for item in term.value]
+        return [expect_right(elem_coder.encode(None, None, item), "list coder") for item in term.value]
 
     def encode_value(value):
-        return TermList(value=[_expect_right(elem_coder.decode(None, item), "list coder") for item in value])
+        return TermList(value=[expect_right(elem_coder.decode(None, item), "list coder") for item in value])
 
     return _mk_term_coder(typ, decode_term, encode_value)
 
@@ -175,15 +175,15 @@ def _pair_coder(first_coder: TermCoder, second_coder: TermCoder) -> TermCoder:
             raise TypeError(f"pair coder: expected TermPair, got {type(term).__name__}")
         a, b = term.value
         return (
-            _expect_right(first_coder.encode(None, None, a), "pair coder"),
-            _expect_right(second_coder.encode(None, None, b), "pair coder"),
+            expect_right(first_coder.encode(None, None, a), "pair coder"),
+            expect_right(second_coder.encode(None, None, b), "pair coder"),
         )
 
     def encode_value(value):
         a, b = value
         return TermPair(value=(
-            _expect_right(first_coder.decode(None, a), "pair coder"),
-            _expect_right(second_coder.decode(None, b), "pair coder"),
+            expect_right(first_coder.decode(None, a), "pair coder"),
+            expect_right(second_coder.decode(None, b), "pair coder"),
         ))
 
     return _mk_term_coder(typ, decode_term, encode_value)
@@ -198,12 +198,12 @@ def _maybe_coder(elem_coder: TermCoder) -> TermCoder:
         m = term.value
         if isinstance(m, Nothing):
             return None
-        return _expect_right(elem_coder.encode(None, None, m.value), "maybe coder")
+        return expect_right(elem_coder.encode(None, None, m.value), "maybe coder")
 
     def encode_value(value):
         if value is None:
             return TermMaybe(value=Nothing())
-        return TermMaybe(value=Just(_expect_right(elem_coder.decode(None, value), "maybe coder")))
+        return TermMaybe(value=Just(expect_right(elem_coder.decode(None, value), "maybe coder")))
 
     return _mk_term_coder(typ, decode_term, encode_value)
 
@@ -216,16 +216,16 @@ def _either_coder(left_coder: TermCoder, right_coder: TermCoder) -> TermCoder:
             raise TypeError(f"either coder: expected TermEither, got {type(term).__name__}")
         branch = term.value
         if isinstance(branch, Left):
-            return Left(_expect_right(left_coder.encode(None, None, branch.value), "either coder"))
+            return Left(expect_right(left_coder.encode(None, None, branch.value), "either coder"))
         if isinstance(branch, Right):
-            return Right(_expect_right(right_coder.encode(None, None, branch.value), "either coder"))
+            return Right(expect_right(right_coder.encode(None, None, branch.value), "either coder"))
         raise TypeError(f"either coder: unexpected branch: {branch!r}")
 
     def encode_value(value):
         if isinstance(value, Left):
-            return TermEither(value=Left(_expect_right(left_coder.decode(None, value.value), "either coder")))
+            return TermEither(value=Left(expect_right(left_coder.decode(None, value.value), "either coder")))
         if isinstance(value, Right):
-            return TermEither(value=Right(_expect_right(right_coder.decode(None, value.value), "either coder")))
+            return TermEither(value=Right(expect_right(right_coder.decode(None, value.value), "either coder")))
         raise TypeError(f"either coder: expected Left or Right, got {type(value).__name__}")
 
     return _mk_term_coder(typ, decode_term, encode_value)

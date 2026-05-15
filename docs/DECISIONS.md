@@ -144,3 +144,35 @@ and compound forms: `{"list": T}`, `{"pair": [A, B]}`, `{"either": [L, R]}`, `{"
 op names and either (a) backend wrapper functions that accept/return nested Python lists, or
 (b) a future tensor plugin with a typed `TENSOR` kind. They must not modify the `arg_type` of
 existing scalar ops like `add` or `multiply`.
+
+## Route parameters are morphism-valued lexical variables (2026-05-15)
+
+`route f(x, y) = body` declares a parameterized morphism. `x` and `y` are morphism-valued
+lexical variables — they can be composed, paired, or applied anywhere in the body.
+`f(a, b)` in a route body explicitly instantiates it.
+
+**Binding uses Hydra's native lambda calculus, not parse-time substitution.**
+- Parser produces `MorphismApp(fun=<body with Refs>, args=(a, b), param_names=("x","y"))`.
+- Realization maps `Ref(name)` → `TermVariable(Name(name))`, wraps parameterized bodies
+  in `TermLambda`, and lowers `MorphismApp` to curried `TermApplication`.
+- Hydra's `reduce_term` performs beta reduction.
+- `run()` only handles data input. Never param binding.
+
+**Parser invariants:**
+- Param names shadow ALL builtins (`x`, `id`, `copy`, `fst`, etc.) — the lexical-params
+  set is checked FIRST in the morphism grammar NAME handler, before builtins and env lookup.
+- `f(a, b)` in body position produces a `MorphismApp` AST node. Parser preserves structure,
+  does not substitute.
+- Declaration syntax (`route f(x) = ...`) and call syntax (`f(arg)`) are distinguished
+  by parser context — declaration in `parse_program`, call in morphism grammar `_nud`.
+
+**Rejected alternative:** Parse-time Ref substitution (inline body rewriting). Tested and
+proven redundant — Hydra's lambda/beta path produces identical results. Substitution was
+removed to avoid a parallel binding mechanism.
+
+**TypeVariable integration:**
+- `signature(Ref("x"), frozenset({"x"}))` → `(TypeVariable(Name("x")), TypeVariable(Name("x")))`
+- `free_variables_in_type(TypeVariable(Name("x")))` → `{Name("x")}` — trackable
+- The existing `split_input`/`_mk_child_call` infrastructure activates when
+  `ContextualBinary.param != TypeUnit()`. TypeVariable on the param field activates it.
+  This is the path for the semantic layer's typed interpretation of parameterized routes.

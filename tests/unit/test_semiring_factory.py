@@ -1,4 +1,4 @@
-"""Tests for emitters/semiring_factory.py."""
+"""Tests for tensors/semiring_factory.py."""
 
 import numpy as np
 import pytest
@@ -6,7 +6,7 @@ import pytest
 from pathlib import Path
 
 from unialg.emitters.backend import BackendOps
-from unialg.emitters.semiring_factory import register_semiring_op, semiring_from_backend
+from unialg.tensors.semiring_factory import register_semiring_op, semiring_from_backend
 from unialg.tensors.semirings import Semiring
 
 

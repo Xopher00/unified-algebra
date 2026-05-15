@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from hydra.core import Term
+from hydra.core import Term, TermVariable
 from hydra.phantoms import TTerm
 import hydra.dsl.meta.phantoms as P
 from hydra.graph import Primitive
@@ -22,7 +22,7 @@ from hydra.context import Context
 from hydra.graph import Graph
 
 from . import terms as T
-from unialg.semantics.morphisms import Morphism
+from unialg.semantics import Morphism
 from unialg.syntax import expressions as expr
 from unialg.objects import Name, Monad, Type, TypeUnit, TypePair, TypeEither, ExpType, TypeScheme
 
@@ -184,6 +184,39 @@ def _contextual_term(node: expr.ContextualBinary, build, _prims=None) -> Term:
     return T.term_lambda("ctx_x", wrapped).value
 
 
+def _lambda_params(body: Term, param_names: tuple[str, ...]) -> Term:
+    """Wrap a term in lambdas for a parameter list."""
+    for pname in reversed(param_names):
+        body = Terms.lambda_(pname, body)
+    return body
+
+
+def _pair_terms(items: list[Term]) -> Term:
+    """Pack terms into the left-nested product shape used by the DSL."""
+    if not items:
+        return P.unit().value
+    if len(items) == 1:
+        return items[0]
+    out = Terms.pair(items[0], items[1])
+    for item in items[2:]:
+        out = Terms.pair(out, item)
+    return out
+
+
+def _apply_plain_args(fun: expr.MorphismExpr, args: tuple[expr.MorphismExpr, ...], _prims=None) -> Term:
+    """Apply a plain morphism to one argument or a paired argument product."""
+    arg_terms = [realize(arg, _prims) for arg in args]
+    return Terms.apply(realize(fun, _prims), _pair_terms(arg_terms))
+
+
+def _apply_param_args(fun: expr.MorphismExpr, args: tuple[expr.MorphismExpr, ...], param_names: tuple[str, ...], _prims=None) -> Term:
+    """Apply a parameterized morphism by lambda-binding its declared params."""
+    result = _lambda_params(realize(fun, _prims), param_names)
+    for arg in args:
+        result = Terms.apply(result, realize(arg, _prims))
+    return result
+
+
 def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
     """Translate a morphism expression into a raw Hydra term."""
     match node:
@@ -308,6 +341,14 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
 
         case expr.Prim(raw, _, _):
             return raw
+
+        case expr.Ref(name=name):
+            return TermVariable(Name(name))
+
+        case expr.MorphismApp(fun=fun, args=args, param_names=param_names):
+            if param_names:
+                return _apply_param_args(fun, args, param_names, _prims)
+            return _apply_plain_args(fun, args, _prims)
 
         case _:
             raise TypeError(f"realize: unknown MorphismExpr {type(node).__name__!r}")

@@ -3,9 +3,7 @@ from __future__ import annotations
 from unialg.objects import Type
 from unialg.syntax import expressions as expr
 from . import terms as T
-from unialg.semantics.functors import Functor
-from unialg.semantics.morphisms import Morphism
-from unialg.semantics.optics import Optic
+from unialg.semantics import Functor, Morphism, Optic
 
 
 def fixed_point_optic(*, functor: Functor, carrier: Type, unroll, roll) -> Optic:

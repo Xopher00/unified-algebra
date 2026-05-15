@@ -10,9 +10,12 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from unialg.syntax.parse import parse_morphism, parse_functor, parse_program, Program, ParseError
+from unialg.syntax.parse import (
+    parse_morphism, parse_functor, parse_program, Program, ParseError,
+    validate_program,
+)
 from unialg.syntax.expressions import (
-    Compose, Pair, Parallel, Case,
+    Compose, Pair, Parallel, Case, MorphismApp,
     Identity, Delete, Copy, First, Second, Left, Right, Absurd, Assoc, Symmetry,
     Ref, PolyRef, PolyFmap,
     Zero, One, Id, Sum, Prod, List,
@@ -606,7 +609,7 @@ def test_program_map_references_earlier_map():
 
 
 def test_program_route_fmap_references_earlier_map():
-    src = "map Pair = x & x\nroute gated = Pair{tanh}"
+    src = "map Pair = x & x\nroute tanh = id\nroute gated = Pair{tanh}"
     prog = parse_program(src)
     gated = prog.morphisms["gated"]
     assert isinstance(gated, PolyFmap)
@@ -660,11 +663,10 @@ def test_load_binds_aliases():
 
 
 def test_load_no_handler_records_only():
-    # Without a handler, directive is still recorded but no env binding.
-    prog = parse_program("load numpy\nroute g = unknown_op")
+    # Without a handler, load directive is still recorded.
+    prog = parse_program("load numpy\nroute g = id")
     assert prog.loads == ("numpy",)
-    from unialg.syntax.expressions import Ref
-    assert isinstance(prog.morphisms["g"], Ref)
+    assert "g" in prog.morphisms
 
 
 def test_load_two_backends():
@@ -683,3 +685,169 @@ def test_load_then_route_composes():
 def test_load_bad_token():
     with pytest.raises(ParseError):
         parse_program("load >>", load_handler=_stub_handler)
+
+
+# ---------------------------------------------------------------------------
+# Route parameters — lexical params, application, validation
+# ---------------------------------------------------------------------------
+
+def test_param_produces_ref():
+    prog = parse_program("route f(theta) = theta >> theta")
+    assert prog.morphism_params["f"] == ("theta",)
+    body = prog.morphisms["f"]
+    assert isinstance(body, Compose)
+    assert isinstance(body.f, Ref) and body.f.name == "theta"
+    assert isinstance(body.g, Ref) and body.g.name == "theta"
+
+
+def test_param_shadows_builtin_x():
+    prog = parse_program("route f(x) = x >> x")
+    body = prog.morphisms["f"]
+    assert isinstance(body.f, Ref) and body.f.name == "x"
+
+
+def test_param_shadows_builtin_id():
+    prog = parse_program("route f(id) = id >> id")
+    body = prog.morphisms["f"]
+    assert isinstance(body.f, Ref) and body.f.name == "id"
+
+
+def test_param_shadows_builtin_copy():
+    prog = parse_program("route f(copy) = copy & copy")
+    body = prog.morphisms["f"]
+    assert isinstance(body.f, Ref) and body.f.name == "copy"
+
+
+def test_param_shadows_env_binding():
+    prog = parse_program("route g = id\nroute f(g) = g >> g")
+    body = prog.morphisms["f"]
+    assert isinstance(body.f, Ref) and body.f.name == "g"
+
+
+def test_param_varied_names():
+    for name in ("theta", "bias", "scale", "alpha", "w", "x", "id"):
+        prog = parse_program(f"route f({name}) = {name} >> {name}")
+        assert prog.morphism_params["f"] == (name,)
+        assert isinstance(prog.morphisms["f"].f, Ref)
+
+
+def test_duplicate_params_fail():
+    with pytest.raises(ParseError, match="duplicate"):
+        parse_program("route f(x, x) = x")
+
+
+def test_plain_route_no_params():
+    prog = parse_program("route h = id")
+    assert "h" not in prog.morphism_params
+
+
+def test_application_single_param():
+    prog = parse_program(
+        "route f(theta) = theta >> theta\n"
+        "route main = f(id)"
+    )
+    body = prog.morphisms["main"]
+    assert isinstance(body, MorphismApp)
+    assert body.param_names == ("theta",)
+    assert isinstance(body.fun, Compose)
+    assert isinstance(body.fun.f, Ref) and body.fun.f.name == "theta"
+    assert len(body.args) == 1
+    assert isinstance(body.args[0], Identity)
+
+
+def test_application_multi_param():
+    prog = parse_program(
+        "route f(alpha, beta) = alpha >> beta\n"
+        "route main = f(id, copy)"
+    )
+    body = prog.morphisms["main"]
+    assert isinstance(body, MorphismApp)
+    assert body.param_names == ("alpha", "beta")
+    assert len(body.args) == 2
+    assert isinstance(body.args[0], Identity)
+    assert isinstance(body.args[1], Copy)
+
+
+def test_application_wrong_arity():
+    with pytest.raises(ParseError, match="expects 2 arguments"):
+        parse_program(
+            "route f(alpha, beta) = alpha >> beta\n"
+            "route main = f(id)"
+        )
+
+
+def test_application_in_composition():
+    prog = parse_program(
+        "route f(theta) = theta >> theta\n"
+        "route main = f(copy) >> id"
+    )
+    body = prog.morphisms["main"]
+    assert isinstance(body, Compose)
+    assert isinstance(body.f, MorphismApp)
+    assert isinstance(body.f.args[0], Copy)
+
+
+def test_validate_undeclared_ref():
+    with pytest.raises(ParseError, match="unresolved references"):
+        parse_program("route f(theta) = theta >> typo")
+
+
+def test_validate_uninstantiated_param_route():
+    with pytest.raises(ParseError, match="unresolved references"):
+        parse_program(
+            "route f(theta) = theta >> id\n"
+            "route main = f >> id"
+        )
+
+
+def test_validate_plain_route_ok():
+    parse_program("route main = id >> id")
+
+
+def test_validate_instantiated_route_ok():
+    prog = parse_program(
+        "route f(theta) = theta >> theta\n"
+        "route main = f(id)"
+    )
+    validate_program(prog)
+
+
+# ---------------------------------------------------------------------------
+# General morphism application — f(a, b) → (a & b) >> f
+# ---------------------------------------------------------------------------
+
+def test_general_application_unary():
+    prog = parse_program("route g = id\nroute f(x) = g(x)")
+    body = prog.morphisms["f"]
+    assert isinstance(body, MorphismApp)
+    assert body.param_names == ()
+    assert isinstance(body.fun, Identity)
+    assert len(body.args) == 1
+    assert isinstance(body.args[0], Ref) and body.args[0].name == "x"
+
+
+def test_general_application_binary():
+    prog = parse_program("route add = id\nroute f(x, y) = add(x, y)")
+    body = prog.morphisms["f"]
+    assert isinstance(body, MorphismApp)
+    assert body.param_names == ()
+    assert len(body.args) == 2
+
+
+def test_general_application_ternary():
+    prog = parse_program("route op = id\nroute f(a, b, c) = op(a, b, c)")
+    body = prog.morphisms["f"]
+    assert isinstance(body, MorphismApp)
+    assert len(body.args) == 3
+
+
+def test_parameterized_app_has_param_names():
+    prog = parse_program(
+        "route f(theta) = theta >> theta\n"
+        "route main = f(copy)"
+    )
+    body = prog.morphisms["main"]
+    assert isinstance(body, MorphismApp)
+    assert body.param_names == ("theta",)
+    assert isinstance(body.fun, Compose)
+    assert isinstance(body.args[0], Copy)

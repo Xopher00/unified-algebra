@@ -21,44 +21,23 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from unialg.syntax.expressions import MorphismExpr, PolyExpr, First, Second, Identity
+from unialg.syntax.expressions import (
+    MorphismExpr, PolyExpr, Ref, MorphismApp,
+    ContextualBinary, MonadicEmbed, PolyFmap, AlgExpr,
+)
 from unialg.syntax._lex import tokenize, tokenize_morphism, tokenize_functor, Token
 from unialg.syntax._morphism_grammar import make_morphism_grammar, Env as MEnv
 from unialg.syntax._functor_grammar import make_functor_grammar, Env as FEnv
 from unialg.syntax._pratt import TokenCursor, PrattParser, ParseError  # re-export
-from unialg.syntax._ops import _PU, _U, make_compose
 
-__all__ = ["parse_program", "parse_morphism", "parse_functor", "Program", "ParseError"]
+__all__ = [
+    "parse_program", "parse_morphism", "parse_functor",
+    "Program", "ParseError", "validate_program",
+]
 
 # Callback signature: given a backend name returns alias → MorphismExpr bindings.
 LoadHandler = Callable[[str], dict[str, MorphismExpr]]
 
-
-def _param_navigate(index: int, total: int) -> MorphismExpr:
-    """Morphism from the combined Para parameter P to the i-th named parameter.
-
-    P is left-nested: ((P_0 × P_1) × P_2) × …
-    For total=1: P itself is P_0, so return Identity.
-    For total>1: P_{total-1} = snd(P); P_i for i<total-1 = navigate deeper via fst.
-    """
-    if total == 1:
-        return Identity(_U)
-    if index == total - 1:
-        return Second(_PU)
-    return make_compose(First(_PU), _param_navigate(index, total - 1))
-
-
-def _param_projections(params: tuple[str, ...]) -> dict[str, MorphismExpr]:
-    """Return name → projection-from-(P×X) for each named Para parameter."""
-    n = len(params)
-    out: dict[str, MorphismExpr] = {}
-    for i, name in enumerate(params):
-        nav = _param_navigate(i, n)
-        if isinstance(nav, Identity):
-            out[name] = First(_PU)
-        else:
-            out[name] = make_compose(First(_PU), nav)
-    return out
 
 # Keywords that mark a new top-level declaration — used as RHS slice boundaries.
 _DECL_KINDS = {"ROUTE", "MAP", "LOAD", "EOF"}
@@ -72,6 +51,45 @@ class Program:
     morphisms:        dict[str, MorphismExpr]      = field(default_factory=dict)
     functors:         dict[str, PolyExpr]          = field(default_factory=dict)
     morphism_params:  dict[str, tuple[str, ...]]   = field(default_factory=dict)
+
+
+def _collect_unbound_refs(node: MorphismExpr, bound: frozenset[str] = frozenset()) -> set[str]:
+    """Collect Ref names not accounted for by any enclosing MorphismApp or declared params."""
+    match node:
+        case Ref(name=n):
+            return set() if n in bound else {n}
+        case MorphismApp(fun=fun, args=args, param_names=pnames):
+            inner_bound = bound | frozenset(pnames)
+            refs = _collect_unbound_refs(fun, inner_bound)
+            for a in args:
+                refs |= _collect_unbound_refs(a, bound)
+            return refs
+        case ContextualBinary(f=f, g=g):
+            return _collect_unbound_refs(f, bound) | _collect_unbound_refs(g, bound)
+        case MonadicEmbed(f=f):
+            return _collect_unbound_refs(f, bound)
+        case PolyFmap(f=f):
+            return _collect_unbound_refs(f, bound)
+        case AlgExpr(body=b):
+            return _collect_unbound_refs(b, bound)
+        case _:
+            return set()
+
+
+def validate_program(prog: 'Program') -> None:
+    """Check that every Ref in the final program is accounted for.
+
+    A parameterized route may contain Refs for its own declared params.
+    A MorphismApp binds its param_names within its fun body.
+    Any remaining unbound Refs are an error.
+    """
+    for route_name, body in prog.morphisms.items():
+        params = frozenset(prog.morphism_params.get(route_name, ()))
+        undeclared = _collect_unbound_refs(body, params)
+        if undeclared:
+            raise ParseError(
+                f"route {route_name!r}: unresolved references {undeclared!r}"
+            )
 
 
 def parse_program(
@@ -133,9 +151,16 @@ def parse_program(
         if kw_tok[0] == "ROUTE":
             route_menv = dict(menv)
             if params:
-                route_menv.update(_param_projections(params))
+                if len(params) != len(set(params)):
+                    raise ParseError(f"route {name!r}: duplicate parameter names")
                 morphism_params[name] = params
-            nud, led, bp = make_morphism_grammar(route_menv, fenv)
+                for p_name in params:
+                    route_menv.pop(p_name, None)
+            nud, led, bp = make_morphism_grammar(
+                route_menv, fenv,
+                morphism_params=morphism_params,
+                lexical_params=frozenset(params),
+            )
             p = PrattParser(rhs_tokens, label=f"route {name}", binding_powers=bp, nud=nud, led=led)
             expr: MorphismExpr = p.parse_all()  # type: ignore[assignment]
             morphisms[name] = expr
@@ -147,12 +172,14 @@ def parse_program(
             functors[name] = fexpr
             fenv[name] = fexpr
 
-    return Program(
+    prog = Program(
         loads=tuple(loads),
         morphisms=morphisms,
         functors=functors,
         morphism_params=morphism_params,
     )
+    validate_program(prog)
+    return prog
 
 
 def parse_morphism(

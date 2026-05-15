@@ -18,7 +18,7 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from unialg.emitters.backend import BackendOps
-from unialg.emitters.semiring_factory import register_semiring_op, semiring_from_backend
+from unialg.tensors.semiring_factory import register_semiring_op, semiring_from_backend
 from support.strategies import plain_morphisms
 
 

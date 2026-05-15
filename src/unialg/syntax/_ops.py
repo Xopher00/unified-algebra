@@ -40,13 +40,12 @@ def createOp(symbol: str, padding: bool, precedence: int, associativity: str = "
         {"left": hast.Associativity.LEFT, "right": hast.Associativity.RIGHT}[associativity],
     )
     
-COMPOSE_OP = createOp(symbol=">>", padding=True, precedence=60, associativity="left") 
+COMPOSE_OP = createOp(symbol=">>", padding=True, precedence=60, associativity="left")
 PAIR_OP    = createOp("&", True, 70, "left")
 PAR_OP     = createOp("||", True, 65, "left")
 CASE_OP    = createOp("|", True, 50, "left")
 INDEX_OP   = createOp("[", False, 90, "left")
-COPY_OP    = createOp("^", False, 90, "left")
-INJECT_OP  = createOp("?", False, 90, "left")
+STAR_OP    = createOp("*", False, 90, "left")
 
 # Functor operators
 FSTAR_OP = createOp(symbol="*", padding=False, precedence=80, associativity="left")
@@ -55,13 +54,12 @@ FSUM_OP  = createOp("|", True, 60, "left")
 
 # Token kind → Op mapping for morphism operators
 _MORPHISM_OPS: dict[str, hast.Op] = {
-    "COMPOSE": COMPOSE_OP,
-    "PAIR":    PAIR_OP,
-    "PAR":     PAR_OP,
-    "CASE":    CASE_OP,
+    "COMPOSE":  COMPOSE_OP,
+    "PAIR":     PAIR_OP,
+    "PAR":      PAR_OP,
+    "CASE":     CASE_OP,
     "LBRACKET": INDEX_OP,
-    "CARET": COPY_OP,
-    "QUESTION": INJECT_OP,
+    "STAR":     STAR_OP,
 }
 
 _FUNCTOR_OPS: dict[str, hast.Op] = {

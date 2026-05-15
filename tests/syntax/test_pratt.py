@@ -135,19 +135,19 @@ def test_copy():
 
 
 def test_copy_power_two():
-    r = parse_morphism("^2")
+    r = parse_morphism("*2")
     assert isinstance(r, Copy)
 
 
 def test_copy_power_three_left_nested():
-    r = parse_morphism("^3")
+    r = parse_morphism("*3")
     assert isinstance(r, Pair)
     assert isinstance(r.f, Copy)
     assert isinstance(r.g, Identity)
 
 
 def test_copy_power_is_not_fixed_arity():
-    r = parse_morphism("^5")
+    r = parse_morphism("*5")
     for _ in range(3):
         assert isinstance(r, Pair)
         assert isinstance(r.g, Identity)
@@ -156,14 +156,14 @@ def test_copy_power_is_not_fixed_arity():
 
 
 def test_postfix_copy_power_two():
-    r = parse_morphism("morph^2")
+    r = parse_morphism("morph*2")
     assert isinstance(r, Compose)
     assert isinstance(r.f, Ref) and r.f.name == "morph"
     assert isinstance(r.g, Copy)
 
 
 def test_postfix_copy_power_is_not_fixed_arity():
-    r = parse_morphism("morph^5")
+    r = parse_morphism("morph*5")
     assert isinstance(r, Compose)
     assert isinstance(r.f, Ref) and r.f.name == "morph"
     copied = r.g
@@ -175,7 +175,7 @@ def test_postfix_copy_power_is_not_fixed_arity():
 
 
 def test_postfix_copy_power_has_high_precedence():
-    r = parse_morphism("f^2 >> g")
+    r = parse_morphism("f*2 >> g")
     assert isinstance(r, Compose)
     assert isinstance(r.f, Compose)
     assert isinstance(r.f.f, Ref) and r.f.f.name == "f"
@@ -185,17 +185,17 @@ def test_postfix_copy_power_has_high_precedence():
 
 def test_postfix_copy_power_requires_at_least_two():
     with pytest.raises(ParseError, match="integer >= 2"):
-        parse_morphism("morph^1")
+        parse_morphism("morph*1")
 
 
 def test_copy_power_requires_at_least_two():
     with pytest.raises(ParseError, match="integer >= 2"):
-        parse_morphism("^1")
+        parse_morphism("*1")
 
 
 def test_copy_power_requires_integer():
     with pytest.raises(ParseError, match="copy power"):
-        parse_morphism("^")
+        parse_morphism("*")
 
 
 def test_fst():
@@ -249,41 +249,41 @@ def test_inl():
 
 
 def test_case_injection_zero():
-    r = parse_morphism("?0")
+    r = parse_morphism("|0")
     assert isinstance(r, Left)
 
 
 def test_case_injection_one():
-    r = parse_morphism("?1")
+    r = parse_morphism("|1")
     assert isinstance(r, Right)
 
 
 def test_case_injection_rejects_other_indexes():
     with pytest.raises(ParseError, match="0 or 1"):
-        parse_morphism("?2")
+        parse_morphism("|2")
 
 
 def test_case_injection_requires_integer():
-    with pytest.raises(ParseError, match="case injection"):
-        parse_morphism("?")
+    with pytest.raises(ParseError, match="prefix position"):
+        parse_morphism("| f")
 
 
 def test_postfix_case_injection_zero():
-    r = parse_morphism("morph?0")
+    r = parse_morphism("morph|0")
     assert isinstance(r, Compose)
     assert isinstance(r.f, Ref) and r.f.name == "morph"
     assert isinstance(r.g, Left)
 
 
 def test_postfix_case_injection_one():
-    r = parse_morphism("morph?1")
+    r = parse_morphism("morph|1")
     assert isinstance(r, Compose)
     assert isinstance(r.f, Ref) and r.f.name == "morph"
     assert isinstance(r.g, Right)
 
 
 def test_postfix_case_injection_has_high_precedence():
-    r = parse_morphism("f?0 | g")
+    r = parse_morphism("f|0 | g")
     assert isinstance(r, Case)
     assert isinstance(r.f, Compose)
     assert isinstance(r.f.f, Ref) and r.f.f.name == "f"
@@ -314,6 +314,41 @@ def test_sym():
 def test_ref_unknown_name():
     r = parse_morphism("unknown_fn")
     assert isinstance(r, Ref) and r.name == "unknown_fn"
+
+
+def test_dotted_name_is_single_ref():
+    r = parse_morphism("reduce.add")
+    assert isinstance(r, Ref) and r.name == "reduce.add"
+
+
+def test_dotted_name_in_env():
+    from unialg.syntax.expressions import Delete
+    from unialg.objects import TypeUnit
+    stub = Delete(TypeUnit())
+    r = parse_morphism("reduce.add", env={"reduce.add": stub})
+    assert r is stub
+
+
+def test_del_alias():
+    r = parse_morphism("del")
+    assert isinstance(r, Delete)
+
+
+def test_del_alias_with_n():
+    r = parse_morphism("del(2)")
+    assert isinstance(r, Delete)
+
+
+def test_dup_alias():
+    r = parse_morphism("dup(2)")
+    assert isinstance(r, Copy)
+
+
+def test_dup_alias_three():
+    r = parse_morphism("dup(3)")
+    assert isinstance(r, Pair)
+    assert isinstance(r.f, Copy)
+    assert isinstance(r.g, Identity)
 
 
 def test_env_resolution():

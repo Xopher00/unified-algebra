@@ -120,3 +120,27 @@ and eliminates type-variant pattern matching.
 a semantic wrapper that separates the left component (parameter space) from
 the right component (input space) at construction time. No new space types,
 no changes to lowering, no changes to Hydra term construction are required.
+
+## Type-directed codec architecture (2026-05-15)
+
+The emitter codec layer is type-directed: the JSON backend spec declares `arg_type` and
+`result_type` as Hydra type specs; `load_spec` derives `TermCoder`s automatically via
+`type_from_spec` + `coder_for_type`. No named codec registry; no framework knowledge in
+`codecs.py`.
+
+**Architecture invariants:**
+- `codecs.py` knows Hydra types and plain Python values (int, float, str, bool, bytes, list,
+  tuple, None, Left/Right). It does NOT import numpy, torch, cupy, jax, or shape/dtype policy.
+- `backend.py` loads specs, resolves import paths, registers Hydra primitives. No
+  framework-specific dispatch table.
+- Backend JSON `"path"` points to a callable that accepts/returns universal Python
+  representation. For framework-strict backends, `"path"` points to a wrapper that converts
+  on entry and exit; the codec layer is uninvolved.
+
+**Supported type specs:** `"FLOAT"`, `"INT"`, `"STRING"`, `"BOOL"`, `"BINARY"`, `"UNIT"`,
+and compound forms: `{"list": T}`, `{"pair": [A, B]}`, `{"either": [L, R]}`, `{"maybe": T}`.
+
+**Tensor operations:** Array-typed ops (matmul, tensor contraction) must use distinct logical
+op names and either (a) backend wrapper functions that accept/return nested Python lists, or
+(b) a future tensor plugin with a typed `TENSOR` kind. They must not modify the `arg_type` of
+existing scalar ops like `add` or `multiply`.

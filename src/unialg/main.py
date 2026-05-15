@@ -27,7 +27,7 @@ from .semantics.morphisms import Morphism
 from .semantics.typeops import _EMPTY_GRAPH
 from .structure.realize import realize_normalized
 from .emitters.backend import BackendOps
-from .emitters.codecs import _term_value, _expect_right
+from .emitters.codecs import _term_value, _expect_right, coder_for_type
 
 _BACKEND_DIR = Path(__file__).parent / "emitters" / "backends"
 _DEFAULT_GRAPH = None
@@ -127,22 +127,51 @@ class CompiledProgram:
         self._term = term
         self._graph = graph
         self._ctx = ctx
-        self._arg_coder = next(
-            (bp.arg_coder for ops in backends.values() for bp in ops.primitives.values()),
+        # Find first backend with a binary adapter — drives store-based execution path.
+        self._backend_ops: BackendOps | None = None
+        for ops in backends.values():
+            if ops.binary_adapter is not None:
+                self._backend_ops = ops
+                break
+        # LEGACY/TEMPORARY: derive arg coder from the first backend primitive's declared type.
+        # Compatibility bridge for homogeneous single-backend programs.
+        first_bp = next(
+            (bp for ops in backends.values() for bp in ops.primitives.values()),
             None,
         )
+        self._arg_coder = coder_for_type(first_bp.arg_type) if first_bp is not None else None
 
     def run(self, *args):
-        """Run the compiled program with Python scalar arguments."""
-        if args:
-            if self._arg_coder is None:
-                raise ValueError("run: no backend loaded — cannot encode arguments")
-            encoded = [_expect_right(self._arg_coder.decode(self._ctx, v), "run") for v in args]
-            argument = Terms.pair(encoded[0], encoded[1]) if len(encoded) == 2 else encoded[0]
-        else:
-            argument = P.unit().value
-        result = _apply_and_reduce(self._term, argument, self._ctx, self._graph, "program")
-        return _term_value(result, "program")
+        """Run the compiled program, returning a native backend value or Python scalar."""
+        store = self._backend_ops.store if self._backend_ops is not None else None
+        if store is not None:
+            store.reset()
+        try:
+            if args:
+                if self._arg_coder is None:
+                    raise ValueError("run: no backend loaded — cannot encode arguments")
+                if self._backend_ops is not None:
+                    _ops = self._backend_ops
+                    _coder = self._arg_coder
+                    _ctx = self._ctx
+                    def _encode(v):
+                        key = _ops.put_input(v)
+                        return _expect_right(_coder.decode(_ctx, key), "run")
+                    encoded = [_encode(v) for v in args]
+                else:
+                    encoded = [_expect_right(self._arg_coder.decode(self._ctx, v), "run") for v in args]
+                argument = Terms.pair(encoded[0], encoded[1]) if len(encoded) == 2 else encoded[0]
+            else:
+                argument = P.unit().value
+            result = _apply_and_reduce(self._term, argument, self._ctx, self._graph, "program")
+            if self._backend_ops is not None:
+                result_key = _term_value(result, "program")
+                output = self._backend_ops.get_output(result_key)
+                return output
+            return _term_value(result, "program")
+        finally:
+            if store is not None:
+                store.reset()
 
 
 def compile_program(src: str) -> CompiledProgram:

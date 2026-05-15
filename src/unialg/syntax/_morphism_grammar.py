@@ -40,7 +40,7 @@ def _poly_prefix(p: PrattParser, base: PolyExpr) -> PolyExpr:
 
 
 def _copy_power(count: int) -> MorphismExpr:
-    """Expand ``^n`` to a left-nested copy tree."""
+    """Expand ``*n`` to a left-nested copy tree."""
     if count < 2:
         raise ParseError("copy power expects an integer >= 2")
     out: MorphismExpr = Copy(_U)
@@ -50,7 +50,7 @@ def _copy_power(count: int) -> MorphismExpr:
 
 
 def _case_injection(index: int) -> MorphismExpr:
-    """Expand ``?0``/``?1`` to the corresponding sum injection."""
+    """Expand ``|0``/``|1`` to the corresponding sum injection."""
     if index == 0:
         return Left(_SU)
     if index == 1:
@@ -70,16 +70,17 @@ def _nud(env: Env, fenv: FunctorEnv, p: PrattParser, tok: Token) -> MorphismExpr
     if kind == "BANG":
         return Delete(_U)
 
-    if kind == "CARET":
+    if kind == "STAR":
         if p.peek()[0] != "INT":
             raise ParseError("copy power expects an integer >= 2")
         _, count = p.expect("INT", "copy power")
         return _copy_power(count)
 
-    if kind == "QUESTION":
+    if kind == "CASE":
+        # Prefix |0 / |1 — sum injection.
         if p.peek()[0] != "INT":
-            raise ParseError("case injection expects index 0 or 1")
-        _, index = p.expect("INT", "case injection index")
+            raise ParseError("'|' in prefix position expects 0 or 1")
+        _, index = p.expect("INT", "injection index")
         return _case_injection(index)
 
     if kind == "INT":
@@ -100,10 +101,19 @@ def _nud(env: Env, fenv: FunctorEnv, p: PrattParser, tok: Token) -> MorphismExpr
                 return Identity(_U)
             raise ParseError("functor expression x* without {f}")
 
-        if name in ("delete", "drop"):
+        if name in ("delete", "drop", "del"):
+            if p.peek()[0] == "LPAREN":
+                p.advance()
+                p.expect("INT", "del count")
+                p.expect("RPAREN", "closing )")
             return Delete(_U)
         if name == "copy":
             return Copy(_U)
+        if name == "dup":
+            p.expect("LPAREN", "(")
+            _, count = p.expect("INT", "dup count")
+            p.expect("RPAREN", "closing )")
+            return _copy_power(count)
         if name in ("id", "identity"):
             return Identity(_U)
         if name == "fst":
@@ -164,17 +174,19 @@ def _led(p: PrattParser, left: MorphismExpr, tok: Token, rbp: int) -> MorphismEx
         if index == 1:
             return make_compose(left, Second(_PU))
         raise ParseError("projection index must be 0 or 1")
-    if kind == "CARET":
+    if kind == "STAR":
         if p.peek()[0] != "INT":
             raise ParseError("copy power expects an integer >= 2")
         _, count = p.expect("INT", "copy power")
         return make_compose(left, _copy_power(count))
-    if kind == "QUESTION":
-        if p.peek()[0] != "INT":
-            raise ParseError("case injection expects index 0 or 1")
-        _, index = p.expect("INT", "case injection index")
-        return make_compose(left, _case_injection(index))
-    right: MorphismExpr = p.parse(rbp)  # type: ignore[assignment]
+    if kind == "CASE":
+        # Postfix |0 / |1 — inject then compose; otherwise infix case elimination.
+        if p.peek()[0] == "INT":
+            _, index = p.expect("INT", "injection index")
+            return make_compose(left, _case_injection(index))
+        right: MorphismExpr = p.parse(rbp)  # type: ignore[assignment]
+        return make_binary("CASE", left, right)
+    right = p.parse(rbp)  # type: ignore[assignment]
     return make_binary(kind, left, right)
 
 

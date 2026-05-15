@@ -64,7 +64,7 @@ Key changes sealed:
 - `syntax/_pratt.py` — `TokenCursor` (pos/seek/peek/advance/expect) split from `PrattParser`; used by program-level parser to slice declaration boundaries
 - `syntax/parse.py` — `Program(loads, morphisms, functors)`, `parse_program(src, load_handler)`, `_DECL_KINDS`
 - `main.py` — single entry point; `load_program`, `compile_program(src) → CompiledProgram`, `lower`, `run`; `lowering.py` deleted and merged here
-- `CompiledProgram` — holds one term (last route); `run(*args)` encodes Python scalars internally using cached `_arg_coder`; no Hydra imports required by caller
+- `CompiledProgram` — holds one term (last route); `run(*args)` encodes Python scalars internally using cached `_arg_coder` derived from first backend primitive's `arg_type` (LEGACY/TEMPORARY bridge — route domain not yet wired); no Hydra imports required by caller
 - `__init__.py` — reduced to 3 lines: exports only `load_program, compile_program, CompiledProgram, lower, run`
 - `_augment_graph` — batched: one `dataclasses.replace` for all aux primitives instead of O(n)
 - `default_graph()` — uses `_augment_graph(_EMPTY_GRAPH, primitives)` instead of `L.graph_with_primitives`; fixes Pyright `frozenlist` errors and reuses existing `_EMPTY_GRAPH` from `semantics/typeops.py`
@@ -90,7 +90,7 @@ src/unialg/
 │   ├── recursion.py        act/act_forward/act_backward, cata/ana/hylo — optic actions + recursion schemes
 │   ├── terms.py            Hydra primitive name catalog + term helpers (includes product_arg)
 │   ├── backend.py          BackendPrimitive, register_backend_primitive, BackendOps, load_spec
-│   ├── codecs.py           TYPE_REGISTRY, TERM_CODER_REGISTRY — Python scalar ↔ Hydra literal
+│   ├── codecs.py           type_from_spec, coder_for_type — type-directed Python ↔ Hydra codec
 │   └── backends/           JSON backend specs (numpy, torch, jax, cupy)
 ├── objects.py              Type aliases, TypeScheme, show_type, ProductType, SumType, Monad, etc.
 ├── lowering.py             lower/run — execution boundary
@@ -209,9 +209,11 @@ src/unialg/
 - `backend_coverage`, `compare_backend_coverage`, `backend_required_for_term` — utility queries
 
 ### codecs.py
-- Pure value-boundary layer: no morphism or expression dependencies
-- `TYPE_REGISTRY` maps `"INT"` / `"FLOAT"` to `TypeLiteral(LiteralType.INTEGER/FLOAT)`
-- `TERM_CODER_REGISTRY` maps `"int32"` / `"int64"` / `"float32"` / `"float64"` to `TermCoder` instances
+- Pure value-boundary layer: no morphism or expression dependencies; no framework imports
+- `type_from_spec(spec)` — parses a JSON type declaration string or dict into a Hydra `Type`
+- `coder_for_type(typ)` — derives a `TermCoder` recursively from a Hydra `Type`
+- Supports: `FLOAT`, `INT`, `STRING`, `BOOL`, `BINARY`, `UNIT`, and compound types (`list`, `pair`, `either`, `maybe`)
+- `TYPE_REGISTRY` / `TERM_CODER_REGISTRY` retained for backward compat only; not used by `load_spec`
 - `_expect_right`, `_literal_value`, `_mk_term_coder` — helpers only
 
 ### terms.py additions
@@ -229,6 +231,35 @@ Surveyed with `pkgutils.walk_packages` + `importlib`/`inspect`. Key findings rel
 - `hydra.ast` — code-generation pretty-printing AST; not relevant
 
 Constraint derived: **Do not create new `MorphismExpr` subclasses for tensor operations without clear justification** that Hydra cannot represent the same concept natively. The existing `Prim` node (raw Hydra term escape) plus correctly named `BackendPrimitive` registration is likely sufficient.
+
+## RuntimeStore / BinaryAdapter architecture — sealed (2026-05-15)
+
+Native tensors flow through Hydra reduction without per-op serialization. The design is implemented and verified (290 tests passing).
+
+**Core invariant:** `BINARY` terms carry 16-byte UUID keys, not serialized tensor data. Primitives do O(1) dict lookups; zero `adapter.dump`/`adapter.load` calls occur between primitives during a single `run()`.
+
+Key components:
+
+- **`structure/runtime_store.py`** — `RuntimeStore`: UUID-keyed `dict[bytes, Any]`. `put(native) → bytes`, `get(key) → native`, `reset()`. One instance per `BackendOps`; reset via `try/finally` in `CompiledProgram.run()`.
+- **`BinaryAdapter` dataclass** (in `backend.py`) — resolves `dump`/`load` callables from dotted paths in JSON. `dump_style` is strictly validated (`"file_first"` or `"value_first"`); unknown values raise `ValueError` at construction. Optional `load_kwargs` passed through to `load_fn` (used by torch `weights_only` flag).
+- **`binary_adapter` JSON field** — now a dict, not a module path string. Example:
+  ```json
+  {"dump": "numpy.save", "load": "numpy.load", "dump_style": "file_first"}
+  ```
+  The old module-string form is handled with backward-compat fallback in `load_spec`.
+- **`BackendOps` boundary methods** — `put_input(v) → bytes` (calls `adapter.load` if `v` is `bytes`, otherwise stores directly), `get_output(key) → native`. `main.py` is backend-agnostic; no numpy import.
+- **`use_store` gate** — requires BOTH `arg_type == BINARY` AND `result_type == BINARY`. Returning a handle through a non-BINARY result coder would be wrong.
+- **`CompiledProgram.run()`** — `store.reset()` at entry; `try/finally` ensures `store.reset()` on exit. Result extracted before the finally reset.
+
+Backend JSON status:
+- `numpy.json`, `torch.json`, `cupy.json` — all have dict `binary_adapter`
+- `jax.json` — no `binary_adapter`; JAX requires `np.asarray()` conversion before serialization; design deliberately deferred
+
+Dead code confirmed by `git grep`:
+- `backend_wrappers/_wire.py` — zero references anywhere in the repo
+- `backend_wrappers/_envelope.py` — superseded by `BinaryAdapter`; zero references
+- `backend_wrappers/__init__.py` — package shell for dead code
+- The entire `backend_wrappers/` directory can be deleted
 
 ## What has been verified
 - `import unialg` clean

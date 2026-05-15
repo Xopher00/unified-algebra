@@ -313,7 +313,10 @@ successor structure using current functor and morphism syntax.
 `compile_program(src)` parses and lowers the final `route` in a program.
 
 With a backend loaded, `compiled.run(...)` encodes Python scalar arguments using
-the first loaded backend coder and decodes the final value:
+the first loaded backend primitive's declared `arg_type` as a temporary bridge.
+This is not the final route-domain solution — the correct fix is to derive the
+input type from the compiled route's domain, which is not yet wired in the
+parse/compile pipeline.
 
 ```python
 compiled = compile_program(src)

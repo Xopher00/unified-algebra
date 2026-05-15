@@ -46,9 +46,13 @@ def _skip():
     )
 
 def _raw_ident():
-    """Parse an identifier before keyword classification."""
+    """Parse an identifier before keyword classification.
+
+    Dots are allowed in the rest of an identifier so that backend op names
+    such as ``reduce.add`` tokenize as a single NAME token.
+    """
     id_start = P.satisfy(lambda c: chr(c).isalpha() or chr(c) == "_")
-    id_rest  = P.many(P.satisfy(lambda c: chr(c).isalnum() or chr(c) == "_"))
+    id_rest  = P.many(P.satisfy(lambda c: chr(c).isalnum() or chr(c) in "_."))
     return P.bind(id_start, lambda c:
            P.bind(id_rest,  lambda cs:
            P.pure(chr(c) + "".join(chr(x) for x in cs))))
@@ -109,8 +113,6 @@ def _morphism_token():
         _lit(")",  "RPAREN"),
         _lit(",",  "COMMA"),
         _lit("!",  "BANG"),
-        _lit("^",  "CARET"),
-        _lit("?",  "QUESTION"),
         _lit("=",  "EQ"),
         _lit(";",  "ERROR", "use '>>' instead of ';'"),
         P.bind(_raw_int(),   lambda n: P.pure(("INT",  n))),

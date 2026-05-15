@@ -26,7 +26,7 @@ from unialg.objects import Type
 from unialg.semantics.morphisms import Morphism
 from unialg.tensors.semirings import Semiring
 from .backend import BackendOps, register_backend_primitive
-from .codecs import TERM_CODER_REGISTRY, TYPE_REGISTRY
+from .codecs import type_from_spec, coder_for_type
 
 
 def _lookup(name: str, ops: BackendOps, label: str) -> Morphism:
@@ -122,7 +122,6 @@ def register_semiring_op(
     reduce_fn: Callable | None = None,
     arity: int = 2,
     arg_type: Type | None = None,
-    codec: str = "float64",
 ) -> None:
     """Register a custom callable as a named semiring operation in BackendOps.
 
@@ -145,7 +144,6 @@ def register_semiring_op(
             Provide None for ops intended only for elementwise use.
         arity: Number of arguments for the elementwise op.  Default 2.
         arg_type: Hydra Type for all arguments.  Defaults to FLOAT.
-        codec: TermCoder key from TERM_CODER_REGISTRY.  Default "float64".
 
     Example::
 
@@ -155,9 +153,9 @@ def register_semiring_op(
                                    zero, one, ops)
     """
     if arg_type is None:
-        arg_type = TYPE_REGISTRY["FLOAT"]
+        arg_type = type_from_spec("FLOAT")
 
-    coder = TERM_CODER_REGISTRY[codec]
+    coder = coder_for_type(arg_type)
     canonical = f"unialg.backend.{name}"
     bp = register_backend_primitive(canonical, fn, arg_type, arity,
                                     arg_coder=coder, result_coder=coder)

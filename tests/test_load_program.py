@@ -40,11 +40,12 @@ def test_load_records_in_program():
     assert prog.loads == ("numpy",)
 
 
+
 def test_compile_program_runs_structural_unit_program():
     src = """
     map Nat = 1 | x
-    route zero = ! >> ?0
-    route successor = ?1
+    route zero = ! >> |0
+    route successor = |1
     route one = zero >> successor
     route two = one >> Nat{successor}
     route three = two >> Nat{Nat{successor}}

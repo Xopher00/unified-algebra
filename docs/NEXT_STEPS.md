@@ -30,6 +30,23 @@ Tests revised. 94 passing. No references to old API remain in live tests; legacy
 
 `load`/`route`/`map` program syntax works end-to-end. `compile_program(src).run(...)` requires no Hydra imports from the caller. See CHECKPOINT.md for full change list.
 
+## Immediate: add `reduce.add_axis` to backend specs
+
+`reduce.add` maps to `numpy.sum(arr)` with no axis argument — it collapses all dimensions to a scalar. Single-call 2D matmul requires a reduce that operates along one axis.
+
+Add to `numpy.json` (and analogous backends):
+```json
+"reduce.add_axis": {"kind": "reduce", "path": "numpy.sum", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY", "kwargs": {"axis": -1}}
+```
+
+Or define a dedicated wrapper callable — the exact calling convention depends on whether `kwargs` is supported in the backend spec yet. Verify which mechanism fits before writing code.
+
+Once `reduce.add_axis` is in place, the matmul demo in `explore.ipynb` (cell `matmul-demo-01`) should be rewritten to call `dot.run()` once at the boundary on the full input matrices, not once per output element.
+
+## Cleanup: delete `backend_wrappers/`
+
+`git grep` confirms zero references to `_wire.py` or `_envelope.py` anywhere in the repo. The whole `backend_wrappers/` directory (`_wire.py`, `_envelope.py`, `__init__.py`) is dead code superseded by `BinaryAdapter`. Delete it.
+
 ## Immediate: compile-time type checking for parsed compositions
 
 **Problem:** `compile_program("load numpy\nroute bad = tanh >> add")` silently compiles. Type mismatch (`FLOAT → FLOAT×FLOAT`) only surfaces at `run()` time as a Hydra reduction error.

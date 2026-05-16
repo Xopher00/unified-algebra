@@ -2,7 +2,9 @@
 
 ## Done: Revise tests
 
-Tests revised. 94 passing. No references to old API remain in live tests; legacy tests quarantined under `tests/regression/stale_old_api/`.
+Tests revised. Current live suite: 240 passing, 6 skipped. No references to old
+API remain in live tests; legacy tests quarantined under
+`tests/regression/stale_old_api/`.
 
 ## Done: Functor cleanup
 
@@ -10,23 +12,23 @@ Tests revised. 94 passing. No references to old API remain in live tests; legacy
 - `Functor.compose(inner)` added as instance method (functor composition)
 - Three `functor_*` compatibility wrappers removed
 - `poly_fmap` signature changed to `(functor: Functor, h: Morphism)`, uses `functor.apply()` internally
-- `Functor.map` not added — `poly_fmap` stays as a free function in `actions.py`; this is the correct placement since `poly_fmap` takes two arguments (functor + morphism) and requires Hydra-backed realization
+- `Functor.map(h)` added as a convenience method; `poly_fmap` remains the semantic free function in `semantics/functors.py` and returns a deferred `PolyFmap` node. Hydra-backed realization happens later in `structure/realize.py`.
 
 ## Done: Optics layer (unified polynomial optic)
 
 - Single `Optic(functor, forward, backward)` dataclass replaces former Lens/Prism/Traversal subclasses
 - `forward: S → F(A)` decomposes source; `backward: F(B) → T` reconstructs target
-- Uniform action: `compose(forward, poly_fmap(F, h), backward)` — implemented as `act()` in `actions.py`
+- Uniform action: `compose(forward, poly_fmap(F, h), backward)` — implemented as `Optic.act()`
 - `focus`/`replacement` derived via strict `functor.unapply()` (Hydra unification plus validated inverse of `apply_poly`)
 - `Functor.unapply(fa)` builds `F(A)` with a Hydra type variable, asks `hydra.unification.unify_types` to solve `F(A) = fa`, then performs round-trip validation
 - Lens = `Prod(Id, Const(residue))`, Prism = `Sum(Id, Const(residue))`, Traversal = arbitrary polynomial
 - For simple lenses/prisms where S = F(A), forward and backward are identity morphisms
 - Convenience constructors: `fst_lens(a, b)`, `snd_lens(a, b)`, `left_prism(a, b)`, `right_prism(a, b)`
 - Height-2 optics need no structural change — just deeper polynomial bodies
-- 8 unified Hypothesis property tests (type laws + rejection laws), 103 tests total passing
-- No Hydra term construction in `optics.py`; action in `actions.py` preserves layer discipline
+- Unified Hypothesis property tests cover type laws and rejection laws
+- No Hydra term construction in `optics.py`; action methods return semantic morphisms and realization stays in `structure/realize.py`
 
-## Next: tensor operations (revised 2026-05-13)
+## Next: tensor operations (revised 2026-05-17)
 
 ### What was tried and why it failed
 
@@ -49,25 +51,25 @@ Three distinct attempts all broke down in the same ways:
 - **No Python-native evaluator** — execution must go through `run()` → `structure/realize.py` → Hydra reduction.
 - **No new `MorphismExpr` subclass without clear justification** — exhaust `Prim` + named primitive first.
 - **Explore Hydra before adding** — use `pkgutils`/`importlib`/`inspect` to verify a capability does not already exist.
-- **`tensors/semirings.py`** is correctly placed (semantics layer); extend it in place rather than moving it.
-- **`tensors/tensorexpressions.py` and `tensors/equations.py`** are stubs that contradict the above constraints — they should be removed, not extended.
+- **`tensors/semirings.py`** and **`tensors/contractions.py`** are the current tensor-specific helper modules. Keep tensor-specific code there unless it needs to become general syntax/semantics/structure machinery.
+- Do not recreate old parallel tensor expression modules such as `tensorexpressions.py` or `equations.py`.
 
 ### Correct layer mapping (to validate before implementing)
 
 | Concern | Layer | Correct file | Status |
 |---------|-------|--------------|--------|
 | Subscript parsing (`"ij,jk->ik"`) | Syntax | `syntax/expressions.py` or keep as `str` | Unclear — may not need a node |
-| Semiring dataclass | Semantics | `tensors/semirings.py` | Exists ✓ |
+| Semiring dataclass | Tensor semantics | `tensors/semirings.py` | Exists ✓ |
 | `from_backend` factory + `op_env` | Semantics | `tensors/semirings.py` | Missing |
 | Tensor type `ExpType(I, A)` | Semantics | `semantics/morphisms.py` (helper) | Missing |
-| `contract_morphism(sr, eq) → Morphism` | Semantics | `semantics/` | Missing |
+| `contract_morphism(sr, eq) → Morphism` | Tensor semantics | `tensors/contractions.py` | Exists/experimental |
 | Contract fusion rewrite | Structure | `structure/` | Missing (notebook only) |
 | Contraction kernel registration | Structure | `structure/` | Missing |
 
 ### Before writing any code
 
-1. Delete `tensors/tensorexpressions.py` and `tensors/equations.py` — they contradict the design.
-2. Write skeleton files (docstring + comments only, no logic) for each new file, getting sign-off on placement before filling in.
+1. Do not recreate old parallel tensor expression modules.
+2. Keep tensor-specific helpers inside `tensors/` unless a helper becomes broadly useful enough to promote into syntax/semantics/structure.
 3. For each piece, ask: does Hydra already provide this? Check with `importlib`/`inspect` before implementing.
 
 
@@ -76,7 +78,7 @@ Three distinct attempts all broke down in the same ways:
 The current code has a natural but partly scattered flow:
 
 ```text
-Expr node -> typed semantic wrapper -> type action -> backend realization -> lowering/run
+Expr node -> typed semantic wrapper -> type action -> structure realization -> main run
 ```
 
 For morphisms, that flow is:
@@ -93,7 +95,7 @@ For polynomial functors, the parallel flow is currently less explicit:
 - `Functor` in `functors.py` — named descriptor with `apply(space)` object action method
 - `functors.apply_poly` — internal recursive implementation of F(A)
 - `Functor.unapply(fa)` — inverse object action, using Hydra unification to solve `F(A) = fa`
-- `poly_fmap(functor, h)` in `actions.py` — arrow action `h -> F(h)`, takes a `Functor`
+- `poly_fmap(functor, h)` in `semantics/functors.py` — arrow action `h -> F(h)`, takes a `Functor` and returns a deferred node
 
 Refactor direction:
 
@@ -102,7 +104,7 @@ Refactor direction:
 - Keep `Morphism` as the typed semantic handle for arrows.
 - `Functor` upgraded: `apply(space)` is now an instance method; `summands()`, `x_arity()`, `consts()` are methods.
 - `Functor.unapply(fa)` now uses Hydra type unification instead of a hand-written structural inverse walker.
-- `poly_fmap(functor, h)` in `actions.py` takes a `Functor`, uses `functor.apply()` internally. Stays as a free function — it takes two arguments (functor + morphism) and requires Hydra-backed realization.
+- `poly_fmap(functor, h)` in `semantics/functors.py` takes a `Functor`, uses `functor.apply()` internally, and stays as a free semantic function. `Functor.map(h)` delegates to it.
 - Import-order-sensitive monkey patches remain removed; no layer boundary violations.
 
 Current reader-facing shape:
@@ -111,8 +113,7 @@ Current reader-facing shape:
 Maybe = Functor("Maybe", Sum(One(), Id()))
 
 Maybe.apply(INT)              # object action: F(A)
-poly_fmap(Maybe, add1)        # arrow action: F(f)
-lower(poly_fmap(Maybe, add1), "maybe_add1")
+poly_fmap(Maybe, add1)        # arrow action: F(f), deferred until realization
 ```
 
 ## Next: Optics — remaining work
@@ -248,44 +249,44 @@ For multi-headed and branching architectures. Tensor products of morphisms, bili
 
 Lax para composition handles parameter threading with shared context plus `bind`/lambda capture. No explicit strength morphism is part of the current semantics.
 
-## Tensor contraction: open design questions (2026-05-13)
+## Tensor contraction: open design questions (2026-05-17)
 
 These gaps must be resolved before any tensor contraction code is written.
 Ordered by how much they block forward progress.
 
 ### 1. Index type encoding — DECISION REQUIRED (blocks everything)
 
-`tensor_type(index, element)` in `semantics/morphisms.py` and the dom/cod of
-`contract_morphism` in `semantics/contractions.py` both depend on what Hydra
+`tensor_type(index, element)` and the dom/cod of
+`contract_morphism` in `tensors/contractions.py` both depend on what Hydra
 `Type` represents an index set.
 
 Options:
 - **Nominal** — `Name("I")`, `Name("J")` as opaque phantom types.  Sufficient
   for checking that `contract_morphism` output type matches a downstream
-  morphism's input type.  Does not encode size.
+  morphism's input type. Does not encode size.
 - **TypeVariable** — polymorphic; `contract_morphism` returns a scheme not a
   monotype.  Clean but harder to instantiate in practice.
 - **Nat-indexed** — encodes concrete sizes statically.  Precise but requires
   size arithmetic in the type system; more than is needed now.
 
 Nominal is the likely starting point.  Decide before touching `tensor_type()`
-or any `contract_morphism` dom/cod.
+  or any `contract_morphism` dom/cod.
 
 ### 2. Structural tensor ops not in backend specs — needs placement decision
 
-`structure/tensor_lowering.py` needs `expand_dims` and `transpose` for the
+Any future tensor-lowering helper will need `expand_dims` and `transpose` for the
 alignment step (unsqueeze + permute input tensors to `output_vars ++ reduced_vars`
 dim order).  These are **not** in `tensors/backends/*.json`, which only carries
 elementwise binary, unary, and reduce ops.
 
 Options:
 - Add them to the existing JSON specs under a `"structural"` kind.
-- Register them separately in `structure/tensor_lowering.py` outside the JSON
+- Register them separately in the tensor helper outside the JSON
   spec mechanism (direct `register_backend_primitive` calls).
 - Handle alignment at the Hydra term level using existing pair/list primitives
   rather than delegating to the backend.
 
-Decide before implementing `structure/tensor_lowering.py`.
+Decide before adding new tensor-lowering code.
 
 ### 3. Batching via poly_fmap needs grounding
 
@@ -301,7 +302,7 @@ product functor — which `poly_fmap` can handle.  But this requires:
 
 Decide whether batching is handled by poly_fmap over a product functor, or
 by a separate mechanism (e.g. explicit loop / vmap primitive), before
-implementing `semantics/contractions.py`.
+implementing or broadening `tensors/contractions.py`.
 
 ### 4. CompiledEquation has no layer home
 
@@ -311,7 +312,7 @@ is pure data — no backend coupling.  It parses a string like `"ij,jk->ik"` int
 
 Candidate placements:
 - `syntax/` — it is string parsing, which is syntax-layer work.
-- Private helper inside `semantics/contractions.py` — keeps it close to its
+- Private helper inside `tensors/contractions.py` — keeps it close to its
   only consumer.
 
 Decide before implementing `contract_morphism`.
@@ -324,7 +325,7 @@ a semiring contraction.  In the new system, this is just morphism composition
 (`compose(contract_morphism(sr, eq), nl)`), but `contract_morphism` should note
 this as the intended pattern so users know not to bake it into the semiring.
 
-No implementation needed now — note the pattern in `semantics/contractions.py`.
+No implementation needed now — note the pattern in `tensors/contractions.py`.
 
 ### 6. No Semiring law-checking equivalent
 
@@ -332,15 +333,14 @@ The old `Semiring.check_laws` verified associativity, commutativity, identity,
 annihilation, and distributivity on scalar samples before the semiring was used.
 The new `Semiring` has no equivalent.  Useful for custom and research semirings.
 
-Add as a future method on `Semiring` in `semantics/semirings.py`, gated behind
+Add as a future method on `Semiring` in `tensors/semirings.py`, gated behind
 a flag (default off for performance, on for development/research use).
 
 ### 7. Import linter boundary rules not updated
 
-The new files (`semantics/semirings.py`, `semantics/contractions.py`,
-`structure/tensor_lowering.py`, `structure/semiring_factory.py`) are not
-reflected in `.importlinter`.  Update after skeletons are finalised and before
-any implementation is merged.
+Import-linter contracts now include the current `tensors/semirings.py` and
+`tensors/contractions.py` modules. If new tensor modules are added later, update
+the contracts before merging implementation code.
 
 ## Deferred
 

@@ -1,6 +1,6 @@
 """Polynomial functor semantics for the unialg DSL.
 
-This module sits between pure syntax and backend realization.  It gives
+This module sits between pure syntax and structure realization.  It gives
 ``PolyExpr`` values their object-level meaning by computing ``F(A)``.  The
 inverse question, ``given F(A), recover A``, is delegated to Hydra's type
 unifier rather than reimplementing type matching here.
@@ -250,5 +250,4 @@ def _collect_consts(node: expr.PolyExpr) -> list[Type]:
     if isinstance(node, (expr.List, expr.Maybe)):
         return _collect_consts(node.body)
     raise ValueError(f"_collect_consts: unknown PolyExpr {type(node).__name__!r}")
-
 

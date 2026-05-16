@@ -58,11 +58,11 @@ a property:
 Pynguin is a scouting tool only. It is not the trusted testing strategy for this
 project.
 
-Observed local behavior:
+Observed local behavior from the old module layout:
 
-- `unialg.expressions` can produce useful seed tests, but output still needs review.
-- `unialg.space` currently produces an empty file.
-- `unialg.morphisms` fails during Python 3.12 bytecode instrumentation with
+- `unialg.syntax.expressions` can produce useful seed tests, but output still needs review.
+- the removed `unialg.space` module produced an empty file.
+- the old `unialg.morphisms` target failed during Python 3.12 bytecode instrumentation with
   `RuntimeError: Failed to compute stacksize, got negative size`.
 
 Raw generated Pynguin output belongs under `.pynguin/`, which is ignored. Promote
@@ -92,5 +92,5 @@ env PYTHONPATH=src:tests/scouting .venv/bin/pytest .pynguin/morphisms_core -q
 
 `regression/stale_old_api/` contains old tests for the pre-current API
 (`Space`, `ProductSpace`, `ParaMorphism`, `CompositionError`,
-`unialg.morphism.*`). They are reference material only and intentionally do not
+`unialg.morphism.*`). They are historical reference material only and intentionally do not
 use the `test_*.py` naming pattern.

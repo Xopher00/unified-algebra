@@ -6,8 +6,8 @@
 * build typed ``Morphism`` handles
 * check composition/product/sum compatibility
 
-No Hydra reduction happens here.  Backend realization belongs to ``realize.py``
-and ``lowering.py``.
+No Hydra reduction happens here.  Term realization belongs to
+``structure/realize.py`` and execution orchestration belongs to ``main.py``.
 """
 
 from __future__ import annotations
@@ -429,27 +429,4 @@ def case(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, 
         graph=graph,
         allow_unification=allow_unification,
     )
-
-
-# ---------------------------------------------------------------------------
-# Tensor type helper — PLACEHOLDER (not yet implemented)
-# ---------------------------------------------------------------------------
-#
-# Responsibility: semantics layer (this file or a dedicated helper in semantics/).
-#
-# A tensor of shape I over element type A is represented as the function type
-# ExpType(I, A), i.e. an index set I → A.  For example:
-#   - A vector of floats indexed by ℝⁿ:  ExpType(Rn, FLOAT)
-#   - A matrix A[i,j]:                   ExpType(Pair(I, J), FLOAT)
-#
-# What is needed:
-#   tensor_type(index: Type, element: Type) -> Type
-#     Returns ExpType(index, element).  Pure type algebra — no Hydra terms.
-#
-# Dependencies: only objects.ExpType (already imported via unialg.objects).
-# No MorphismExpr subclass is needed; tensors are ordinary morphisms whose
-# domain is an index type and whose codomain is the element type.
-#
-# Do not implement until contract_morphism in semantics/contractions.py
-# is designed and the index-type encoding is settled.
 

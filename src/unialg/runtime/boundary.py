@@ -1,13 +1,45 @@
-"""Native tensor boundary helpers for backend execution."""
+"""Program and native-value boundary helpers for runtime execution."""
 
 from __future__ import annotations
 
 import io
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
-from hydra.core import LiteralType, Type, TypeEither, TypeList, TypeMaybe, TypePair, TypeLiteral
+from hydra.core import (
+    LiteralType,
+    Type,
+    TypeEither,
+    TypeList,
+    TypeMaybe,
+    TypePair,
+    TypeLiteral,
+)
 from hydra.dsl.python import Left, Right
+
+from .codecs import coder_for_type, expect_right, term_value
+
+
+class RuntimeStore:
+    """UUID-keyed store for native tensor values during one CompiledProgram.run() call."""
+
+    def __init__(self):
+        self._data: dict[bytes, Any] = {}
+
+    def reset(self) -> None:
+        self._data.clear()
+
+    def put(self, native) -> bytes:
+        """Store a native value and return its 16-byte UUID handle."""
+        key = uuid.uuid4().bytes
+        self._data[key] = native
+        return key
+
+    def get(self, key: bytes):
+        """Retrieve a native value by its handle. Raises KeyError on miss."""
+        return self._data[key]
 
 
 def is_binary_type(typ: Type) -> bool:
@@ -90,3 +122,32 @@ def decode_boundary_output(typ: Type, value, get_binary):
                 return ("right", decode_boundary_output(typ.value.right, branch, get_binary))
         return value
     return get_binary(value)
+
+
+def pack_args(args: tuple):
+    """Pack multiple native args into a left-nested pair structure."""
+    if len(args) == 1:
+        return args[0]
+    out = (args[0], args[1])
+    for arg in args[2:]:
+        out = (out, arg)
+    return out
+
+
+def encode_input(backend, domain: Type, ctx, value):
+    """Encode a native input value into a Hydra term via the backend store."""
+    encoded = backend.encode_boundary_input(domain, value)
+    coder = coder_for_type(domain)
+    return expect_right(coder.decode(ctx, encoded), "runtime encode_input")
+
+
+def decode_output(backend, codomain: Type, ctx, graph, result_term):
+    """Decode a reduced Hydra term into a Python value.
+
+    Always structurally decodes via ``codecs.term_value``. If a backend exists,
+    additionally resolves native store handles.
+    """
+    value = term_value(result_term, "runtime decode_output")
+    if backend is None:
+        return value
+    return backend.decode_boundary_output(codomain, value)

@@ -49,52 +49,72 @@ dev = [
 root_packages = ["unialg"]
 
 [[tool.importlinter.contracts]]
-name = "Layer ordering"
-type = "layers"
-layers = [
-    "unialg.parser",
-    "unialg.assembly",
-    "unialg.morphism",
-    "unialg.algebra",
-]
-
-[[tool.importlinter.contracts]]
-name = "algebra must not import backend"
+name = "objects are foundational"
 type = "forbidden"
-source_modules = ["unialg.algebra"]
-forbidden_modules = ["unialg.backend"]
-ignore_imports = [
-    "unialg.algebra.contraction -> unialg.backend",
-    "unialg.algebra.semiring -> unialg.backend",
-]
-
-[[tool.importlinter.contracts]]
-name = "backend isolation"
-type = "forbidden"
-source_modules = ["unialg.backend"]
+source_modules = ["unialg.objects"]
 forbidden_modules = [
-    "unialg.algebra",
-    "unialg.morphism",
-    "unialg.assembly",
-    "unialg.parser",
+    "unialg.syntax",
+    "unialg.semantics",
+    "unialg.structure",
+    "unialg.runtime",
+    "unialg.tensors",
+    "unialg.main",
 ]
 
 [[tool.importlinter.contracts]]
-name = "terms isolation"
+name = "syntax is pure surface structure"
 type = "forbidden"
-source_modules = ["unialg.terms"]
+source_modules = ["unialg.syntax"]
 forbidden_modules = [
-    "unialg.algebra",
-    "unialg.morphism",
-    "unialg.assembly",
-    "unialg.parser",
+    "unialg.semantics",
+    "unialg.structure",
+    "unialg.runtime",
+    "unialg.tensors",
+    "unialg.main",
 ]
 
 [[tool.importlinter.contracts]]
-name = "morphism must not import assembly or parser"
+name = "semantics cannot depend on lowering or runtime"
 type = "forbidden"
-source_modules = ["unialg.morphism"]
+source_modules = ["unialg.semantics"]
 forbidden_modules = [
-    "unialg.assembly",
-    "unialg.parser",
+    "unialg.structure",
+    "unialg.runtime",
+    "unialg.tensors",
+    "unialg.main",
+]
+
+[[tool.importlinter.contracts]]
+name = "structure cannot depend on runtime or orchestration"
+type = "forbidden"
+source_modules = ["unialg.structure"]
+forbidden_modules = [
+    "unialg.runtime",
+    "unialg.tensors",
+    "unialg.main",
+]
+
+[[tool.importlinter.contracts]]
+name = "runtime is execution-boundary only"
+type = "forbidden"
+source_modules = ["unialg.runtime"]
+forbidden_modules = [
+    "unialg.syntax",
+    "unialg.semantics",
+    "unialg.structure",
+    "unialg.tensors",
+    "unialg.main",
+]
+
+[[tool.importlinter.contracts]]
+name = "tensor modules stay above runtime and lowering"
+type = "forbidden"
+source_modules = [
+    "unialg.tensors.semirings",
+    "unialg.tensors.contractions",
+]
+forbidden_modules = [
+    "unialg.structure",
+    "unialg.runtime",
+    "unialg.main",
 ]

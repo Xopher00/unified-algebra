@@ -3,7 +3,7 @@
 The core DSL talks about Hydra ``Type`` values as objects.  This module owns
 small constructors for common object shapes, plus the ``Monad`` descriptors
 used by lax morphisms.  Actual effect sequencing is implemented by
-``realize.py`` and ``actions.py``.
+``structure/realize.py`` and its term helpers.
 """
 
 from __future__ import annotations

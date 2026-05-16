@@ -14,14 +14,20 @@ structure/terms.py                       ← Hydra term vocabulary
 structure/realize.py                     ← DSL-to-Hydra translation
 structure/recursion.py                   ← fixed-point optic bridge
         ↓
-lowering.py                              ← execution boundary (morphism → reduction)
+runtime/                                 ← native backend boundary and Python codecs
+        ↓
+main.py                                  ← orchestration and execution boundary
         ↓
 Hydra                                    ← external graph reduction engine
 ```
 
-Dependency flows downward only. No `semantics/` module imports from `structure/`.
-No `structure/` module imports from `semantics/`. `objects.py` and `syntax/` are
-imported by all layers.
+Dependency policy is ownership-based, not a simple "downward only" import rule.
+`objects.py` is foundational. `syntax/` owns surface expression data.
+`semantics/` may depend on `objects.py` and syntax, but not on `structure/`,
+`runtime/`, or `main.py`. `structure/` may depend on syntax and semantics because
+it realizes validated semantic nodes, but it must not depend on `runtime/` or
+`main.py`. `runtime/` owns native execution boundaries and must not depend on
+syntax, semantics, structure, or orchestration.
 
 ## Layer responsibilities
 
@@ -82,15 +88,22 @@ imported by all layers.
 - `realize_term(node, _prims=None)` → typed `TTerm` handle
 - `poly_action_term(body, h, monad)` — functor action realization
 - Handles the deferred-node pattern: `SelfRef` resolves to a named primitive; `Cata`/`Ana` create and register a `Primitive` in `_prims`
-- Does not evaluate terms — that is `lowering.py`'s job
+- Does not evaluate terms — that is `main.py`'s job
 
 ### `structure/recursion.py` — fixed-point optic bridge
 - `recursive_carrier(*, functor, carrier, unroll, roll)` — wraps Python callables as `Prim` morphisms and returns a carrier `Optic`
 - `fixed_point_optic` — lower-level shim for direct raw-term injection; retained for performance review
 
-### `lowering.py` — execution boundary
-- `lower(m, extra_prims=None)` → `realize(m.node, extra_prims)` (pure extraction)
-- `run(m, arg, ctx, graph)` — realize, collect `_prims`, augment graph, apply and reduce
+### `runtime/` — native boundary and backend codecs
+- `runtime/backend.py` loads backend specs and registers Hydra primitives for native operations.
+- `runtime/codecs.py` owns type-directed Hydra term codecs; `runtime/boundary.py` owns Python value ↔ Hydra term boundary behavior and native handle storage.
+- Runtime modules are execution-boundary support only; they do not construct semantic morphism trees.
+
+### `main.py` — orchestration and execution boundary
+- `compile_program(src, ...)` parses source, constructs the semantic expression tree, realizes the final route/map, and packages it as a `CompiledProgram`.
+- `compile_morphism(m, ...)` realizes an already-built `Morphism` and records auxiliary primitives.
+- `lower(m, graph, _extra_prims=None)` extracts a Hydra term without evaluating it.
+- `run(m, arg, ctx, graph)` realizes, augments the graph, applies one raw Hydra argument, and reduces.
 
 ### `__init__.py` — public surface
 - Aggregates exports; no logic
@@ -103,7 +116,7 @@ imported by all layers.
 4. `snd(AB).dom() == AB`, `snd(AB).cod() == AB.value.second`
 5. `par(f, g).dom() == ProductType(f.dom(), g.dom())`, `par(f, g).cod() == ProductType(f.cod(), g.cod())`
 6. Types are native `hydra.core.Type` variants; equality is Hydra type equality.
-7. Dependency direction flows downward through the layer model; never upward. No `semantics/` module imports from `structure/`.
+7. Import direction follows ownership: `semantics/` does not import `structure/`, `runtime/`, or `main.py`; `structure/` may import syntax/semantics for realization but does not import `runtime/` or `main.py`; `runtime/` does not import syntax/semantics/structure/main.
 8. `Optic.__post_init__` validates that `functor.unapply()` succeeds on both `forward.cod()` and `backward.dom()`.
 9. `poly_fmap(F, h).dom() == F.apply(h.dom())`, `poly_fmap(F, h).cod() == F.apply(h.cod())`
 10. For recursive optics, `fp.carrier` is present and marks `μF`.
@@ -112,7 +125,7 @@ imported by all layers.
 13. `cata(fp, alg)` and `ana(fp, coalg)` preserve the `param` and `monad` of their algebra/coalgebra.
 14. `hylo(fp, coalg, alg)` uses `compose(..., shared_context=True)`, so matching non-unit params are shared, not duplicated.
 15. `Cata`/`Ana` nodes are created by `semantics/optics.py` with no Hydra imports; `structure/realize.py` materializes them.
-16. The `_prims` list accumulator in `realize` is the only mechanism for registering recursion-created `Primitive` objects; `lowering.run()` always calls `lower(m, extra_prims=[])` and registers collected primitives before reduction.
+16. The `_prims` list accumulator in `realize` is the mechanism for registering recursion-created `Primitive` objects; `main.run()` and `CompiledProgram.run()` augment the graph with collected primitives before reduction.
 
 ## Do not redo
 - Do not redo Hydra API exploration (already settled)
@@ -122,7 +135,7 @@ imported by all layers.
 - Do not redo the deferred-node pattern (SelfRef/AlgExpr/Cata/Ana nodes are the settled separation between semantics and structure)
 - Do not move cata/ana/hylo back to structure/; they are pure semantic functions that return deferred nodes
 - Do not reintroduce SpaceT or parallel type hierarchies (eliminated)
-- Do not reintroduce space.py, hydra_primitives.py, or actions.py (renamed to objects.py, structure/terms.py, and structure/realize.py respectively)
+- Do not reintroduce `space.py`, `hydra_primitives.py`, or `actions.py`; their responsibilities now live in `objects.py`, `structure/terms.py`, `semantics/functors.py`, `semantics/optics.py`, and `structure/realize.py`.
 - Do not introduce tensor equations yet (not in scope)
 - Do not introduce surface syntax yet (deferred)
 - Do not expose copy, delete, or fanout yet (deliberate boundary)

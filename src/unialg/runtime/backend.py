@@ -1,13 +1,14 @@
 """Backend primitive registration for the unialg DSL.
 
-Translates backend JSON specs into Hydra primitives and morphisms.
+Translates backend JSON specs into Hydra primitives. Semantic `Morphism`
+wrapping happens in `unialg.main` when a backend is loaded for a source program.
 
 Pipeline::
 
     JSON spec
       -> load_spec             (resolve paths, look up types and codecs)
       -> register_backend_primitive  (build Hydra Primitive with typed impl)
-      -> BackendOps            (wrap all primitives as Morphism objects)
+      -> BackendOps            (hold primitives, store, and native boundary)
 
 Canonical names follow the pattern ``unialg.backend.<op>``
 (e.g. ``unialg.backend.add``, ``unialg.backend.reduce.add``).
@@ -57,8 +58,13 @@ import hydra.sources.libraries as Libs
 from unialg.objects import ExpType, TypeScheme, standard_graph, repeated_product
 
 from .codecs import type_from_spec, coder_for_type, expect_right
-from .native_boundary import BinaryAdapter, is_binary_type, encode_boundary_input, decode_boundary_output
-from .runtime_store import RuntimeStore
+from .boundary import (
+    BinaryAdapter,
+    RuntimeStore,
+    decode_boundary_output,
+    encode_boundary_input,
+    is_binary_type,
+)
 
 _CANONICAL_PREFIX = "unialg.backend"
 
@@ -268,19 +274,20 @@ def backend_library(primitives: dict[str, BackendPrimitive]) -> Library:
 
 
 class BackendOps:
-    """All morphisms for a backend, keyed by logical op name.
+    """All runtime primitives for a backend, keyed by logical op name.
 
     Canonical Hydra names follow ``unialg.backend.<op>``
     (e.g. ``unialg.backend.add``, ``unialg.backend.reduce.add``).
-    Access morphisms by their short spec key: ``ops["add"]``, ``ops["reduce.add"]``.
+    Access primitives by their short spec key: ``ops["add"]``,
+    ``ops["reduce.add"]``.
 
-    Morphisms are built eagerly at construction time.  ``run`` automatically
-    includes ``aux_primitives``, so no manual graph extension is needed.
+    BackendOps also owns the RuntimeStore and binary adapter used by whole-program
+    I/O.  The orchestration layer wraps these primitives as semantic morphisms.
 
     Example::
 
         ops = BackendOps.from_spec("backends/numpy.json")
-        add = ops["add"]   # Morphism: FLOAT × FLOAT → FLOAT
+        add = ops["add"]   # BackendPrimitive: FLOAT × FLOAT → FLOAT
     """
 
     def __init__(
@@ -458,5 +465,3 @@ def backend_required_for_term(required_ops: set[str] | frozenset[str], *candidat
     """Return the candidate backends which satisfy a required logical op set."""
     needed = frozenset(required_ops)
     return [ops for ops in candidates if backend_has_coverage(ops, needed)]
-
-

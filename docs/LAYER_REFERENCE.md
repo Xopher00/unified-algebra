@@ -24,14 +24,18 @@ structure/terms.py         ← Hydra term vocabulary
 structure/realize.py       ← DSL-to-Hydra translation
 structure/recursion.py     ← fixed-point optic bridge
          ↓
-lowering.py                ← morphism → Hydra reduction (execution boundary)
+runtime/                   ← native backend boundary and Python codecs
+         ↓
+main.py                    ← compile/run orchestration boundary
          ↓
 Hydra                      ← external graph reduction engine
 ```
 
-Dependency flows downward only. No semantics module imports from structure; no
-structure module imports from semantics. `objects.py` and `syntax/` are imported
-by all layers above them.
+Dependency policy follows ownership. `semantics/` depends only on foundational
+objects and syntax, never on structure/runtime/orchestration. `structure/`
+depends on syntax and semantics because it realizes validated semantic nodes,
+but it does not depend on runtime or `main.py`. `runtime/` owns native boundary
+machinery and must not depend on syntax, semantics, structure, or `main.py`.
 
 ## Files and Responsibilities
 
@@ -275,7 +279,8 @@ graph before reduction.
    with `SelfRef` resolving to the same primitive name.
 3. The primitive's implementation calls `realize` on the body at reduction time,
    so the self-reference closes the loop.
-4. The primitive is appended to `_prims` so `lowering.run()` can register it.
+4. The primitive is appended to `_prims` so `main.run()` or `CompiledProgram.run()`
+   can register it.
 
 `poly_action_term(body, h, monad)` builds the Hydra term for the functor action
 `F(h)`. This is the structural realization of `PolyFmap` nodes.
@@ -298,10 +303,34 @@ Wraps user-supplied Python callables `unroll : carrier → F(carrier)` and
 
 ---
 
-### `lowering.py` — execution boundary
+### `runtime/` — native boundary support
+
+Runtime owns the value boundary around native backends:
+
+- `runtime/backend.py` loads backend specs and registers Hydra primitives.
+- `runtime/codecs.py` owns Hydra term coders and structural term decoding.
+- `runtime/boundary.py` adapts Python/native values to backend handles, stores
+  native values, packs program arguments, and delegates boundary I/O.
+
+Runtime modules do not build semantic expression trees.
+
+---
+
+### `main.py` — orchestration and execution boundary
 
 ```python
-lower(morphism: Morphism, extra_prims=None) -> Term
+compile_program(src: str, *, env=None, graph=None, route=None) -> CompiledProgram
+```
+Parses source, constructs one semantic program tree, realizes the selected final
+route/map, and returns a runnable program.
+
+```python
+compile_morphism(morphism: Morphism, graph=None, backend=None) -> CompiledProgram
+```
+Compiles an already-constructed semantic morphism.
+
+```python
+lower(morphism: Morphism, graph, _extra_prims=None) -> Term
 ```
 Realizes a morphism to a raw Hydra term without evaluating it.
 
@@ -311,6 +340,10 @@ run(morphism: Morphism, argument, ctx, graph)
 Applies a morphism to a Hydra argument value and reduces it to a result. Registers
 any `aux_primitives` (including those collected during realization of `Cata`/`Ana`
 nodes) into a temporary graph copy before calling `R.reduce_term`.
+
+`CompiledProgram.run(*args)` is the source-program path. It uses
+`runtime/boundary.py` for argument packing and input/output decoding when a
+backend is loaded, and returns decoded Python values.
 
 ---
 
@@ -368,7 +401,7 @@ from unialg import (
     MAYBE, LIST,
 )
 from hydra.core import Type
-from unialg.lowering import run
+from unialg import compile_program, run
 
 # --- 1. Define types ---
 A = ...   # some Hydra Type
@@ -398,9 +431,15 @@ fp = recursive_carrier(
 alg = some_algebra(F.apply(B), B)         # F(B) → B
 fold = cata(fp, alg)                      # μF → B
 
-# --- 5. Run ---
+# --- 5. Run a raw morphism ---
 import hydra.dsl.std as Std
 result = run(fold, hydra_argument, Std.context(), Std.graph())
+
+# Or compile and run from source:
+program = compile_program("""
+route f = id
+""")
+python_value = program.run()
 ```
 
 ---

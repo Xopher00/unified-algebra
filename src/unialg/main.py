@@ -27,6 +27,7 @@ from .semantics.construct import construct_program
 from .semantics.morphisms import Morphism
 from .syntax import expressions as expr
 from .syntax.parse import parse_program
+from .runtime import BackendOps, decode_output, encode_input, pack_args
 from .structure.realize import realize_normalized
 
 
@@ -57,7 +58,6 @@ def _load_backend_with_runtime(spec_path) -> tuple[dict[str, Morphism], object]:
 
     The BackendOps holds the RuntimeStore that primitive impls close over.
     """
-    from .runtime.backend import BackendOps
     ops = BackendOps.from_spec(spec_path)
     env: dict[str, Morphism] = {}
     for name, bp in ops.primitives.items():
@@ -87,7 +87,6 @@ class CompiledProgram:
 
     def run(self, *args):
         """Run the compiled program. Returns decoded Python values."""
-        from .runtime.program_io import pack_args, encode_input, decode_output
         g = _augment_graph(self.graph, self.aux_primitives) if self.aux_primitives else self.graph
         ctx = default_context()
 

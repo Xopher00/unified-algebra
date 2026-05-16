@@ -17,7 +17,7 @@ types are native `hydra.core.Type` variants directly: `TypePair`, `TypeEither`,
 `TypeUnit`, `TypeVoid`, `TypeFunction`, `TypeList`, `TypeMaybe`, and
 `TypeVariable`.
 
-`ProductType(l, r)` and `SumType(l, r)` in `space.py` are thin constructors for
+`ProductType(l, r)` and `SumType(l, r)` in `objects.py` are thin constructors for
 `TypePair(PairType(l, r))` and `TypeEither(EitherType(l, r))`. Equality is
 Hydra type equality, so product and sum order remains structural and
 order-sensitive.
@@ -40,8 +40,10 @@ tested and reasoned about without a live Hydra evaluation context.
 
 ## Hydra composition and term API
 The project uses `hydra.dsl.meta.phantoms` (`P`) for term construction and
-`hydra.reduction.reduce_term` for evaluation. The composition inversion is
-documented in `morphism.py`. This is a stable interface assumption.
+`hydra.reduction.reduce_term` for evaluation. The user-facing composition order
+lives in `semantics/morphisms.py`; the Hydra-level inversion is handled during
+term realization in `structure/realize.py`. This is a stable interface
+assumption.
 
 ## Coproducts are tracked by TypeEither
 
@@ -90,11 +92,12 @@ graph (`TermVariable` resolved at reduction time). No new primitives were added.
 Either monad (error propagation) is deferred — `pure` requires injecting `Right` which
 needs a specific error space; the design is not yet decided.
 
-### LaxParaMorphism.__post_init__ validates underlying boundary
+### Lax/parametric morphisms validate their visible boundary
 
-The post-init check enforces `underlying.dom == ProductSpace(param, dom)` and
-`underlying.cod == MonadSpace(monad.tag, cod)`. This mirrors `ParaMorphism`'s validation
-and catches construction errors at definition time rather than evaluation time.
+The morphism layer represents params and effects on `Morphism` itself. Visible
+`dom()`/`cod()` strip parameter prefixes and monad wrappers from the raw shape,
+while construction-time checks enforce that compositions agree before realization
+or evaluation.
 
 ## Optics are unified as polynomial functor optics (2026-05-09)
 
@@ -114,9 +117,9 @@ uniform action, prepares for algebra/coalgebra reuse (`F(A) → A` is an algebra
 `A → F(A)` is a coalgebra — the optic's forward/backward are already these shapes),
 and eliminates type-variant pattern matching.
 
-## Para uses ProductSpace as its underlying boundary
+## Para uses ProductType as its underlying boundary
 `Para(f)` where `f : P × A → B` is not a new input convention. `P × A` is
-`ProductSpace(P, A)`, which already exists in the sealed contract. Para is
+`ProductType(P, A)`, which already exists in the sealed contract. Para is
 a semantic wrapper that separates the left component (parameter space) from
 the right component (input space) at construction time. No new space types,
 no changes to lowering, no changes to Hydra term construction are required.

@@ -15,7 +15,8 @@ Lens, Prism, and Traversal are specific functor choices:
     Prism  — F = Sum(Id, Const(residue))    sum focus
     Traversal — arbitrary polynomial F      multi-element focus
 
-No Hydra imports.  No encoding logic.  The action lives in ``recursion.act``.
+No Hydra imports.  No encoding logic.  The action methods return semantic
+``Morphism`` values; ``structure/realize.py`` lowers deferred recursion nodes.
 """
 
 from __future__ import annotations

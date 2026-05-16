@@ -62,15 +62,15 @@ class Semiring:
     # -----------------------------------------------------------------------
     #
     # Semiring takes Morphisms directly.  It does not import BackendOps
-    # (structure layer) — that would be a layer violation.
+    # (runtime layer) because tensor semantics should not own backend loading.
     #
     # A user who already holds Morphisms constructs Semiring directly:
     #   sr = Semiring("real", FLOAT, add_m, mul_m, zero_m, one_m,
     #                 adjoint=div_m)
     #
-    # The convenience factory that resolves op names against a BackendOps
-    # instance lives in structure/semiring_factory.py (see that file).
-    # It is allowed to import from semantics/ and back, and returns a Semiring.
+    # A convenience factory that resolves op names against a BackendOps instance
+    # should live outside this module, at the orchestration/runtime boundary, and
+    # return a Semiring assembled from already-created Morphisms.
     #
     # Lowering: each Morphism carries its BackendPrimitive in aux_primitives.
     # run() → realize.py traces those automatically.  A Semiring assembled
@@ -99,10 +99,10 @@ class Semiring:
 
 
 # ---------------------------------------------------------------------------
-# Custom ops and factory — see structure/semiring_factory.py
+# Custom ops and backend factories
 # ---------------------------------------------------------------------------
 #
 # Registration of custom callables and construction of Semiring from backend
-# op names both require BackendOps (structure layer).  Those concerns live in
-# structure/semiring_factory.py, which is allowed to import from semantics/.
-# This file stays free of any structure-layer imports.
+# op names both require BackendOps (runtime layer). This file intentionally stays
+# free of runtime imports; callers should assemble Morphisms first, then pass them
+# into Semiring.

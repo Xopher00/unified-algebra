@@ -75,7 +75,7 @@ def _literal_value(term: Term, context: str):
         raise TypeError(f"{context}: expected literal term, got {term!r}") from e
 
 
-def _term_value(term: Term, context: str):
+def term_value(term: Term, context: str = "term_value"):
     """Decode ordinary Hydra values into small Python structures."""
     match term:
         case TermLiteral():
@@ -84,18 +84,18 @@ def _term_value(term: Term, context: str):
             return None
         case TermPair(value=pair):
             left, right = pair
-            return (_term_value(left, context), _term_value(right, context))
+            return (term_value(left, context), term_value(right, context))
         case TermList(value=items):
-            return [_term_value(item, context) for item in items]
+            return [term_value(item, context) for item in items]
         case TermMaybe(value=m):
             if isinstance(m, Nothing):
                 return None
-            return _term_value(m.value, context)
+            return term_value(m.value, context)
         case TermEither(value=branch):
             if isinstance(branch, Left):
-                return ("left", _term_value(branch.value, context))
+                return ("left", term_value(branch.value, context))
             if isinstance(branch, Right):
-                return ("right", _term_value(branch.value, context))
+                return ("right", term_value(branch.value, context))
     raise TypeError(f"{context}: expected value term, got {term!r}")
 
 

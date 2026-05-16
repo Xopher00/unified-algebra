@@ -7,8 +7,8 @@ composition, lower terms, or execute Hydra code.  The two syntax families are:
   contextual combinators, and raw primitive escape hatches.
 * ``PolyExpr`` — polynomial functor expressions used as shape descriptors.
 
-Semantic interpretation lives in ``morphisms.py`` and ``functors.py``; backend
-realization lives in ``realize.py``.
+Semantic interpretation lives in ``semantics/morphisms.py`` and
+``semantics/functors.py``; term realization lives in ``structure/realize.py``.
 """
 
 from __future__ import annotations
@@ -407,4 +407,3 @@ def _pretty_poly(expr: PolyExpr) -> str:
     if isinstance(expr, Maybe):
         return f"Maybe[{pretty(expr.body)}]"
     raise ValueError(f"pretty: unknown PolyExpr {type(expr).__name__!r}")
-

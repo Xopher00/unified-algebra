@@ -267,6 +267,27 @@ def product_arg(x: TTerm, n: int) -> list[TTerm]:
 
 
 
+def pair_realized_terms(terms: list) -> TTerm:
+    """Pair realized TTerm values into a left-nested product."""
+    if len(terms) == 1:
+        return terms[0]
+    out = P.pair(terms[0], terms[1])
+    for t in terms[2:]:
+        out = P.pair(out, t)
+    return out
+
+
+def apply_primitive_to_product(prim_name, paired: TTerm, arity: int):
+    """Apply a named primitive to a paired product of realized arg terms."""
+    from hydra.core import Name
+    name = prim_name if isinstance(prim_name, Name) else Name(prim_name)
+    components = product_arg(paired, arity)
+    term = P.primitive(name)
+    for c in components:
+        term = P.apply(term, c)
+    return normalize_term(term).value
+
+
 def primitive_wrapper_term(prim_name, arity: int):
     """Build λx. prim(arg1, arg2, ...) for a named Hydra primitive.
 

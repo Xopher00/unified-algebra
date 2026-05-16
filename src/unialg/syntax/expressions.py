@@ -163,11 +163,16 @@ class Prim(MorphismExpr):
 
 @dataclass(frozen=True)
 class BackendPrim(MorphismExpr):
-    """Backend primitive: type info + Hydra Primitive, term built at realization."""
+    """Backend primitive: type info + Hydra Primitive, term built at realization.
+
+    When ``args`` is empty: arity-1 leaf, realize builds primitive_wrapper_term.
+    When ``args`` is populated: realize builds term from resolved arg morphisms.
+    """
     primitive: object
     arity: int
     dom: Type
     cod: Type
+    args: tuple[MorphismExpr, ...] = ()
 
 
 @dataclass(frozen=True)

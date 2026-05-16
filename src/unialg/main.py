@@ -82,6 +82,8 @@ class CompiledProgram:
     graph: Graph
     aux_primitives: tuple
     backend: object | None = None
+    input_type: object | None = None
+    output_type: object | None = None
 
     def run(self, *args):
         """Run the compiled program.
@@ -93,13 +95,12 @@ class CompiledProgram:
         ctx = default_context()
 
         if self.backend and args:
-            from .runtime.program_io import infer_boundary_types, pack_args, encode_input, decode_output
-            domain, codomain = infer_boundary_types(self.term, ctx, g)
+            from .runtime.program_io import pack_args, encode_input, decode_output
             self.backend.store.reset()
             packed = pack_args(args)
-            argument = encode_input(self.backend, domain, ctx, packed)
+            argument = encode_input(self.backend, self.input_type, ctx, packed)
             result = _apply_and_reduce(self.term, argument, ctx, g, "CompiledProgram.run")
-            return decode_output(self.backend, codomain, ctx, g, result)
+            return decode_output(self.backend, self.output_type, ctx, g, result)
 
         argument = args[0] if args else None
         if argument is None:
@@ -119,7 +120,10 @@ def compile_morphism(morphism: Morphism, graph=None, backend=None) -> CompiledPr
     extra_prims: list = []
     term = realize_normalized(morphism.node, g, extra_prims)
     all_prims = morphism.aux_primitives + tuple(extra_prims)
-    return CompiledProgram(term=term, graph=g, aux_primitives=all_prims, backend=backend)
+    return CompiledProgram(
+        term=term, graph=g, aux_primitives=all_prims,
+        backend=backend, input_type=morphism.dom(), output_type=morphism.cod(),
+    )
 
 
 def _program_output(routes: dict[str, Morphism], route: str | None) -> Morphism:

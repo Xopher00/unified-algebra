@@ -178,9 +178,10 @@ def construct(
         case expr.MorphismApp(fun=fun, args=args):
             bodies = route_bodies or {}
             params = route_params or {}
-            if isinstance(fun, expr.Ref) and fun.name in bodies:
+            # Parametric route: substitute args into body
+            if isinstance(fun, expr.Ref) and fun.name in params:
                 body = bodies[fun.name]
-                declared_params = params.get(fun.name, ())
+                declared_params = params[fun.name]
                 if len(args) != len(declared_params):
                     raise MorphismError(
                         f"construct: {fun.name} expects {len(declared_params)} "
@@ -190,8 +191,28 @@ def construct(
                 for pname, arg_node in zip(declared_params, args):
                     local_env[pname] = _recurse(arg_node)
                 return construct(body, local_env, functor_env, route_bodies, route_params)
+            # Backend primitive with arity > 1: populate args
+            resolved_fun = _recurse(fun)
+            if isinstance(resolved_fun.node, expr.BackendPrim) and resolved_fun.node.arity > 1:
+                bp = resolved_fun.node
+                if len(args) != bp.arity:
+                    raise MorphismError(
+                        f"construct: {fun!r} expects {bp.arity} args, got {len(args)}"
+                    )
+                resolved_args = [_recurse(a) for a in args]
+                all_aux = resolved_fun.aux_primitives
+                for ra in resolved_args:
+                    all_aux = all_aux + ra.aux_primitives
+                applied_dom = resolved_args[0].dom()
+                return Morphism(
+                    node=expr.BackendPrim(
+                        bp.primitive, bp.arity, applied_dom, bp.cod,
+                        args=tuple(ra.node for ra in resolved_args),
+                    ),
+                    aux_primitives=all_aux,
+                )
             raise MorphismError(
-                f"construct: cannot apply non-parametric or unknown {fun!r}"
+                f"construct: cannot apply {fun!r} (not parametric, not arity > 1)"
             )
 
         case _:

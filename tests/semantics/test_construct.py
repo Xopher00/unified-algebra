@@ -215,7 +215,7 @@ class TestLoadDirective:
     ])
     def test_all_backends_have_common_ops(self, backend):
         env = load_backend(
-            f"src/unialg/emitters/backends/{backend}.json"
+            f"src/unialg/runtime/backends/{backend}.json"
         )
         for op in ("add", "multiply", "tanh", "exp", "log"):
             assert op in env, f"{backend} missing {op}"

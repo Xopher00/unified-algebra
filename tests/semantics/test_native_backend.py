@@ -11,12 +11,12 @@ from unialg.syntax.parse import parse_program
 from unialg.semantics.construct import construct_program
 from unialg.semantics.morphisms import Morphism
 from unialg.syntax import expressions as expr
-from unialg.emitters.backend import BackendOps
+from unialg.runtime.backend import BackendOps
 
 
 @pytest.fixture
 def numpy_backend():
-    return BackendOps.from_spec("src/unialg/emitters/backends/numpy.json")
+    return BackendOps.from_spec("src/unialg/runtime/backends/numpy.json")
 
 
 @pytest.fixture
@@ -85,7 +85,7 @@ class TestUnaryOps:
     @given(st.lists(st.floats(min_value=-10, max_value=10, allow_nan=False), min_size=1, max_size=10))
     @settings(max_examples=10)
     def test_tanh_property(self, values):
-        ops = BackendOps.from_spec("src/unialg/emitters/backends/numpy.json")
+        ops = BackendOps.from_spec("src/unialg/runtime/backends/numpy.json")
         store = ops.store
         e = {name: Morphism(node=expr.BackendPrim(bp.primitive, bp.arity, bp.dom, bp.result_type), aux_primitives=(bp.primitive,)) for name, bp in ops.primitives.items()}
         prog = _compile_route("route f = tanh", e)

@@ -57,7 +57,7 @@ def load_backend(spec_path) -> dict[str, Morphism]:
 
     Term construction is deferred to realize.py. Only type info is resolved here.
     """
-    from .emitters.backend import BackendOps
+    from .runtime.backend import BackendOps
     ops = BackendOps.from_spec(spec_path)
     env: dict[str, Morphism] = {}
     for name, bp in ops.primitives.items():
@@ -109,7 +109,7 @@ def _program_output(routes: dict[str, Morphism], route: str | None) -> Morphism:
 
 def _resolve_backend_spec(name: str) -> str:
     from pathlib import Path
-    spec = Path(__file__).parent / "emitters" / "backends" / f"{name}.json"
+    spec = Path(__file__).parent / "runtime" / "backends" / f"{name}.json"
     if not spec.exists():
         raise ValueError(f"unknown backend {name!r}: {spec} not found")
     return str(spec)

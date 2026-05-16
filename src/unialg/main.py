@@ -52,10 +52,10 @@ def _apply_and_reduce(term, argument, ctx, graph, label):
     raise RuntimeError(f"Reduction failed for {label}: {result}")
 
 
-def load_backend(spec_path) -> dict[str, Morphism]:
-    """Load a backend spec and produce typed Morphisms for each primitive.
+def _load_backend_with_runtime(spec_path) -> tuple[dict[str, Morphism], object]:
+    """Load a backend spec, returning env AND the BackendOps instance.
 
-    Term construction is deferred to realize.py. Only type info is resolved here.
+    The BackendOps holds the RuntimeStore that primitive impls close over.
     """
     from .runtime.backend import BackendOps
     ops = BackendOps.from_spec(spec_path)
@@ -65,6 +65,12 @@ def load_backend(spec_path) -> dict[str, Morphism]:
             node=expr.BackendPrim(bp.primitive, bp.arity, bp.dom, bp.result_type),
             aux_primitives=(bp.primitive,),
         )
+    return env, ops
+
+
+def load_backend(spec_path) -> dict[str, Morphism]:
+    """Load a backend spec and produce typed Morphisms for each primitive."""
+    env, _ = _load_backend_with_runtime(spec_path)
     return env
 
 
@@ -75,14 +81,34 @@ class CompiledProgram:
     term: Term
     graph: Graph
     aux_primitives: tuple
+    backend: object | None = None
 
-    def run(self, argument, ctx=None):
-        """Apply this program to a Hydra argument and reduce."""
+    def run(self, *args):
+        """Run the compiled program.
+
+        With a backend: accepts native values, returns native values.
+        Without: accepts/returns raw Hydra terms.
+        """
         g = _augment_graph(self.graph, self.aux_primitives) if self.aux_primitives else self.graph
-        return _apply_and_reduce(self.term, argument, ctx or default_context(), g, "CompiledProgram.run")
+        ctx = default_context()
+
+        if self.backend and args:
+            from .runtime.program_io import infer_boundary_types, pack_args, encode_input, decode_output
+            domain, codomain = infer_boundary_types(self.term, ctx, g)
+            self.backend.store.reset()
+            packed = pack_args(args)
+            argument = encode_input(self.backend, domain, ctx, packed)
+            result = _apply_and_reduce(self.term, argument, ctx, g, "CompiledProgram.run")
+            return decode_output(self.backend, codomain, ctx, g, result)
+
+        argument = args[0] if args else None
+        if argument is None:
+            import hydra.dsl.meta.phantoms as P
+            argument = P.unit().value
+        return _apply_and_reduce(self.term, argument, ctx, g, "CompiledProgram.run")
 
 
-def compile_morphism(morphism: Morphism, graph=None) -> CompiledProgram:
+def compile_morphism(morphism: Morphism, graph=None, backend=None) -> CompiledProgram:
     """Compile an already-constructed typed ``Morphism``.
 
     The morphism must already be semantically constructed via the combinators
@@ -93,7 +119,7 @@ def compile_morphism(morphism: Morphism, graph=None) -> CompiledProgram:
     extra_prims: list = []
     term = realize_normalized(morphism.node, g, extra_prims)
     all_prims = morphism.aux_primitives + tuple(extra_prims)
-    return CompiledProgram(term=term, graph=g, aux_primitives=all_prims)
+    return CompiledProgram(term=term, graph=g, aux_primitives=all_prims, backend=backend)
 
 
 def _program_output(routes: dict[str, Morphism], route: str | None) -> Morphism:
@@ -125,10 +151,13 @@ def compile_program(
     """Parse, semantically construct, and compile a source program."""
     parsed = parse_program(src)
     base_env = dict(env) if env else {}
+    backend = None
     for backend_name in parsed.loads:
-        base_env.update(load_backend(_resolve_backend_spec(backend_name)))
+        backend_env, ops = _load_backend_with_runtime(_resolve_backend_spec(backend_name))
+        base_env.update(backend_env)
+        backend = ops
     constructed = construct_program(parsed, base_env)
-    return compile_morphism(_program_output(constructed.routes, route), graph)
+    return compile_morphism(_program_output(constructed.routes, route), graph, backend=backend)
 
 
 def lower(morphism: Morphism, graph, _extra_prims=None):

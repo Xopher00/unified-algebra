@@ -116,6 +116,9 @@ def unify_or_equal(
     - normalized type when equality succeeds
     - substituted pattern when unification succeeds
     """
+    if pattern == actual:
+        return normalized(pattern)
+
     if allow_unification:
         match = unify(pattern, actual, context)
         return normalized(apply_subst(match.substitution, pattern))

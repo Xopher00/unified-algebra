@@ -161,6 +161,12 @@ class Prim(MorphismExpr):
     cod: Type
 
 
+@dataclass(frozen=True)
+class Ref(MorphismExpr):
+    """Unresolved morphism name. Resolved by the semantic construction pass."""
+    name: str
+
+
 @singledispatch
 def pretty(expr) -> str:
     """Render a DSL expression for humans.
@@ -286,6 +292,12 @@ class List(PolyExpr):
 class Maybe(PolyExpr):
     """F(X) = Maybe[G(X)] — maybe type constructor lifted over a polynomial."""
     body: PolyExpr
+
+
+@dataclass(frozen=True)
+class PolyRef(PolyExpr):
+    """Unresolved functor name. Resolved by the semantic construction pass."""
+    name: str
 
 
 @dataclass(frozen=True)

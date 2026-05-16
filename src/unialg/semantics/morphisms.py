@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from . import typeops as Ty
 from unialg.syntax import expressions as expr
+from hydra.core import Name, TypeVariable
 from unialg.objects import (
     Monad, Type, TypeUnit, TypePair, TypeEither,
     ProductType, SumType, VoidType, show_type,
@@ -194,11 +195,16 @@ def _is_symmetry(dom: Type, cod: Type, cls: type) -> bool:
 # Type derivation
 # ---------------------------------------------------------------------------
 
-def signature(node: expr.MorphismExpr) -> tuple[Type, Type]:
+def signature(
+    node: expr.MorphismExpr,
+    param_names: frozenset[str] = frozenset(),
+) -> tuple[Type, Type]:
     """Derive the object-level arrow signature for a morphism expression.
 
     Contextual nodes and primitives are self-describing because their type
-    checks occurred at construction time.  Base/unknown nodes are rejected.
+    checks occurred at construction time.  Placeholder-typed nodes (from the
+    parser) derive types from children.  Ref nodes for declared parameters
+    become type variables.
     """
     match node:
         case expr.Identity(space):
@@ -226,7 +232,15 @@ def signature(node: expr.MorphismExpr) -> tuple[Type, Type]:
                 raise MorphismError("Symmetry expects A⋆B -> B⋆A")
             return dom, cod
         case expr.MonadicEmbed(f=f, monad=monad):
-            return dom_of(f), monad.wrap(cod_of(f))
+            return dom_of(f, param_names), monad.wrap(cod_of(f, param_names))
+        case expr.Compose(f=f, g=g, dom=dom, cod=cod) if dom == TypeUnit() and cod == TypeUnit():
+            return dom_of(f, param_names), cod_of(g, param_names)
+        case expr.Parallel(f=f, g=g, dom=dom, cod=cod) if dom == ProductType(TypeUnit(), TypeUnit()) and cod == ProductType(TypeUnit(), TypeUnit()):
+            return ProductType(dom_of(f, param_names), dom_of(g, param_names)), ProductType(cod_of(f, param_names), cod_of(g, param_names))
+        case expr.Pair(f=f, g=g, dom=dom, cod=cod) if dom == TypeUnit() and cod == ProductType(TypeUnit(), TypeUnit()):
+            return dom_of(f, param_names), ProductType(cod_of(f, param_names), cod_of(g, param_names))
+        case expr.Case(f=f, g=g, dom=dom, cod=cod) if dom == SumType(TypeUnit(), TypeUnit()) and cod == TypeUnit():
+            return SumType(dom_of(f, param_names), dom_of(g, param_names)), cod_of(f, param_names)
         case expr.ContextualBinary(dom=dom, cod=cod):
             return dom, cod
         case expr.Prim(_, dom, cod):
@@ -237,18 +251,23 @@ def signature(node: expr.MorphismExpr) -> tuple[Type, Type]:
             return dom, cod
         case expr.AlgExpr(dom=dom, cod=cod):
             return dom, cod
+        case expr.Ref(name=name):
+            if name in param_names:
+                tv = TypeVariable(Name(name))
+                return tv, tv
+            raise MorphismError(f"signature: unresolved reference {name!r}")
         case _:
             raise TypeError(f"signature: unknown MorphismExpr {type(node).__name__!r}")
 
 
-def dom_of(node: expr.MorphismExpr) -> Type:
+def dom_of(node: expr.MorphismExpr, param_names: frozenset[str] = frozenset()) -> Type:
     """Return the raw domain of a morphism expression."""
-    return signature(node)[0]
+    return signature(node, param_names)[0]
 
 
-def cod_of(node: expr.MorphismExpr) -> Type:
+def cod_of(node: expr.MorphismExpr, param_names: frozenset[str] = frozenset()) -> Type:
     """Return the raw codomain of a morphism expression."""
-    return signature(node)[1]
+    return signature(node, param_names)[1]
 
 
 # ---------------------------------------------------------------------------

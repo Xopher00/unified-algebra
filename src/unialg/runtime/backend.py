@@ -370,12 +370,12 @@ class BackendOps:
 
     def to_graph(self, base: Graph | None = None) -> Graph:
         """Install this backend's primitives into a Hydra Graph."""
-        return library_to_graph(self._library, base if base is not None else default_graph())
+        return library_to_graph(self._library, base if base is not None else standard_graph())
 
     @staticmethod
     def build_graph(backends: "dict[str, BackendOps]") -> Graph:
-        """Build a Hydra graph from a collection of backends, falling back to default_graph() when empty."""
-        g = default_graph()
+        """Build a Hydra graph from a collection of backends, falling back to standard_graph() when empty."""
+        g = standard_graph()
         for ops in backends.values():
             g = ops.to_graph(g)
         return g
@@ -460,28 +460,3 @@ def backend_required_for_term(required_ops: set[str] | frozenset[str], *candidat
     return [ops for ops in candidates if backend_has_coverage(ops, needed)]
 
 
-_DEFAULT_GRAPH = None
-
-
-def default_graph() -> Graph:
-    """Return the standard Hydra graph with all built-in library primitives."""
-    global _DEFAULT_GRAPH
-    if _DEFAULT_GRAPH is None:
-        primitives = []
-        for attr in dir(Libs):
-            if attr.startswith("register_") and attr.endswith("_primitives"):
-                primitives.extend(getattr(Libs, attr)().values())
-        prims = dict(standard_graph().primitives)
-        for prim in primitives:
-            prims[prim.name] = prim
-        _DEFAULT_GRAPH = Graph(
-            bound_terms=standard_graph().bound_terms,
-            bound_types=standard_graph().bound_types,
-            class_constraints=standard_graph().class_constraints,
-            lambda_variables=standard_graph().lambda_variables,
-            metadata=standard_graph().metadata,
-            primitives=Maps.from_list(list(prims.items())),
-            schema_types=standard_graph().schema_types,
-            type_variables=standard_graph().type_variables,
-        )
-    return _DEFAULT_GRAPH

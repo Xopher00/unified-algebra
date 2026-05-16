@@ -1,28 +1,13 @@
 """Program I/O boundary: native values ↔ Hydra terms for CompiledProgram.run().
 
-Infers boundary types from the compiled term, packs multi-arg inputs,
-and delegates encode/decode to existing BackendOps methods.
+Packs multi-arg inputs and delegates encode/decode to existing BackendOps methods.
 """
 from __future__ import annotations
 
-from hydra.core import Type, TypeFunction
+from hydra.core import Type
 from hydra.dsl.python import Right
-import hydra.inference as HI
 
 from .codecs import coder_for_type, expect_right
-
-
-def infer_boundary_types(term, ctx, graph) -> tuple[Type, Type]:
-    """Infer (domain, codomain) from a compiled Hydra term."""
-    result = HI.infer_type_of_term(ctx, graph, term, "program boundary")
-    if not isinstance(result, Right):
-        raise RuntimeError(f"program_io: could not infer boundary types: {result}")
-    fn_type = result.value.type
-    if not isinstance(fn_type, TypeFunction):
-        raise RuntimeError(
-            f"program_io: expected function type, got {type(fn_type).__name__}"
-        )
-    return fn_type.value.domain, fn_type.value.codomain
 
 
 def pack_args(args: tuple):

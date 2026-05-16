@@ -312,10 +312,9 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
         case expr.BackendPrim(primitive, arity, _, _) if node.args:
             arg_terms = [realize_term(a, _prims) for a in node.args]
             def _build_applied(x):
-                term = P.primitive(primitive.name)
-                for at in arg_terms:
-                    term = P.apply(term, P.apply(at, x))
-                return term
+                return T.apply_curried_primitive(
+                    primitive.name, [P.apply(at, x) for at in arg_terms]
+                )
             return T.term_lambda("x", _build_applied).value
 
         case _:

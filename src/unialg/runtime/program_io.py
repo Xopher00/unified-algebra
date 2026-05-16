@@ -27,8 +27,46 @@ def encode_input(backend, domain: Type, ctx, value):
     return expect_right(coder.decode(ctx, encoded), "program_io encode_input")
 
 
+def _term_value(term):
+    """Structurally decode a reduced Hydra term into a Python value."""
+    from hydra.core import (
+        TermLiteral, TermPair, TermEither, TermUnit, TermList, TermMaybe,
+    )
+    from hydra.dsl.python import Just, Nothing, Left, Right
+
+    if isinstance(term, TermUnit):
+        return None
+    if isinstance(term, TermLiteral):
+        lit = term.value
+        if hasattr(lit, 'value') and hasattr(lit.value, 'value'):
+            return lit.value.value
+        return lit.value
+    if isinstance(term, TermPair):
+        return (_term_value(term.value[0]), _term_value(term.value[1]))
+    if isinstance(term, TermEither):
+        inner = term.value
+        if isinstance(inner, Left):
+            return ("left", _term_value(inner.value))
+        if isinstance(inner, Right):
+            return ("right", _term_value(inner.value))
+    if isinstance(term, TermList):
+        return [_term_value(item) for item in term.value]
+    if isinstance(term, TermMaybe):
+        inner = term.value
+        if isinstance(inner, Nothing):
+            return None
+        if isinstance(inner, Just):
+            return _term_value(inner.value)
+    return term
+
+
 def decode_output(backend, codomain: Type, ctx, graph, result_term):
-    """Decode a Hydra result term into a native output value via the backend store."""
-    coder = coder_for_type(codomain)
-    decoded = expect_right(coder.encode(ctx, graph, result_term), "program_io decode_output")
-    return backend.decode_boundary_output(codomain, decoded)
+    """Decode a reduced Hydra term into a Python value.
+
+    Always structurally decodes via _term_value.
+    If a backend exists, additionally resolves native store handles.
+    """
+    value = _term_value(result_term)
+    if backend is None:
+        return value
+    return backend.decode_boundary_output(codomain, value)

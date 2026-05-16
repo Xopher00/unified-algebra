@@ -190,11 +190,11 @@ def para_int_pair_arg(param: int, value: tuple[int, int]):
 
 
 def left_int_arg(sum_type, value: int):
-    return Terms.apply(lower(inl(sum_type)), int_arg(value))
+    return Terms.apply(lower(inl(sum_type), graph), int_arg(value))
 
 
 def right_int_arg(sum_type, value: int):
-    return Terms.apply(lower(inr(sum_type)), int_arg(value))
+    return Terms.apply(lower(inr(sum_type), graph), int_arg(value))
 
 
 def int_val(result) -> int:

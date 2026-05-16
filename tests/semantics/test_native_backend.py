@@ -46,7 +46,7 @@ def _run_unary(prog, store, arr):
     store.reset()
     key = store.put(arr)
     result = prog.run(P.binary(key).value)
-    return store.get(result.value.value)
+    return store.get(result)
 
 
 def _run_binary(prog, store, a, b):
@@ -54,7 +54,7 @@ def _run_binary(prog, store, a, b):
     key_a = store.put(a)
     key_b = store.put(b)
     result = prog.run(P.pair(P.binary(key_a), P.binary(key_b)).value)
-    return store.get(result.value.value)
+    return store.get(result)
 
 
 class TestUnaryOps:

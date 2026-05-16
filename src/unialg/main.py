@@ -86,27 +86,22 @@ class CompiledProgram:
     output_type: object | None = None
 
     def run(self, *args):
-        """Run the compiled program.
-
-        With a backend: accepts native values, returns native values.
-        Without: accepts/returns raw Hydra terms.
-        """
+        """Run the compiled program. Returns decoded Python values."""
+        from .runtime.program_io import pack_args, encode_input, decode_output
         g = _augment_graph(self.graph, self.aux_primitives) if self.aux_primitives else self.graph
         ctx = default_context()
 
         if self.backend and args:
-            from .runtime.program_io import pack_args, encode_input, decode_output
             self.backend.store.reset()
-            packed = pack_args(args)
-            argument = encode_input(self.backend, self.input_type, ctx, packed)
-            result = _apply_and_reduce(self.term, argument, ctx, g, "CompiledProgram.run")
-            return decode_output(self.backend, self.output_type, ctx, g, result)
-
-        argument = args[0] if args else None
-        if argument is None:
+            argument = encode_input(self.backend, self.input_type, ctx, pack_args(args))
+        elif args:
+            argument = args[0]
+        else:
             import hydra.dsl.meta.phantoms as P
             argument = P.unit().value
-        return _apply_and_reduce(self.term, argument, ctx, g, "CompiledProgram.run")
+
+        result = _apply_and_reduce(self.term, argument, ctx, g, "CompiledProgram.run")
+        return decode_output(self.backend, self.output_type, ctx, g, result)
 
 
 def compile_morphism(morphism: Morphism, graph=None, backend=None) -> CompiledProgram:
@@ -170,6 +165,14 @@ def lower(morphism: Morphism, graph, _extra_prims=None):
 
 
 def run(morphism: Morphism, argument, ctx, graph):
-    """Apply a morphism to a raw Hydra argument and reduce it."""
-    prog = compile_morphism(morphism, graph)
-    return prog.run(argument, ctx)
+    """Apply a morphism to a raw Hydra argument and reduce it.
+
+    Returns a raw Hydra term. For decoded Python values, use compile_program().run().
+    """
+    g = _augment_graph(graph, morphism.aux_primitives) if morphism.aux_primitives else graph
+    extra_prims = []
+    term = realize_normalized(morphism.node, g, extra_prims)
+    if extra_prims:
+        for prim in extra_prims:
+            g = dataclasses.replace(g, primitives=HMaps.insert(prim.name, prim, g.primitives))
+    return _apply_and_reduce(term, argument, ctx, g, morphism)

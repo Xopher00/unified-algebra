@@ -79,9 +79,9 @@ class TestStoreIdentity:
 
 
 class TestNoBackendFallback:
-    def test_raw_hydra_term(self):
-        """Without a backend, run() still accepts raw Hydra terms."""
+    def test_identity_returns_unit(self):
+        """Without a backend, run() decodes structurally (Unit → None)."""
         import hydra.dsl.meta.phantoms as P
         prog = compile_program("route f = id")
         result = prog.run(P.unit().value)
-        assert result is not None
+        assert result is None  # Unit decodes to None

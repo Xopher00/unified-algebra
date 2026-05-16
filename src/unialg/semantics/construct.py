@@ -143,6 +143,12 @@ def construct(
         case expr.Symmetry(dom=dom):
             return ops._symmetry(dom)
 
+        case expr.SharedCompose(f=f, g=g):
+            return ops.compose(
+                _recurse(f), _recurse(g),
+                shared_context=True, allow_unification=True,
+            )
+
         case expr.Compose(f=f, g=g):
             return ops.compose(
                 _recurse(f), _recurse(g),

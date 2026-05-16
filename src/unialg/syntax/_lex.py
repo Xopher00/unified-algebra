@@ -100,6 +100,7 @@ _KEYWORDS: dict[str, str] = {"route": "ROUTE", "map": "MAP", "load": "LOAD"}
 def _morphism_token():
     """Return the token parser used for morphism expressions and programs."""
     return P.choice((
+        _lit(">>>>", "SHARED_COMPOSE"),
         _lit(">>", "COMPOSE"),
         _lit("||", "PAR"),
         _lit("&",  "PAIR"),

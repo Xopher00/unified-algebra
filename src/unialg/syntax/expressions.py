@@ -133,6 +133,11 @@ class Compose(ContextualBinary):
 
 
 @dataclass(frozen=True)
+class SharedCompose(Compose):
+    """f >>>> g — shared-context sequential composition."""
+
+
+@dataclass(frozen=True)
 class Parallel(ContextualBinary):
     """f × g — parallel composition (A×C → B×D)."""
 

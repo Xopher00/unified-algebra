@@ -14,7 +14,7 @@ import hydra.serialization as ser
 from unialg.objects import TypeUnit, ProductType, SumType
 from unialg.syntax.expressions import (
     MorphismExpr, PolyExpr,
-    Compose, Parallel, Pair, Case,
+    Compose, SharedCompose, Parallel, Pair, Case,
     Prod, Sum, List as PolyList,
 )
 
@@ -41,6 +41,7 @@ def createOp(symbol: str, padding: bool, precedence: int, associativity: str = "
     )
     
 COMPOSE_OP = createOp(symbol=">>", padding=True, precedence=60, associativity="left")
+SHARED_COMPOSE_OP = createOp(symbol=">>>>", padding=True, precedence=60, associativity="left")
 PAIR_OP    = createOp("&", True, 70, "left")
 PAR_OP     = createOp("||", True, 65, "left")
 CASE_OP    = createOp("|", True, 50, "left")
@@ -54,12 +55,13 @@ FSUM_OP  = createOp("|", True, 60, "left")
 
 # Token kind → Op mapping for morphism operators
 _MORPHISM_OPS: dict[str, hast.Op] = {
-    "COMPOSE":  COMPOSE_OP,
-    "PAIR":     PAIR_OP,
-    "PAR":      PAR_OP,
-    "CASE":     CASE_OP,
-    "LBRACKET": INDEX_OP,
-    "STAR":     STAR_OP,
+    "COMPOSE":        COMPOSE_OP,
+    "SHARED_COMPOSE": SHARED_COMPOSE_OP,
+    "PAIR":           PAIR_OP,
+    "PAR":            PAR_OP,
+    "CASE":           CASE_OP,
+    "LBRACKET":       INDEX_OP,
+    "STAR":           STAR_OP,
 }
 
 _FUNCTOR_OPS: dict[str, hast.Op] = {
@@ -98,6 +100,12 @@ def make_compose(f: MorphismExpr, g: MorphismExpr) -> Compose:
                    param=_U, monad=None, dom=_U, cod=_U)
 
 
+def make_shared_compose(f: MorphismExpr, g: MorphismExpr) -> SharedCompose:
+    """Build a placeholder-typed shared-context sequential composition node."""
+    return SharedCompose(f=f, g=g, f_param=_U, g_param=_U,
+                         param=_U, monad=None, dom=_U, cod=_U)
+
+
 def make_pair(f: MorphismExpr, g: MorphismExpr) -> Pair:
     """Build a placeholder-typed product-introduction node."""
     return Pair(f=f, g=g, f_param=_U, g_param=_U,
@@ -118,10 +126,11 @@ def make_case(f: MorphismExpr, g: MorphismExpr) -> Case:
 
 
 _MORPHISM_BUILDERS: dict[str, Any] = {
-    "COMPOSE": make_compose,
-    "PAIR":    make_pair,
-    "PAR":     make_par,
-    "CASE":    make_case,
+    "COMPOSE":        make_compose,
+    "SHARED_COMPOSE": make_shared_compose,
+    "PAIR":           make_pair,
+    "PAR":            make_par,
+    "CASE":           make_case,
 }
 
 

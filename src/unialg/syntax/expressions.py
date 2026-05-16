@@ -167,6 +167,13 @@ class Ref(MorphismExpr):
     name: str
 
 
+@dataclass(frozen=True)
+class MorphismApp(MorphismExpr):
+    """Parametric application: fun(arg1, arg2, ...)."""
+    fun: MorphismExpr
+    args: tuple[MorphismExpr, ...]
+
+
 @singledispatch
 def pretty(expr) -> str:
     """Render a DSL expression for humans.

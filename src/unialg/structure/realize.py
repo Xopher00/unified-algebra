@@ -306,5 +306,8 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
         case expr.Prim(raw, _, _):
             return raw
 
+        case expr.BackendPrim(primitive, arity, _, _):
+            return T.primitive_wrapper_term(primitive.name, arity)
+
         case _:
             raise TypeError(f"realize: unknown MorphismExpr {type(node).__name__!r}")

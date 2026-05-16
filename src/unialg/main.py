@@ -25,7 +25,7 @@ import hydra.reduction as R
 from .semantics.morphisms import Morphism
 from .syntax import expressions as expr
 from .structure.realize import realize_normalized
-from .structure.terms import primitive_wrapper_term, repeated_product
+from .structure.terms import repeated_product
 
 
 _EMPTY_GRAPH = Graph(
@@ -60,16 +60,15 @@ def _apply_and_reduce(term, argument, ctx, graph, label):
 def load_backend(spec_path) -> dict[str, Morphism]:
     """Load a backend spec and produce typed Morphisms for each primitive.
 
-    Orchestrates across layers: emitters (spec), structure (term), semantics (Morphism).
+    Term construction is deferred to realize.py. Only type info is resolved here.
     """
     from .emitters.backend import BackendOps
     ops = BackendOps.from_spec(spec_path)
     env: dict[str, Morphism] = {}
     for name, bp in ops.primitives.items():
-        raw = primitive_wrapper_term(bp.name, bp.arity)
         dom = repeated_product(bp.arg_type, bp.arity)
         env[name] = Morphism(
-            node=expr.Prim(raw, dom, bp.result_type),
+            node=expr.BackendPrim(bp.primitive, bp.arity, dom, bp.result_type),
             aux_primitives=(bp.primitive,),
         )
     return env

@@ -162,6 +162,15 @@ class Prim(MorphismExpr):
 
 
 @dataclass(frozen=True)
+class BackendPrim(MorphismExpr):
+    """Backend primitive: type info + Hydra Primitive, term built at realization."""
+    primitive: object
+    arity: int
+    dom: Type
+    cod: Type
+
+
+@dataclass(frozen=True)
 class Ref(MorphismExpr):
     """Unresolved morphism name. Resolved by the semantic construction pass."""
     name: str

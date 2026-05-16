@@ -1,12 +1,12 @@
-"""Orchestration: typed Morphism → compiled Hydra program → reduced value.
+"""Compiler orchestration for unialg programs.
 
-This is the public entry point for the unialg compiler pipeline.
-It owns the boundary between semantic construction (Morphism objects)
-and backend realization (Hydra reduction).
+The source pipeline is:
 
-Contract: callers must supply a fully-constructed Morphism (built via
-compose/pair/case/poly_fmap from semantics/morphisms.py). This module
-does not perform semantic construction or parse surface syntax.
+    text -> parse_program -> construct_program -> realize_normalized -> reduce
+
+Use ``compile_program`` for source text and ``compile_morphism`` when the
+caller already has a typed ``Morphism``.  This module coordinates the layers;
+syntax, semantic construction, and realization remain in their own modules.
 """
 
 from __future__ import annotations
@@ -14,18 +14,25 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 
-from hydra.context import Context
 from hydra.core import Term
 from hydra.dsl.python import Right
 import hydra.dsl.terms as Terms
 from hydra.graph import Graph
+import hydra.lexical as L
 import hydra.lib.maps as HMaps
 import hydra.reduction as R
 
 from .objects import EMPTY_GRAPH
+from .semantics.construct import construct_program
 from .semantics.morphisms import Morphism
 from .syntax import expressions as expr
+from .syntax.parse import parse_program
 from .structure.realize import realize_normalized
+
+
+def default_context():
+    """Return Hydra's empty evaluation context."""
+    return L.empty_context()
 
 
 def _augment_graph(graph, aux_primitives):
@@ -72,11 +79,11 @@ class CompiledProgram:
     def run(self, argument, ctx=None):
         """Apply this program to a Hydra argument and reduce."""
         g = _augment_graph(self.graph, self.aux_primitives) if self.aux_primitives else self.graph
-        return _apply_and_reduce(self.term, argument, ctx or Context(), g, "CompiledProgram.run")
+        return _apply_and_reduce(self.term, argument, ctx or default_context(), g, "CompiledProgram.run")
 
 
-def compile_program(morphism: Morphism, graph=None) -> CompiledProgram:
-    """Compile a typed Morphism into an executable program.
+def compile_morphism(morphism: Morphism, graph=None) -> CompiledProgram:
+    """Compile an already-constructed typed ``Morphism``.
 
     The morphism must already be semantically constructed via the combinators
     in semantics/morphisms.py. This function realizes it to a normalized Hydra
@@ -89,6 +96,30 @@ def compile_program(morphism: Morphism, graph=None) -> CompiledProgram:
     return CompiledProgram(term=term, graph=g, aux_primitives=all_prims)
 
 
+def _program_output(routes: dict[str, Morphism], route: str | None) -> Morphism:
+    """Return the explicit route, or the final route in source order."""
+    if not routes:
+        raise ValueError("compile_program: program defines no routes")
+    if route is not None:
+        if route not in routes:
+            raise KeyError(f"compile_program: unknown route {route!r}")
+        return routes[route]
+    return next(reversed(routes.values()))
+
+
+def compile_program(
+    src: str,
+    *,
+    env: dict[str, Morphism] | None = None,
+    graph=None,
+    route: str | None = None,
+) -> CompiledProgram:
+    """Parse, semantically construct, and compile a source program."""
+    parsed = parse_program(src)
+    constructed = construct_program(parsed, env)
+    return compile_morphism(_program_output(constructed.routes, route), graph)
+
+
 def lower(morphism: Morphism, graph, _extra_prims=None):
     """Realize a typed morphism as a raw Hydra term without evaluating it."""
     return realize_normalized(morphism.node, graph, _extra_prims)
@@ -96,5 +127,5 @@ def lower(morphism: Morphism, graph, _extra_prims=None):
 
 def run(morphism: Morphism, argument, ctx, graph):
     """Apply a morphism to a raw Hydra argument and reduce it."""
-    prog = compile_program(morphism, graph)
+    prog = compile_morphism(morphism, graph)
     return prog.run(argument, ctx)

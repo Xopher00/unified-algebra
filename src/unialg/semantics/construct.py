@@ -55,11 +55,6 @@ def construct_program(
     gives those names semantic meaning by resolving them against backend/builtin
     morphisms in ``env`` and against other routes in the same program.
     """
-    if program.route_params:
-        names = ", ".join(sorted(program.route_params))
-        raise MorphismError(
-            f"construct_program: parametric routes are not wired yet: {names}"
-        )
 
     base_env = dict(env or {})
     routes: dict[str, Morphism] = {}
@@ -79,16 +74,17 @@ def construct_program(
         constructing.append(name)
         route_env = dict(base_env)
         for ref in sorted(_route_refs(program.routes[name])):
-            if ref in program.routes:
+            if ref in program.routes and ref not in program.route_params:
                 route_env[ref] = resolve_route(ref)
         route_env.update(routes)
-        route = construct(program.routes[name], route_env, program.functors)
+        route = construct(program.routes[name], route_env, program.functors, program.routes, program.route_params)
         routes[name] = route
         constructing.pop()
         return route
 
     for name in program.routes:
-        resolve_route(name)
+        if name not in program.route_params:
+            resolve_route(name)
 
     return ConstructedProgram(routes=routes, functors=dict(program.functors))
 
@@ -97,12 +93,17 @@ def construct(
     node: expr.MorphismExpr,
     env: dict[str, Morphism],
     functor_env: dict[str, expr.PolyExpr] | None = None,
+    route_bodies: dict[str, expr.MorphismExpr] | None = None,
+    route_params: dict[str, tuple[str, ...]] | None = None,
 ) -> Morphism:
     """Resolve a parsed expression tree into a typed Morphism.
 
     Walks the tree recursively, resolving Ref nodes from ``env`` and
     calling semantic combinators at each binary node.
     """
+    def _recurse(n):
+        return construct(n, env, functor_env, route_bodies, route_params)
+
     match node:
         case expr.Ref(name=name):
             if name not in env:
@@ -144,28 +145,22 @@ def construct(
 
         case expr.Compose(f=f, g=g):
             return ops.compose(
-                construct(f, env, functor_env),
-                construct(g, env, functor_env),
+                _recurse(f), _recurse(g),
                 allow_unification=True,
             )
 
         case expr.Pair(f=f, g=g):
             return ops.pair(
-                construct(f, env, functor_env),
-                construct(g, env, functor_env),
+                _recurse(f), _recurse(g),
                 allow_unification=True,
             )
 
         case expr.Parallel(f=f, g=g):
-            return ops.par(
-                construct(f, env, functor_env),
-                construct(g, env, functor_env),
-            )
+            return ops.par(_recurse(f), _recurse(g))
 
         case expr.Case(f=f, g=g):
             return ops.case(
-                construct(f, env, functor_env),
-                construct(g, env, functor_env),
+                _recurse(f), _recurse(g),
                 allow_unification=True,
             )
 
@@ -178,7 +173,26 @@ def construct(
             else:
                 resolved_body = body
             functor = Functor(name="anonymous", body=resolved_body)
-            return poly_fmap(functor, construct(f, env, functor_env))
+            return poly_fmap(functor, _recurse(f))
+
+        case expr.MorphismApp(fun=fun, args=args):
+            bodies = route_bodies or {}
+            params = route_params or {}
+            if isinstance(fun, expr.Ref) and fun.name in bodies:
+                body = bodies[fun.name]
+                declared_params = params.get(fun.name, ())
+                if len(args) != len(declared_params):
+                    raise MorphismError(
+                        f"construct: {fun.name} expects {len(declared_params)} "
+                        f"params, got {len(args)}"
+                    )
+                local_env = dict(env)
+                for pname, arg_node in zip(declared_params, args):
+                    local_env[pname] = _recurse(arg_node)
+                return construct(body, local_env, functor_env, route_bodies, route_params)
+            raise MorphismError(
+                f"construct: cannot apply non-parametric or unknown {fun!r}"
+            )
 
         case _:
             raise TypeError(f"construct: unhandled node {type(node).__name__!r}")

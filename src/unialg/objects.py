@@ -78,3 +78,28 @@ class Monad:
 
 MAYBE: Monad = Monad(TypeMaybe, Names.maybes_bind, Names.maybes_pure)
 LIST: Monad = Monad(TypeList, Names.lists_bind, Names.lists_pure)
+
+
+def repeated_product(t: Type, n: int) -> Type:
+    """Build the left-nested product type ``t × t × ... × t`` (n copies)."""
+    if n == 1:
+        return t
+    out = t
+    for _ in range(n - 1):
+        out = ProductType(out, t)
+    return out
+
+
+import hydra.lib.maps as _Maps
+from hydra.graph import Graph as _Graph
+
+EMPTY_GRAPH = _Graph(
+    bound_terms=_Maps.empty(),
+    bound_types=_Maps.empty(),
+    class_constraints=_Maps.empty(),
+    lambda_variables=frozenset(),
+    metadata=_Maps.empty(),
+    primitives=_Maps.empty(),
+    schema_types=_Maps.empty(),
+    type_variables=frozenset(),
+)

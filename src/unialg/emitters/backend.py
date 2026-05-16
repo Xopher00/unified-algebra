@@ -54,7 +54,7 @@ from hydra.lib import maps as Maps
 from hydra.packaging import Library, Namespace
 import hydra.sources.libraries as Libs
 
-from unialg.objects import ExpType, TypeScheme
+from unialg.objects import ExpType, TypeScheme, EMPTY_GRAPH, repeated_product
 
 from .codecs import type_from_spec, coder_for_type, expect_right
 from .native_boundary import BinaryAdapter, is_binary_type, encode_boundary_input, decode_boundary_output
@@ -62,32 +62,20 @@ from .runtime_store import RuntimeStore
 
 _CANONICAL_PREFIX = "unialg.backend"
 
-_EMPTY_GRAPH = Graph(
-    bound_terms=Maps.empty(),
-    bound_types=Maps.empty(),
-    class_constraints=Maps.empty(),
-    lambda_variables=frozenset(),
-    metadata=Maps.empty(),
-    primitives=Maps.empty(),
-    schema_types=Maps.empty(),
-    type_variables=frozenset(),
-)
-
 
 @dataclass(frozen=True)
 class BackendPrimitive:
     """A resolved backend operation ready for Hydra primitive registration.
 
-    Carries the Hydra ``Primitive`` (name + type scheme + impl), the arity, and
-    the Hydra types for arguments and result.  Produced by
-    ``register_backend_primitive``; consumed by ``_primitive_morphism`` and
-    ``BackendOps``.
+    Carries the Hydra ``Primitive`` (name + type scheme + impl), the arity,
+    the Hydra types for arguments and result, and the pre-computed domain type.
     """
 
     primitive: Primitive
     arity: int
     arg_type: Type
     result_type: Type
+    dom: Type
     arg_coder: TermCoder
     result_coder: TermCoder
     binary_adapter: object | None = None
@@ -204,6 +192,7 @@ def register_backend_primitive(
         arity=arity,
         arg_type=arg_type,
         result_type=result_type,
+        dom=repeated_product(arg_type, arity),
         arg_coder=arg_coder,
         result_coder=result_coder,
         binary_adapter=binary_adapter,
@@ -403,7 +392,7 @@ def library_primitives_map(library: Library):
 
 def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
     """Install a backend Library's primitives into a Hydra Graph."""
-    base = base or _EMPTY_GRAPH
+    base = base or EMPTY_GRAPH
 
     prims = dict(base.primitives)
     for prim in library.primitives:
@@ -482,17 +471,17 @@ def default_graph() -> Graph:
         for attr in dir(Libs):
             if attr.startswith("register_") and attr.endswith("_primitives"):
                 primitives.extend(getattr(Libs, attr)().values())
-        prims = dict(_EMPTY_GRAPH.primitives)
+        prims = dict(EMPTY_GRAPH.primitives)
         for prim in primitives:
             prims[prim.name] = prim
         _DEFAULT_GRAPH = Graph(
-            bound_terms=_EMPTY_GRAPH.bound_terms,
-            bound_types=_EMPTY_GRAPH.bound_types,
-            class_constraints=_EMPTY_GRAPH.class_constraints,
-            lambda_variables=_EMPTY_GRAPH.lambda_variables,
-            metadata=_EMPTY_GRAPH.metadata,
+            bound_terms=EMPTY_GRAPH.bound_terms,
+            bound_types=EMPTY_GRAPH.bound_types,
+            class_constraints=EMPTY_GRAPH.class_constraints,
+            lambda_variables=EMPTY_GRAPH.lambda_variables,
+            metadata=EMPTY_GRAPH.metadata,
             primitives=Maps.from_list(list(prims.items())),
-            schema_types=_EMPTY_GRAPH.schema_types,
-            type_variables=_EMPTY_GRAPH.type_variables,
+            schema_types=EMPTY_GRAPH.schema_types,
+            type_variables=EMPTY_GRAPH.type_variables,
         )
     return _DEFAULT_GRAPH

@@ -13,16 +13,7 @@ import hydra.lib.maps as HMaps
 import hydra.substitution as Substitution
 import hydra.unification as Unification
 
-_EMPTY_GRAPH = Graph(
-    bound_terms=HMaps.empty(),
-    bound_types=HMaps.empty(),
-    class_constraints=HMaps.empty(),
-    lambda_variables=frozenset(),
-    metadata=HMaps.empty(),
-    primitives=HMaps.empty(),
-    schema_types=HMaps.empty(),
-    type_variables=frozenset(),
-)
+from unialg.objects import EMPTY_GRAPH as _EMPTY_GRAPH
 
 from unialg.objects import (
     Type,

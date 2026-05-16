@@ -22,22 +22,10 @@ from hydra.graph import Graph
 import hydra.lib.maps as HMaps
 import hydra.reduction as R
 
+from .objects import EMPTY_GRAPH
 from .semantics.morphisms import Morphism
 from .syntax import expressions as expr
 from .structure.realize import realize_normalized
-from .structure.terms import repeated_product
-
-
-_EMPTY_GRAPH = Graph(
-    bound_terms=HMaps.empty(),
-    bound_types=HMaps.empty(),
-    class_constraints=HMaps.empty(),
-    lambda_variables=frozenset(),
-    metadata=HMaps.empty(),
-    primitives=HMaps.empty(),
-    schema_types=HMaps.empty(),
-    type_variables=frozenset(),
-)
 
 
 def _augment_graph(graph, aux_primitives):
@@ -66,9 +54,8 @@ def load_backend(spec_path) -> dict[str, Morphism]:
     ops = BackendOps.from_spec(spec_path)
     env: dict[str, Morphism] = {}
     for name, bp in ops.primitives.items():
-        dom = repeated_product(bp.arg_type, bp.arity)
         env[name] = Morphism(
-            node=expr.BackendPrim(bp.primitive, bp.arity, dom, bp.result_type),
+            node=expr.BackendPrim(bp.primitive, bp.arity, bp.dom, bp.result_type),
             aux_primitives=(bp.primitive,),
         )
     return env
@@ -95,7 +82,7 @@ def compile_program(morphism: Morphism, graph=None) -> CompiledProgram:
     in semantics/morphisms.py. This function realizes it to a normalized Hydra
     term and bundles the result for execution.
     """
-    g = graph or _EMPTY_GRAPH
+    g = graph or EMPTY_GRAPH
     extra_prims: list = []
     term = realize_normalized(morphism.node, g, extra_prims)
     all_prims = morphism.aux_primitives + tuple(extra_prims)

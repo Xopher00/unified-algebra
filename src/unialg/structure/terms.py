@@ -266,19 +266,6 @@ def product_arg(x: TTerm, n: int) -> list[TTerm]:
     return vals
 
 
-def repeated_product(t, n):
-    """Build the left-nested product type ``t × t × ... × t`` (n copies).
-
-    Used to construct the visible domain type for a primitive of arity n.
-    """
-    from unialg.objects import ProductType
-    if n == 1:
-        return t
-    out = t
-    for _ in range(n - 1):
-        out = ProductType(out, t)
-    return out
-
 
 def primitive_wrapper_term(prim_name, arity: int):
     """Build λx. prim(arg1, arg2, ...) for a named Hydra primitive.

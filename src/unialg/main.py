@@ -22,7 +22,7 @@ import hydra.lexical as L
 import hydra.lib.maps as HMaps
 import hydra.reduction as R
 
-from .objects import EMPTY_GRAPH
+from .objects import standard_graph
 from .semantics.construct import construct_program
 from .semantics.morphisms import Morphism
 from .syntax import expressions as expr
@@ -89,7 +89,7 @@ def compile_morphism(morphism: Morphism, graph=None) -> CompiledProgram:
     in semantics/morphisms.py. This function realizes it to a normalized Hydra
     term and bundles the result for execution.
     """
-    g = graph or EMPTY_GRAPH
+    g = graph or standard_graph()
     extra_prims: list = []
     term = realize_normalized(morphism.node, g, extra_prims)
     all_prims = morphism.aux_primitives + tuple(extra_prims)
@@ -107,6 +107,14 @@ def _program_output(routes: dict[str, Morphism], route: str | None) -> Morphism:
     return next(reversed(routes.values()))
 
 
+def _resolve_backend_spec(name: str) -> str:
+    from pathlib import Path
+    spec = Path(__file__).parent / "emitters" / "backends" / f"{name}.json"
+    if not spec.exists():
+        raise ValueError(f"unknown backend {name!r}: {spec} not found")
+    return str(spec)
+
+
 def compile_program(
     src: str,
     *,
@@ -116,7 +124,10 @@ def compile_program(
 ) -> CompiledProgram:
     """Parse, semantically construct, and compile a source program."""
     parsed = parse_program(src)
-    constructed = construct_program(parsed, env)
+    base_env = dict(env) if env else {}
+    for backend_name in parsed.loads:
+        base_env.update(load_backend(_resolve_backend_spec(backend_name)))
+    constructed = construct_program(parsed, base_env)
     return compile_morphism(_program_output(constructed.routes, route), graph)
 
 

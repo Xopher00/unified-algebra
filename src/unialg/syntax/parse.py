@@ -20,12 +20,13 @@ __all__ = ["parse_morphism", "parse_functor", "parse_program", "Program", "Parse
 @dataclass
 class Program:
     """Parsed program: named routes and functor definitions."""
+    loads: tuple[str, ...] = ()
     routes: dict[str, MorphismExpr] = field(default_factory=dict)
     functors: dict[str, PolyExpr] = field(default_factory=dict)
     route_params: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
-_DECL_KINDS = frozenset({"ROUTE", "MAP", "EOF"})
+_DECL_KINDS = frozenset({"ROUTE", "MAP", "LOAD", "EOF"})
 
 
 def parse_morphism(src: str) -> MorphismExpr:
@@ -53,12 +54,18 @@ def parse_program(src: str) -> Program:
     nud_m, led_m, bp_m = make_morphism_grammar()
     nud_f, led_f, bp_f = make_functor_grammar()
 
+    loads: list[str] = []
+
     while cursor.peek()[0] != "EOF":
         kw_tok = cursor.advance()
 
+        if kw_tok[0] == "LOAD":
+            loads.append(str(cursor.expect("NAME", "backend name")[1]))
+            continue
+
         if kw_tok[0] not in ("ROUTE", "MAP"):
             raise ParseError(
-                f"program: expected 'route' or 'map', got {kw_tok[0]!r} ({kw_tok[1]!r})"
+                f"program: expected 'load', 'route', or 'map', got {kw_tok[0]!r} ({kw_tok[1]!r})"
             )
         name = str(cursor.expect("NAME", "definition name")[1])
 
@@ -93,4 +100,5 @@ def parse_program(src: str) -> Program:
             p = PrattParser(rhs_tokens, label=f"map {name}", binding_powers=bp_f, nud=nud_f, led=led_f)
             prog.functors[name] = p.parse_all()  # type: ignore[assignment]
 
+    prog.loads = tuple(loads)
     return prog

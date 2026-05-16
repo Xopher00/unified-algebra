@@ -54,7 +54,7 @@ from hydra.lib import maps as Maps
 from hydra.packaging import Library, Namespace
 import hydra.sources.libraries as Libs
 
-from unialg.objects import ExpType, TypeScheme, EMPTY_GRAPH, repeated_product
+from unialg.objects import ExpType, TypeScheme, standard_graph, repeated_product
 
 from .codecs import type_from_spec, coder_for_type, expect_right
 from .native_boundary import BinaryAdapter, is_binary_type, encode_boundary_input, decode_boundary_output
@@ -392,7 +392,7 @@ def library_primitives_map(library: Library):
 
 def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
     """Install a backend Library's primitives into a Hydra Graph."""
-    base = base or EMPTY_GRAPH
+    base = base or standard_graph()
 
     prims = dict(base.primitives)
     for prim in library.primitives:
@@ -471,17 +471,17 @@ def default_graph() -> Graph:
         for attr in dir(Libs):
             if attr.startswith("register_") and attr.endswith("_primitives"):
                 primitives.extend(getattr(Libs, attr)().values())
-        prims = dict(EMPTY_GRAPH.primitives)
+        prims = dict(standard_graph().primitives)
         for prim in primitives:
             prims[prim.name] = prim
         _DEFAULT_GRAPH = Graph(
-            bound_terms=EMPTY_GRAPH.bound_terms,
-            bound_types=EMPTY_GRAPH.bound_types,
-            class_constraints=EMPTY_GRAPH.class_constraints,
-            lambda_variables=EMPTY_GRAPH.lambda_variables,
-            metadata=EMPTY_GRAPH.metadata,
+            bound_terms=standard_graph().bound_terms,
+            bound_types=standard_graph().bound_types,
+            class_constraints=standard_graph().class_constraints,
+            lambda_variables=standard_graph().lambda_variables,
+            metadata=standard_graph().metadata,
             primitives=Maps.from_list(list(prims.items())),
-            schema_types=EMPTY_GRAPH.schema_types,
-            type_variables=EMPTY_GRAPH.type_variables,
+            schema_types=standard_graph().schema_types,
+            type_variables=standard_graph().type_variables,
         )
     return _DEFAULT_GRAPH

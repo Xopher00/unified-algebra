@@ -90,16 +90,16 @@ def repeated_product(t: Type, n: int) -> Type:
     return out
 
 
-import hydra.lib.maps as _Maps
-from hydra.graph import Graph as _Graph
+from functools import lru_cache
+import hydra.sources.libraries as _Libs
+import hydra.lexical as _Lexical
 
-EMPTY_GRAPH = _Graph(
-    bound_terms=_Maps.empty(),
-    bound_types=_Maps.empty(),
-    class_constraints=_Maps.empty(),
-    lambda_variables=frozenset(),
-    metadata=_Maps.empty(),
-    primitives=_Maps.empty(),
-    schema_types=_Maps.empty(),
-    type_variables=frozenset(),
-)
+
+@lru_cache(maxsize=1)
+def standard_graph():
+    """Hydra graph with all standard library primitives. Cached."""
+    prims = []
+    for name in dir(_Libs):
+        if name.startswith('register_') and name.endswith('_primitives'):
+            prims.extend(getattr(_Libs, name)().values())
+    return _Lexical.graph_with_primitives(prims, ())

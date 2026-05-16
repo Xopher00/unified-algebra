@@ -13,7 +13,7 @@ import hydra.lib.maps as HMaps
 import hydra.substitution as Substitution
 import hydra.unification as Unification
 
-from unialg.objects import EMPTY_GRAPH as _EMPTY_GRAPH
+from unialg.objects import standard_graph as _standard_graph
 
 from unialg.objects import (
     Type,
@@ -40,12 +40,12 @@ def normalized(typ: Type) -> Type:
 
 def effectively_equal(graph, left: Type, right: Type) -> bool:
     """Hydra-backed semantic type equality."""
-    return Checking.types_effectively_equal(graph or _EMPTY_GRAPH, left, right)
+    return Checking.types_effectively_equal(graph or _standard_graph(), left, right)
 
 
 def require_equal(graph, left: Type, right: Type, context: str) -> None:
     """Raise if two types are not effectively equal."""
-    if not effectively_equal(graph or _EMPTY_GRAPH, left, right):
+    if not effectively_equal(graph or _standard_graph(), left, right):
         raise TypeError(
             f"{context}: {show_type(normalized(left))} != {show_type(normalized(right))}"
         )
@@ -53,7 +53,7 @@ def require_equal(graph, left: Type, right: Type, context: str) -> None:
 
 def require_all_equal(graph, types: tuple[Type, ...], context: str) -> Type:
     """Require a list of types to be effectively equal."""
-    if not Checking.types_all_effectively_equal(graph or _EMPTY_GRAPH, types):
+    if not Checking.types_all_effectively_equal(graph or _standard_graph(), types):
         shown = ", ".join(show_type(normalized(t)) for t in types)
         raise TypeError(f"{context}: types do not agree: {shown}")
     return normalized(types[0])

@@ -14,7 +14,7 @@ from hydra.core import (
 
 from unialg.syntax import expressions as expr
 from unialg.semantics import morphisms as ops
-from unialg.lowering import run
+from unialg.main import run
 from unialg.objects import LIST, MAYBE
 
 

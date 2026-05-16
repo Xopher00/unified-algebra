@@ -66,15 +66,16 @@ def lam2(name1: str, name2: str, body: Callable[[TTerm, TTerm], TTerm]) -> TTerm
     return term_lambda(name1, lambda x: term_lambda(name2, lambda y: body(x, y)))
 
 
-def _variant_fields(t, variant: str, *fields, then):
+def _variant_fields(t, variant: str, *fields, then, otherwise=None):
+    fallback = t if otherwise is None else otherwise
     if type(t).__name__ != variant:
-        return t
+        return fallback
     v = getattr(t, "value", None)
     if v is None:
-        return t
+        return fallback
     out = tuple(getattr(v, field, None) for field in fields)
     if any(x is None for x in out):
-        return t
+        return fallback
     return then(*out)
 
 
@@ -88,14 +89,14 @@ def _structural_rewrite_once(t):
     """
     def rewrite_pair_app(f, x):
         return _variant_fields(
-            x, "TermPair", "left", "right",
+            x, "TermPair", "left", "right", otherwise=t,
             then=lambda a, b: (
                 a if f == pair_first().value else
                 b if f == pair_second().value else
                 P.pair(TTerm(b), TTerm(a)).value if f == pair_swap().value else
                 t
             ))
-    return _variant_fields(t, "TermApplication", "function", "argument", then=rewrite_pair_app)
+    return _variant_fields(t, "TermApplication", "function", "argument", otherwise=t, then=rewrite_pair_app)
 
 
 def optimize_term(term: TTerm | Term) -> TTerm:

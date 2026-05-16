@@ -28,7 +28,7 @@ compose_optic = _compose_optic
 
 from .structure.recursion import recursive_carrier
 from .semantics.optics import cata, ana, hylo
-from .lowering import lower, run
+from .main import lower, run, compile_program, CompiledProgram
 
 __all__ = [
     "Morphism",

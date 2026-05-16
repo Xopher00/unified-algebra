@@ -24,11 +24,17 @@ Spec format (JSON)::
           "path":        "numpy.add",
           "arity":       2,
           "arg_type":    "FLOAT",
-          "result_type": "FLOAT",
-          "codec":       "float64"
+          "result_type": "FLOAT"
         }
       }
     }
+
+``arg_type`` and ``result_type`` are Hydra type declarations parsed by
+``type_from_spec``; TermCoders are derived automatically via ``coder_for_type``.
+Supported shorthands: ``"FLOAT"``, ``"INT"``, ``"STRING"``, ``"BOOL"``,
+``"BINARY"``, ``"UNIT"``.  Structured types (``{"list": T}``, ``{"pair": [A, B]}``,
+etc.) are also valid for backend ops that accept/return lists, pairs, or
+optional values in universal Python representation.
 """
 
 from __future__ import annotations
@@ -42,10 +48,12 @@ from pathlib import Path
 
 from hydra.context import Context
 from hydra.core import Name, Type
+from hydra.dsl.python import Nothing
 from hydra.graph import Graph, Primitive, TermCoder
 from hydra.lib import maps as Maps
 from hydra.packaging import Library, Namespace
 import hydra.dsl.meta.phantoms as P
+import hydra.sources.libraries as Libs
 
 from unialg.objects import ExpType, TypeScheme, ProductType
 from unialg.semantics import morphisms
@@ -53,7 +61,9 @@ from unialg.semantics.typeops import _EMPTY_GRAPH
 from unialg.structure import terms as struct_terms
 from unialg.syntax import expressions as expr
 
-from .codecs import TYPE_REGISTRY, TERM_CODER_REGISTRY, _expect_right
+from .codecs import type_from_spec, coder_for_type, expect_right
+from .native_boundary import BinaryAdapter, is_binary_type, encode_boundary_input, decode_boundary_output
+from .runtime_store import RuntimeStore
 
 _CANONICAL_PREFIX = "unialg.backend"
 
@@ -74,6 +84,8 @@ class BackendPrimitive:
     result_type: Type
     arg_coder: TermCoder
     result_coder: TermCoder
+    binary_adapter: object | None = None
+    store: RuntimeStore | None = None
 
     @property
     def name(self) -> Name:
@@ -143,6 +155,8 @@ def register_backend_primitive(
     arg_coder: TermCoder,
     result_coder: TermCoder,
     result_type: Type | None = None,
+    binary_adapter=None,
+    store: RuntimeStore | None = None,
 ) -> BackendPrimitive:
     """Register a single backend function as a Hydra primitive.
 
@@ -165,20 +179,29 @@ def register_backend_primitive(
     fn = resolve_function(path) if isinstance(path, str) else path
     result_type = result_type or arg_type
     name = Name(canonical_name)
-    scheme = TypeScheme(
-        variables=(),
-        body=_curried_type(arg_type, result_type, arity),
-        constraints=None,
+    scheme = TypeScheme((), _curried_type(arg_type, result_type, arity), Nothing())
+
+    use_store = (
+        binary_adapter is not None
+        and store is not None
+        and is_binary_type(arg_type)
+        and is_binary_type(result_type)
     )
 
     def impl(ctx: Context, graph: Graph, args):
+        """Decode Hydra arguments, call the backend function, and re-encode."""
         py_args = [
-            _expect_right(
+            expect_right(
                 arg_coder.encode(ctx, graph, arg),
                 f"decoding argument for {canonical_name}",
             )
             for arg in args
         ]
+        if use_store:
+            native_args = [store.get(key) for key in py_args]
+            native_result = fn(*native_args)
+            result_key = store.put(native_result)
+            return result_coder.decode(ctx, result_key)
         py_result = fn(*py_args)
         return result_coder.decode(ctx, py_result)
 
@@ -189,6 +212,8 @@ def register_backend_primitive(
         result_type=result_type,
         arg_coder=arg_coder,
         result_coder=result_coder,
+        binary_adapter=binary_adapter,
+        store=store,
     )
 
 
@@ -212,12 +237,18 @@ def _primitive_morphism(bp: BackendPrimitive) -> morphisms.Morphism:
     )
 
 
-def load_spec(spec: dict | str | Path) -> dict[str, BackendPrimitive]:
-    """Load a backend spec and return a dict of ``BackendPrimitive`` objects.
+def load_spec(
+    spec: dict | str | Path,
+) -> tuple[dict[str, BackendPrimitive], object | None, RuntimeStore | None]:
+    """Load a backend spec and return primitives, the binary adapter module, and the store.
 
     ``spec`` may be a parsed dict, a file path, or a path string.  Each entry
     in ``spec["operations"]`` becomes one ``BackendPrimitive`` keyed by its
     logical op name (e.g. ``"add"``, ``"reduce.add"``).
+
+    If the spec declares a top-level ``"binary_adapter"`` dotted module path, that module
+    is imported and a ``RuntimeStore`` is created.  All BINARY→BINARY primitives in the
+    spec will use the store path; others fall through to the normal coder path.
 
     The canonical Hydra name is derived as ``unialg.backend.<op_name>``.
     """
@@ -225,22 +256,41 @@ def load_spec(spec: dict | str | Path) -> dict[str, BackendPrimitive]:
         with open(spec) as f:
             spec = json.load(f)
 
+    adapter_spec = spec.get("binary_adapter")
+    if adapter_spec is None:
+        binary_adapter = None
+    elif isinstance(adapter_spec, str):
+        binary_adapter = importlib.import_module(adapter_spec)
+    elif isinstance(adapter_spec, dict):
+        binary_adapter = BinaryAdapter(
+            dump_fn=resolve_function(adapter_spec["dump"]),
+            load_fn=resolve_function(adapter_spec["load"]),
+            dump_style=adapter_spec.get("dump_style", "file_first"),
+            load_kwargs=adapter_spec.get("load_kwargs") or {},
+        )
+    else:
+        raise ValueError(f"binary_adapter must be a string or dict, got {type(adapter_spec)!r}")
+    store: RuntimeStore | None = RuntimeStore() if binary_adapter is not None else None
+
     result: dict[str, BackendPrimitive] = {}
     for op_name, entry in spec["operations"].items():
-        arg_type = TYPE_REGISTRY[entry["arg_type"]]
-        result_type = TYPE_REGISTRY[entry.get("result_type", entry["arg_type"])]
-        coder = TERM_CODER_REGISTRY[entry["codec"]]
+        arg_type    = type_from_spec(entry["arg_type"])
+        result_type = type_from_spec(entry.get("result_type", entry["arg_type"]))
+        arg_coder   = coder_for_type(arg_type)
+        result_coder = coder_for_type(result_type)
         canonical = f"{_CANONICAL_PREFIX}.{op_name}"
         result[op_name] = register_backend_primitive(
             canonical,
             entry["path"],
             arg_type,
             entry["arity"],
-            arg_coder=coder,
-            result_coder=coder,
+            arg_coder=arg_coder,
+            result_coder=result_coder,
             result_type=result_type,
+            binary_adapter=binary_adapter,
+            store=store,
         )
-    return result
+    return result, binary_adapter, store
 
 
 def backend_library(primitives: dict[str, BackendPrimitive]) -> Library:
@@ -268,8 +318,15 @@ class BackendOps:
         add = ops["add"]   # Morphism: FLOAT × FLOAT → FLOAT
     """
 
-    def __init__(self, primitives: dict[str, BackendPrimitive]):
+    def __init__(
+        self,
+        primitives: dict[str, BackendPrimitive],
+        binary_adapter=None,
+        store: RuntimeStore | None = None,
+    ):
         self._primitives = primitives
+        self._binary_adapter = binary_adapter
+        self._store = store
         self._library = backend_library(primitives)
         self._morphisms: dict[str, morphisms.Morphism] = {
             name: _primitive_morphism(bp) for name, bp in primitives.items()
@@ -278,7 +335,8 @@ class BackendOps:
     @classmethod
     def from_spec(cls, spec: dict | str | Path) -> "BackendOps":
         """Construct from a JSON spec file path, path string, or parsed dict."""
-        return cls(load_spec(spec))
+        primitives, binary_adapter, store = load_spec(spec)
+        return cls(primitives, binary_adapter=binary_adapter, store=store)
 
     @property
     def library(self) -> Library:
@@ -289,6 +347,38 @@ class BackendOps:
     def primitives(self) -> dict[str, BackendPrimitive]:
         """The registered backend primitives keyed by logical op name."""
         return self._primitives
+
+    @property
+    def binary_adapter(self):
+        """The backend binary adapter module (with load/dump), or None."""
+        return self._binary_adapter
+
+    @property
+    def store(self) -> RuntimeStore | None:
+        """The RuntimeStore for native tensor lifetime, or None."""
+        return self._store
+
+    def _put_input(self, v) -> bytes:
+        """Convert an external input to native and return its store handle.
+
+        If ``v`` is bytes, uses ``binary_adapter.load`` to deserialize.
+        Otherwise stores the value as-is (caller has already produced a native value).
+        Returns a 16-byte UUID handle for encoding as a BINARY Term.
+        """
+        native = self._binary_adapter.load(v) if isinstance(v, bytes) else v
+        return self._store.put(native)
+
+    def _get_output(self, key: bytes):
+        """Retrieve the final native result from the store by handle bytes."""
+        return self._store.get(key)
+
+    def encode_boundary_input(self, typ: Type, value):
+        """Encode a whole-program input at the backend/native boundary."""
+        return encode_boundary_input(typ, value, self._put_input)
+
+    def decode_boundary_output(self, typ: Type, value):
+        """Decode a whole-program output at the backend/native boundary."""
+        return decode_boundary_output(typ, value, self._get_output)
 
     def register(self, name: str, bp: BackendPrimitive) -> None:
         """Register a custom BackendPrimitive under logical op name ``name``.
@@ -327,7 +417,15 @@ class BackendOps:
 
     def to_graph(self, base: Graph | None = None) -> Graph:
         """Install this backend's primitives into a Hydra Graph."""
-        return library_to_graph(self._library, base)
+        return library_to_graph(self._library, base if base is not None else default_graph())
+
+    @staticmethod
+    def build_graph(backends: "dict[str, BackendOps]") -> Graph:
+        """Build a Hydra graph from a collection of backends, falling back to default_graph() when empty."""
+        g = default_graph()
+        for ops in backends.values():
+            g = ops.to_graph(g)
+        return g
 
     def coverage(self, required: set[str] | frozenset[str]) -> dict[str, frozenset[str]]:
         """Report supported and missing logical ops for this backend."""
@@ -336,7 +434,7 @@ class BackendOps:
 
 def library_primitives_map(library: Library):
     """Convert a Hydra Library into a Graph.primitives-style map."""
-    return Maps.from_dict({prim.name: prim for prim in library.primitives})
+    return Maps.from_list(list({prim.name: prim for prim in library.primitives}.items()))
 
 
 def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
@@ -353,7 +451,7 @@ def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
         class_constraints=base.class_constraints,
         lambda_variables=base.lambda_variables,
         metadata=base.metadata,
-        primitives=Maps.from_dict(prims),
+        primitives=Maps.from_list(list(prims.items())),
         schema_types=base.schema_types,
         type_variables=base.type_variables,
     )
@@ -407,3 +505,30 @@ def backend_required_for_term(required_ops: set[str] | frozenset[str], *candidat
     """Return the candidate backends which satisfy a required logical op set."""
     needed = frozenset(required_ops)
     return [ops for ops in candidates if backend_has_coverage(ops, needed)]
+
+
+_DEFAULT_GRAPH = None
+
+
+def default_graph() -> Graph:
+    """Return the standard Hydra graph with all built-in library primitives."""
+    global _DEFAULT_GRAPH
+    if _DEFAULT_GRAPH is None:
+        primitives = []
+        for attr in dir(Libs):
+            if attr.startswith("register_") and attr.endswith("_primitives"):
+                primitives.extend(getattr(Libs, attr)().values())
+        prims = dict(_EMPTY_GRAPH.primitives)
+        for prim in primitives:
+            prims[prim.name] = prim
+        _DEFAULT_GRAPH = Graph(
+            bound_terms=_EMPTY_GRAPH.bound_terms,
+            bound_types=_EMPTY_GRAPH.bound_types,
+            class_constraints=_EMPTY_GRAPH.class_constraints,
+            lambda_variables=_EMPTY_GRAPH.lambda_variables,
+            metadata=_EMPTY_GRAPH.metadata,
+            primitives=Maps.from_list(list(prims.items())),
+            schema_types=_EMPTY_GRAPH.schema_types,
+            type_variables=_EMPTY_GRAPH.type_variables,
+        )
+    return _DEFAULT_GRAPH

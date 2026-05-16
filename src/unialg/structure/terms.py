@@ -266,6 +266,38 @@ def product_arg(x: TTerm, n: int) -> list[TTerm]:
     return vals
 
 
+def repeated_product(t, n):
+    """Build the left-nested product type ``t × t × ... × t`` (n copies).
+
+    Used to construct the visible domain type for a primitive of arity n.
+    """
+    from unialg.objects import ProductType
+    if n == 1:
+        return t
+    out = t
+    for _ in range(n - 1):
+        out = ProductType(out, t)
+    return out
+
+
+def primitive_wrapper_term(prim_name, arity: int):
+    """Build λx. prim(arg1, arg2, ...) for a named Hydra primitive.
+
+    Destructures a left-nested product input and applies the primitive curried.
+    """
+    from hydra.core import Name
+    name = prim_name if isinstance(prim_name, Name) else Name(prim_name)
+
+    def body(x):
+        args = product_arg(x, arity)
+        term = P.primitive(name)
+        for arg in args:
+            term = P.apply(term, arg)
+        return term
+
+    return normalize_term(term_lambda("x", body)).value
+
+
 def pair_swap() -> TTerm:
     """Swap a Hydra pair: A × B → B × A."""
     return term_lambda("p", lambda p:

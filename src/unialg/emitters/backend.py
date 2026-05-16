@@ -52,20 +52,26 @@ from hydra.dsl.python import Nothing
 from hydra.graph import Graph, Primitive, TermCoder
 from hydra.lib import maps as Maps
 from hydra.packaging import Library, Namespace
-import hydra.dsl.meta.phantoms as P
 import hydra.sources.libraries as Libs
 
-from unialg.objects import ExpType, TypeScheme, ProductType
-from unialg.semantics import morphisms
-from unialg.semantics.typeops import _EMPTY_GRAPH
-from unialg.structure import terms as struct_terms
-from unialg.syntax import expressions as expr
+from unialg.objects import ExpType, TypeScheme
 
 from .codecs import type_from_spec, coder_for_type, expect_right
 from .native_boundary import BinaryAdapter, is_binary_type, encode_boundary_input, decode_boundary_output
 from .runtime_store import RuntimeStore
 
 _CANONICAL_PREFIX = "unialg.backend"
+
+_EMPTY_GRAPH = Graph(
+    bound_terms=Maps.empty(),
+    bound_types=Maps.empty(),
+    class_constraints=Maps.empty(),
+    lambda_variables=frozenset(),
+    metadata=Maps.empty(),
+    primitives=Maps.empty(),
+    schema_types=Maps.empty(),
+    type_variables=frozenset(),
+)
 
 
 @dataclass(frozen=True)
@@ -131,18 +137,6 @@ def _curried_type(arg_type, result_type, arity: int):
     return typ
 
 
-def repeated_product(t, n):
-    """Build the left-nested product type ``t × t × ... × t`` (``n`` copies).
-
-    ``n=1`` returns ``t`` directly; ``n=2`` returns ``ProductType(t, t)``, etc.
-    Used to construct the visible domain type for a morphism of arity ``n``.
-    """
-    if n == 1:
-        return t
-    out = t
-    for _ in range(n - 1):
-        out = ProductType(out, t)
-    return out
 
 
 
@@ -217,24 +211,6 @@ def register_backend_primitive(
     )
 
 
-def _primitive_morphism(bp: BackendPrimitive) -> morphisms.Morphism:
-    """Wrap a ``BackendPrimitive`` as a ``Morphism``.
-
-    Builds a lambda over the product domain that applies the primitive in
-    curried form, carrying the primitive in ``aux_primitives`` so ``run``
-    can register it in a temporary graph automatically.
-    """
-    x = P.var("x")
-    args = struct_terms.product_arg(x, bp.arity)
-    term = P.primitive(bp.name)
-    for arg in args:
-        term = P.apply(term, arg)
-    raw = struct_terms.normalize_term(P.lam("x", term)).value
-    dom = repeated_product(bp.arg_type, bp.arity)
-    return morphisms.Morphism(
-        expr.Prim(raw, dom, bp.result_type),
-        aux_primitives=(bp.primitive,),
-    )
 
 
 def load_spec(
@@ -328,9 +304,6 @@ class BackendOps:
         self._binary_adapter = binary_adapter
         self._store = store
         self._library = backend_library(primitives)
-        self._morphisms: dict[str, morphisms.Morphism] = {
-            name: _primitive_morphism(bp) for name, bp in primitives.items()
-        }
 
     @classmethod
     def from_spec(cls, spec: dict | str | Path) -> "BackendOps":
@@ -381,34 +354,25 @@ class BackendOps:
         return decode_boundary_output(typ, value, self._get_output)
 
     def register(self, name: str, bp: BackendPrimitive) -> None:
-        """Register a custom BackendPrimitive under logical op name ``name``.
-
-        After registration, ``ops[name]`` returns the corresponding Morphism,
-        identically to built-in ops loaded from a JSON spec.  Callers
-        (structure/semiring_factory.py) use this to register custom callables
-        before constructing a Semiring.
-        """
+        """Register a custom BackendPrimitive under logical op name ``name``."""
         self._primitives[name] = bp
-        m = _primitive_morphism(bp)
-        self._morphisms[name] = m
-        # Re-build the library so to_graph() picks up the new primitive.
         self._library = backend_library(self._primitives)
 
-    def __getitem__(self, name: str) -> morphisms.Morphism:
-        """Return the morphism for logical op ``name`` (e.g. ``"add"``)."""
-        return self._morphisms[name]
+    def __getitem__(self, name: str) -> BackendPrimitive:
+        """Return the BackendPrimitive for logical op ``name``."""
+        return self._primitives[name]
 
     def __contains__(self, name: str) -> bool:
-        return name in self._morphisms
+        return name in self._primitives
 
     def keys(self):
         """Return all registered logical op names."""
-        return self._morphisms.keys()
+        return self._primitives.keys()
 
     @property
     def op_names(self) -> frozenset[str]:
         """Logical operation names supported by this backend."""
-        return frozenset(self._morphisms.keys())
+        return frozenset(self._primitives.keys())
 
     @property
     def hydra_names(self) -> frozenset[Name]:

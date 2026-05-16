@@ -10,7 +10,10 @@ from dataclasses import dataclass
 
 from unialg.syntax import expressions as expr
 from unialg.syntax.parse import Program
+import hydra.lexical as L
+
 from . import morphisms as ops
+from . import typeops as Ty
 from .morphisms import Morphism, MorphismError
 from .functors import Functor, poly_fmap
 
@@ -59,6 +62,7 @@ def construct_program(
     base_env = dict(env or {})
     routes: dict[str, Morphism] = {}
     constructing: list[str] = []
+    _cx = [L.empty_context()]
 
     def resolve_route(name: str) -> Morphism:
         if name in routes:
@@ -77,7 +81,7 @@ def construct_program(
             if ref in program.routes and ref not in program.route_params:
                 route_env[ref] = resolve_route(ref)
         route_env.update(routes)
-        route = construct(program.routes[name], route_env, program.functors, program.routes, program.route_params)
+        route = construct(program.routes[name], route_env, program.functors, program.routes, program.route_params, _cx)
         routes[name] = route
         constructing.pop()
         return route
@@ -95,14 +99,31 @@ def construct(
     functor_env: dict[str, expr.PolyExpr] | None = None,
     route_bodies: dict[str, expr.MorphismExpr] | None = None,
     route_params: dict[str, tuple[str, ...]] | None = None,
+    _cx: list | None = None,
 ) -> Morphism:
     """Resolve a parsed expression tree into a typed Morphism.
 
     Walks the tree recursively, resolving Ref nodes from ``env`` and
     calling semantic combinators at each binary node.
     """
+    if _cx is None:
+        _cx = [L.empty_context()]
+
     def _recurse(n):
-        return construct(n, env, functor_env, route_bodies, route_params)
+        return construct(n, env, functor_env, route_bodies, route_params, _cx)
+
+    from unialg.objects import TypeUnit, ProductType, SumType
+
+    def _fresh():
+        var, new_cx = Ty.fresh_variable_type(_cx[0])
+        _cx[0] = new_cx
+        return var
+
+    def _fresh_pair():
+        return ProductType(_fresh(), _fresh())
+
+    def _fresh_sum():
+        return SumType(_fresh(), _fresh())
 
     match node:
         case expr.Ref(name=name):
@@ -114,28 +135,28 @@ def construct(
             return Morphism(node=node)
 
         case expr.Identity(space):
-            return ops.identity(space)
+            return ops.identity(space if space != TypeUnit() else _fresh())
 
         case expr.First(ab):
-            return ops._fst(ab)
+            return ops._fst(ab if ab != ProductType(TypeUnit(), TypeUnit()) else _fresh_pair())
 
         case expr.Second(ab):
-            return ops._snd(ab)
+            return ops._snd(ab if ab != ProductType(TypeUnit(), TypeUnit()) else _fresh_pair())
 
         case expr.Left(ab):
-            return ops._inl(ab)
+            return ops._inl(ab if ab != SumType(TypeUnit(), TypeUnit()) else _fresh_sum())
 
         case expr.Right(ab):
-            return ops._inr(ab)
+            return ops._inr(ab if ab != SumType(TypeUnit(), TypeUnit()) else _fresh_sum())
 
         case expr.Copy(space):
-            return ops._copy(space)
+            return ops._copy(space if space != TypeUnit() else _fresh())
 
         case expr.Delete(space):
-            return ops._delete(space)
+            return ops._delete(space if space != TypeUnit() else _fresh())
 
         case expr.Absurd(cod):
-            return ops.absurd(cod)
+            return ops.absurd(cod if cod != TypeUnit() else _fresh())
 
         case expr.Assoc(dom=dom):
             return ops._assoc(dom)
@@ -196,7 +217,7 @@ def construct(
                 local_env = dict(env)
                 for pname, arg_node in zip(declared_params, args):
                     local_env[pname] = _recurse(arg_node)
-                return construct(body, local_env, functor_env, route_bodies, route_params)
+                return construct(body, local_env, functor_env, route_bodies, route_params, _cx)
             # Backend primitive with arity > 1: populate args
             resolved_fun = _recurse(fun)
             if isinstance(resolved_fun.node, expr.BackendPrim) and resolved_fun.node.arity > 1:

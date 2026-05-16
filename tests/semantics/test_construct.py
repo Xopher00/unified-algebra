@@ -188,6 +188,83 @@ class TestConstructProgram:
 # compile_program() — load directive integration
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# construct_program() — parametric routes
+# ---------------------------------------------------------------------------
+
+class TestParametricRoutes:
+    def test_single_param(self, int_env):
+        prog = parse_program("route f(theta) = theta >> add1\nroute g = f(mul2)")
+        cp = construct_program(prog, int_env)
+        assert "g" in cp.routes
+        assert cp.routes["g"].dom() == INT
+        assert cp.routes["g"].cod() == INT
+
+    def test_multi_param(self, int_env):
+        prog = parse_program("route f(a, b) = a >> b\nroute g = f(add1, mul2)")
+        cp = construct_program(prog, int_env)
+        assert "g" in cp.routes
+
+    def test_nested_parametric(self, int_env):
+        prog = parse_program(
+            "route f(w) = w >> mul2\nroute g(v) = f(v) >> add1\nroute h = g(add1)"
+        )
+        cp = construct_program(prog, int_env)
+        assert "h" in cp.routes
+
+    def test_wrong_arity_raises(self, int_env):
+        prog = parse_program("route f(a, b) = a >> b\nroute g = f(add1)")
+        with pytest.raises(MorphismError, match="expects 2.*got 1"):
+            construct_program(prog, int_env)
+
+    def test_type_mismatch_raises(self, int_env):
+        from unialg.objects import ProductType
+        # add1: INT→INT, but par expects ProductType domain
+        # f(theta) = theta || add1 requires theta.dom to be part of a product
+        prog = parse_program("route f(theta) = theta || add1\nroute g = f(add1)")
+        cp = construct_program(prog, int_env)
+        # par(add1, add1) should work — both INT→INT
+        assert cp.routes["g"].dom() == ProductType(INT, INT)
+
+    def test_parametric_runs(self, int_env, ctx, graph):
+        prog = parse_program("route f(theta) = theta >> mul2\nroute g = f(add1)")
+        cp = construct_program(prog, int_env)
+        result = run(cp.routes["g"], P.int32(5).value, ctx, graph)
+        # (5+1)*2 = 12
+        assert result.value.value.value == 12
+
+    def test_parametric_not_in_routes(self, int_env):
+        prog = parse_program("route f(theta) = theta >> add1\nroute g = f(mul2)")
+        cp = construct_program(prog, int_env)
+        assert "f" not in cp.routes  # parametric routes don't appear as constructed routes
+
+
+class TestParametricNativeBackend:
+    def test_single_param_native(self):
+        import numpy as np
+        prog = compile_program("load numpy\nroute f(w) = w >> tanh\nroute g = f(exp)")
+        result = prog.run(np.array([1.0, 2.0]))
+        assert np.allclose(result, np.tanh(np.exp([1.0, 2.0])))
+
+    def test_multi_param_native(self):
+        import numpy as np
+        prog = compile_program("load numpy\nroute f(a, b) = a >> b\nroute g = f(exp, tanh)")
+        result = prog.run(np.array([1.0, 2.0]))
+        assert np.allclose(result, np.tanh(np.exp([1.0, 2.0])))
+
+    def test_nested_native(self):
+        import numpy as np
+        prog = compile_program(
+            "load numpy\nroute f(w) = w >> tanh\nroute g(v) = f(v) >> exp\nroute h = g(log)"
+        )
+        result = prog.run(np.array([1.0, 2.0]))
+        assert np.allclose(result, np.exp(np.tanh(np.log([1.0, 2.0]))))
+
+
+# ---------------------------------------------------------------------------
+# compile_program() — load directive integration
+# ---------------------------------------------------------------------------
+
 class TestLoadDirective:
     @pytest.mark.parametrize("backend", [
         "numpy",

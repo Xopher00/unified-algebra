@@ -4,8 +4,8 @@
   tokenize_morphism(src) -> list[Token]   morphism expression tokens
   tokenize_functor(src)  -> list[Token]   functor expression tokens
 
-Reserved keywords: 'route' → ROUTE, 'map' → MAP, 'focus' → FOCUS,
-'carrier' → CARRIER. These may not be used as atom names inside expressions.
+Reserved keywords include the declaration words ``let``, ``shape``, ``load``
+and shape syntax markers such as ``fix`` and ``by``.
 
 Imports: hydra.parsers only. No unialg imports.
 """
@@ -90,16 +90,16 @@ def _run(parser, src: str) -> list[Token]:
 
 # ---------------------------------------------------------------------------
 # Morphism token set
-# Multi-char tokens (>>, ||) listed before their single-char prefixes.
+# Multi-char tokens (>>>>, <->, >>, ||) listed before their single-char prefixes.
 # ---------------------------------------------------------------------------
 
 # Reserved top-level keywords — cannot be used as expression atom names.
 _KEYWORDS: dict[str, str] = {
-    "route": "ROUTE",
-    "map": "MAP",
+    "let": "LET",
+    "shape": "SHAPE",
     "load": "LOAD",
-    "focus": "FOCUS",
-    "carrier": "CARRIER",
+    "fix": "FIX",
+    "by": "BY",
 }
 
 
@@ -107,6 +107,7 @@ def _morphism_token():
     """Return the token parser used for morphism expressions and programs."""
     return P.choice((
         _lit(">>>>", "SHARED_COMPOSE"),
+        _lit("<->", "BIDIR"),
         _lit(">>", "COMPOSE"),
         _lit("||", "PAR"),
         _lit("&",  "PAIR"),
@@ -119,6 +120,8 @@ def _morphism_token():
         _lit("(",  "LPAREN"),
         _lit(")",  "RPAREN"),
         _lit(",",  "COMMA"),
+        _lit(":",  "COLON"),
+        _lit("/",  "SLASH"),
         _lit("!",  "BANG"),
         _lit("?",  "QUESTION"),
         _lit("=",  "EQ"),

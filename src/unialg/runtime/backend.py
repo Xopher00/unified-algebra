@@ -35,7 +35,9 @@ Spec format (JSON)::
 Supported shorthands: ``"FLOAT"``, ``"INT"``, ``"STRING"``, ``"BOOL"``,
 ``"BINARY"``, ``"UNIT"``.  Structured types (``{"list": T}``, ``{"pair": [A, B]}``,
 etc.) are also valid for backend ops that accept/return lists, pairs, or
-optional values in universal Python representation.
+optional values in universal Python representation. The ``kind`` field is
+descriptive metadata; loading semantics are determined by ``path``, ``arity``,
+``arg_type``, and ``result_type``.
 """
 
 from __future__ import annotations
@@ -44,7 +46,7 @@ import importlib
 import inspect
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from hydra.context import Context
@@ -53,7 +55,6 @@ from hydra.dsl.python import Nothing
 from hydra.graph import Graph, Primitive, TermCoder
 from hydra.lib import maps as Maps
 from hydra.packaging import Library, Namespace
-import hydra.sources.libraries as Libs
 
 from unialg.objects import ExpType, TypeScheme, standard_graph, repeated_product
 
@@ -84,6 +85,8 @@ class BackendPrimitive:
     dom: Type
     arg_coder: TermCoder
     result_coder: TermCoder
+    # Operation metadata. BackendOps owns the adapter used at the whole-program
+    # I/O boundary; primitive impls only need the RuntimeStore.
     binary_adapter: object | None = None
     store: RuntimeStore | None = None
 
@@ -104,6 +107,17 @@ def resolve_function(path: str):
     """
     module_name, function_name = path.rsplit(".", 1)
     return getattr(importlib.import_module(module_name), function_name)
+
+
+def _resolve_operation_function(backend_name: str, op_name: str, path: str):
+    """Resolve one backend operation path with spec context in the error."""
+    try:
+        return resolve_function(path)
+    except (ImportError, AttributeError, ValueError) as e:
+        raise ValueError(
+            f"backend {backend_name!r} op {op_name!r}: "
+            f"cannot resolve path {path!r}: {e}"
+        ) from e
 
 
 def infer_arity(fn) -> int:
@@ -129,9 +143,6 @@ def _curried_type(arg_type, result_type, arity: int):
     for _ in range(arity):
         typ = ExpType(arg_type, typ)
     return typ
-
-
-
 
 
 def register_backend_primitive(
@@ -169,14 +180,22 @@ def register_backend_primitive(
     name = Name(canonical_name)
     scheme = TypeScheme((), _curried_type(arg_type, result_type, arity), Nothing())
 
-    use_store = (
-        binary_adapter is not None
-        and store is not None
-        and is_binary_type(arg_type)
-        and is_binary_type(result_type)
-    )
+    store_args = store is not None and is_binary_type(arg_type)
+    store_result = store is not None and is_binary_type(result_type)
 
-    def impl(ctx: Context, graph: Graph, args):
+    def impl(
+        ctx: Context,
+        graph: Graph,
+        args,
+        *,
+        fn=fn,
+        arg_coder=arg_coder,
+        result_coder=result_coder,
+        canonical_name=canonical_name,
+        store=store,
+        store_args=store_args,
+        store_result=store_result,
+    ):
         """Decode Hydra arguments, call the backend function, and re-encode."""
         py_args = [
             expect_right(
@@ -185,12 +204,11 @@ def register_backend_primitive(
             )
             for arg in args
         ]
-        if use_store:
-            native_args = [store.get(key) for key in py_args]
-            native_result = fn(*native_args)
-            result_key = store.put(native_result)
-            return result_coder.decode(ctx, result_key)
+        if store_args:
+            py_args = [store.get(key) for key in py_args]
         py_result = fn(*py_args)
+        if store_result:
+            py_result = store.put(py_result)
         return result_coder.decode(ctx, py_result)
 
     return BackendPrimitive(
@@ -206,20 +224,18 @@ def register_backend_primitive(
     )
 
 
-
-
 def load_spec(
     spec: dict | str | Path,
 ) -> tuple[dict[str, BackendPrimitive], object | None, RuntimeStore | None]:
-    """Load a backend spec and return primitives, the binary adapter module, and the store.
+    """Load a backend spec and return primitives, binary adapter, and store.
 
     ``spec`` may be a parsed dict, a file path, or a path string.  Each entry
     in ``spec["operations"]`` becomes one ``BackendPrimitive`` keyed by its
     logical op name (e.g. ``"add"``, ``"reduce.add"``).
 
-    If the spec declares a top-level ``"binary_adapter"`` dotted module path, that module
-    is imported and a ``RuntimeStore`` is created.  All BINARY→BINARY primitives in the
-    spec will use the store path; others fall through to the normal coder path.
+    If any operation uses the BINARY handle type, a ``RuntimeStore`` is
+    created. A top-level ``"binary_adapter"`` is only needed for serialized
+    byte inputs/outputs; native values can be stored directly.
 
     The canonical Hydra name is derived as ``unialg.backend.<op_name>``.
     """
@@ -227,6 +243,7 @@ def load_spec(
         with open(spec) as f:
             spec = json.load(f)
 
+    backend_name = spec.get("backend", "<unknown>")
     adapter_spec = spec.get("binary_adapter")
     if adapter_spec is None:
         binary_adapter = None
@@ -241,18 +258,29 @@ def load_spec(
         )
     else:
         raise ValueError(f"binary_adapter must be a string or dict, got {type(adapter_spec)!r}")
-    store: RuntimeStore | None = RuntimeStore() if binary_adapter is not None else None
-
-    result: dict[str, BackendPrimitive] = {}
+    prepared_ops = []
     for op_name, entry in spec["operations"].items():
         arg_type    = type_from_spec(entry["arg_type"])
         result_type = type_from_spec(entry.get("result_type", entry["arg_type"]))
         arg_coder   = coder_for_type(arg_type)
         result_coder = coder_for_type(result_type)
         canonical = f"{_CANONICAL_PREFIX}.{op_name}"
+        fn = _resolve_operation_function(backend_name, op_name, entry["path"])
+        prepared_ops.append((
+            op_name, entry, arg_type, result_type, arg_coder, result_coder, canonical, fn,
+        ))
+
+    needs_store = any(
+        is_binary_type(arg_type) or is_binary_type(result_type)
+        for _, _, arg_type, result_type, _, _, _, _ in prepared_ops
+    )
+    store: RuntimeStore | None = RuntimeStore() if needs_store else None
+
+    result: dict[str, BackendPrimitive] = {}
+    for op_name, entry, arg_type, result_type, arg_coder, result_coder, canonical, fn in prepared_ops:
         result[op_name] = register_backend_primitive(
             canonical,
-            entry["path"],
+            fn,
             arg_type,
             entry["arity"],
             arg_coder=arg_coder,
@@ -389,7 +417,15 @@ class BackendOps:
 
     def coverage(self, required: set[str] | frozenset[str]) -> dict[str, frozenset[str]]:
         """Report supported and missing logical ops for this backend."""
-        return backend_coverage(self, required)
+        available = self.op_names
+        required = frozenset(required)
+        return {
+            "available": available,
+            "required": required,
+            "supported": frozenset(sorted(available & required)),
+            "missing": frozenset(sorted(required - available)),
+            "extra": frozenset(sorted(available - required)),
+        }
 
 
 def library_primitives_map(library: Library):
@@ -405,50 +441,33 @@ def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
     for prim in library.primitives:
         prims[prim.name] = prim
 
-    return Graph(
-        bound_terms=base.bound_terms,
-        bound_types=base.bound_types,
-        class_constraints=base.class_constraints,
-        lambda_variables=base.lambda_variables,
-        metadata=base.metadata,
-        primitives=Maps.from_list(list(prims.items())),
-        schema_types=base.schema_types,
-        type_variables=base.type_variables,
-    )
+    return replace(base, primitives=Maps.from_list(list(prims.items())))
 
 
 def backend_graph(ops: "BackendOps", base: Graph | None = None) -> Graph:
     """Create a Hydra Graph containing all primitives for a backend."""
-    return library_to_graph(ops.library, base)
+    return ops.to_graph(base)
 
 
 def backend_op_names(ops: "BackendOps") -> frozenset[str]:
     """Return the logical op names supported by a backend."""
-    return frozenset(ops.keys())
+    return ops.op_names
 
 
 def backend_hydra_names(ops: "BackendOps") -> frozenset[Name]:
     """Return canonical Hydra primitive names for a backend."""
-    return frozenset(bp.name for bp in ops.primitives.values())
+    return ops.hydra_names
 
 
 def backend_coverage(ops: "BackendOps", required: set[str] | frozenset[str]) -> dict[str, frozenset[str]]:
     """Report supported and missing logical ops for a backend."""
-    available = backend_op_names(ops)
-    required = frozenset(required)
-    return {
-        "available": available,
-        "required": required,
-        "supported": frozenset(sorted(available & required)),
-        "missing": frozenset(sorted(required - available)),
-        "extra": frozenset(sorted(available - required)),
-    }
+    return ops.coverage(required)
 
 
 def compare_backend_coverage(left: "BackendOps", right: "BackendOps") -> dict[str, frozenset[str]]:
     """Compare logical op coverage between two backends."""
-    left_ops = backend_op_names(left)
-    right_ops = backend_op_names(right)
+    left_ops = left.op_names
+    right_ops = right.op_names
     return {
         "shared": frozenset(sorted(left_ops & right_ops)),
         "left_only": frozenset(sorted(left_ops - right_ops)),
@@ -458,7 +477,7 @@ def compare_backend_coverage(left: "BackendOps", right: "BackendOps") -> dict[st
 
 def backend_has_coverage(ops: "BackendOps", required: set[str] | frozenset[str]) -> bool:
     """Return True iff the backend supports every required logical op."""
-    return frozenset(required).issubset(backend_op_names(ops))
+    return frozenset(required).issubset(ops.op_names)
 
 
 def backend_required_for_term(required_ops: set[str] | frozenset[str], *candidates: "BackendOps") -> list["BackendOps"]:

@@ -154,89 +154,95 @@ class TestConstructRuntime:
 
 
 # ---------------------------------------------------------------------------
-# construct_program() — route resolution
+# construct_program() — let resolution
 # ---------------------------------------------------------------------------
 
 class TestConstructProgram:
-    def test_route_ref(self, int_env):
-        prog = parse_program("route a = add1\nroute b = a >> mul2")
+    def test_let_ref(self, int_env):
+        prog = parse_program("let a = add1\nlet b = a >> mul2")
         cp = construct_program(prog, int_env)
-        assert "b" in cp.routes
-        assert cp.routes["b"].dom() == INT
+        assert "b" in cp.morphisms
+        assert cp.morphisms["b"].dom() == INT
 
     def test_forward_ref(self, int_env):
-        prog = parse_program("route b = a >> mul2\nroute a = add1")
+        prog = parse_program("let b = a >> mul2\nlet a = add1")
         cp = construct_program(prog, int_env)
-        assert "b" in cp.routes
+        assert "b" in cp.morphisms
 
     def test_cycle_detection(self, int_env):
-        prog = parse_program("route a = b\nroute b = a")
+        prog = parse_program("let a = b\nlet b = a")
         with pytest.raises(MorphismError, match="[Cc]ycl"):
             construct_program(prog, int_env)
 
     def test_functor_map_resolves(self, int_env):
-        prog = parse_program("map F = x & 1\nroute g = F{add1}")
+        prog = parse_program("shape F = x & 1\nlet g = F{add1}")
         cp = construct_program(prog, int_env)
-        assert "g" in cp.routes
+        assert "g" in cp.morphisms
 
     def test_focus_decl_resolves(self, int_env):
         prog = parse_program(
-            "map Id = x\n"
-            "focus self = functor = Id forward = add1 backward = mul2\n"
-            "route folded = cata[self](add1)\n"
-            "route built = ana[self](add1)\n"
-            "route transformed = hylo[self](add1, add1)"
+            "shape Id = x\n"
+            "shape self : Id <-> Id by add1 / mul2\n"
+            "let folded = cata[self](add1)\n"
+            "let built = ana[self](add1)\n"
+            "let transformed = hylo[self](add1, add1)"
         )
         cp = construct_program(prog, int_env)
         assert "self" in cp.focuses
         assert cp.focuses["self"].carrier == INT
-        assert cp.routes["folded"].dom() == INT
-        assert cp.routes["folded"].cod() == INT
-        assert cp.routes["built"].dom() == INT
-        assert cp.routes["built"].cod() == INT
-        assert cp.routes["transformed"].dom() == INT
-        assert cp.routes["transformed"].cod() == INT
+        assert cp.morphisms["folded"].dom() == INT
+        assert cp.morphisms["folded"].cod() == INT
+        assert cp.morphisms["built"].dom() == INT
+        assert cp.morphisms["built"].cod() == INT
+        assert cp.morphisms["transformed"].dom() == INT
+        assert cp.morphisms["transformed"].cod() == INT
+
+    def test_focus_decl_accepts_type_annotation_syntax(self, int_env):
+        prog = parse_program(
+            "shape Id = x\n"
+            "shape self : Id(int) <-> int by add1 / mul2"
+        )
+        cp = construct_program(prog, int_env)
+        assert cp.focuses["self"].carrier == INT
 
     def test_recursive_carrier_focus_resolves(self):
         prog = parse_program(
-            "map NatF = 1 | x\n"
-            "carrier Nat = fix NatF\n"
-            "focus nat = carrier = Nat"
+            "shape NatF = 1 | x\n"
+            "shape Nat = fix NatF"
         )
         cp = construct_program(prog)
         assert "Nat" in cp.carriers
-        assert "nat" in cp.focuses
-        assert cp.focuses["nat"].carrier == cp.carriers["Nat"].typ
-        assert cp.focuses["nat"].forward.dom() == cp.carriers["Nat"].typ
-        assert cp.focuses["nat"].forward.cod() == cp.carriers["Nat"].layer
-        assert cp.focuses["nat"].backward.dom() == cp.carriers["Nat"].layer
-        assert cp.focuses["nat"].backward.cod() == cp.carriers["Nat"].typ
+        assert "Nat" in cp.focuses
+        assert cp.focuses["Nat"].carrier == cp.carriers["Nat"].typ
+        assert cp.focuses["Nat"].forward.dom() == cp.carriers["Nat"].typ
+        assert cp.focuses["Nat"].forward.cod() == cp.carriers["Nat"].layer
+        assert cp.focuses["Nat"].backward.dom() == cp.carriers["Nat"].layer
+        assert cp.focuses["Nat"].backward.cod() == cp.carriers["Nat"].typ
 
     def test_recursive_carrier_boundaries_resolve(self):
         prog = parse_program(
-            "map NatF = 1 | x\n"
-            "carrier Nat = fix NatF\n"
-            "focus nat = carrier = Nat\n"
-            "route inspect = unroll[nat]\n"
-            "route pack = roll[nat]\n"
-            "route zero = |0 >> roll[nat]\n"
-            "route succ = |1 >> roll[nat]"
+            "shape NatF = 1 | x\n"
+            "shape Nat = fix NatF\n"
+            "let inspect = unroll[Nat]\n"
+            "let pack = roll[Nat]\n"
+            "let zero = |0 >> roll[Nat]\n"
+            "let succ = |1 >> roll[Nat]"
         )
         cp = construct_program(prog)
         carrier = cp.carriers["Nat"]
-        assert cp.routes["inspect"].dom() == carrier.typ
-        assert cp.routes["inspect"].cod() == carrier.layer
-        assert cp.routes["pack"].dom() == carrier.layer
-        assert cp.routes["pack"].cod() == carrier.typ
-        assert cp.routes["zero"].cod() == carrier.typ
-        assert cp.routes["succ"].dom() == carrier.typ
-        assert cp.routes["succ"].cod() == carrier.typ
+        assert cp.morphisms["inspect"].dom() == carrier.typ
+        assert cp.morphisms["inspect"].cod() == carrier.layer
+        assert cp.morphisms["pack"].dom() == carrier.layer
+        assert cp.morphisms["pack"].cod() == carrier.typ
+        assert cp.morphisms["zero"].cod() == carrier.typ
+        assert cp.morphisms["succ"].dom() == carrier.typ
+        assert cp.morphisms["succ"].cod() == carrier.typ
 
     def test_functor_composition_resolves(self):
         prog = parse_program(
-            "map F = x | 1\n"
-            "map G = x & 1\n"
-            "map H = F >> G"
+            "shape F = x | 1\n"
+            "shape G = x & 1\n"
+            "shape H = F >> G"
         )
         cp = construct_program(prog)
         from unialg.semantics.functors import apply_poly
@@ -246,73 +252,72 @@ class TestConstructProgram:
 
     def test_focus_composition_resolves(self):
         prog = parse_program(
-            "map NatF = 1 | x\n"
-            "carrier Nat = fix NatF\n"
-            "focus nat = carrier = Nat\n"
-            "focus two_layers = nat >> nat\n"
-            "route inspect2 = unroll[two_layers]\n"
-            "route pack2 = roll[two_layers]"
+            "shape NatF = 1 | x\n"
+            "shape Nat = fix NatF\n"
+            "shape two_layers = Nat >> Nat\n"
+            "let inspect2 = unroll[two_layers]\n"
+            "let pack2 = roll[two_layers]"
         )
         cp = construct_program(prog)
         carrier = cp.carriers["Nat"]
         two_layers = cp.focuses["two_layers"]
         assert two_layers.source == carrier.typ
-        assert cp.routes["inspect2"].dom() == carrier.typ
-        assert cp.routes["inspect2"].cod() == two_layers.forward.cod()
-        assert cp.routes["pack2"].dom() == two_layers.backward.dom()
-        assert cp.routes["pack2"].cod() == carrier.typ
+        assert cp.morphisms["inspect2"].dom() == carrier.typ
+        assert cp.morphisms["inspect2"].cod() == two_layers.forward.cod()
+        assert cp.morphisms["pack2"].dom() == two_layers.backward.dom()
+        assert cp.morphisms["pack2"].cod() == carrier.typ
 
     def test_focus_composition_cycle_raises(self):
-        prog = parse_program("focus bad = bad >> bad")
+        prog = parse_program("shape bad = bad >> bad")
         with pytest.raises(MorphismError, match="cyclic focus"):
             construct_program(prog)
 
     def test_monadic_lift_resolves(self, int_env):
-        prog = parse_program("route maybe_add1 = pure[Maybe](add1)")
+        prog = parse_program("let maybe_add1 = pure[Maybe](add1)")
         cp = construct_program(prog, int_env)
-        assert cp.routes["maybe_add1"].dom() == INT
-        assert cp.routes["maybe_add1"].cod() == INT
-        assert cp.routes["maybe_add1"].monad is MAYBE
+        assert cp.morphisms["maybe_add1"].dom() == INT
+        assert cp.morphisms["maybe_add1"].cod() == INT
+        assert cp.morphisms["maybe_add1"].monad is MAYBE
 
     def test_unknown_monad_raises(self, int_env):
-        prog = parse_program("route bad = pure[Unknown](add1)")
+        prog = parse_program("let bad = pure[Unknown](add1)")
         with pytest.raises(MorphismError, match="unknown monad"):
             construct_program(prog, int_env)
 
     def test_recursive_carrier_unknown_functor_raises(self):
-        prog = parse_program("carrier Nat = fix Missing\nfocus nat = carrier = Nat")
-        with pytest.raises(MorphismError, match="unknown functor"):
+        prog = parse_program("shape Nat = fix Missing")
+        with pytest.raises(MorphismError, match="unresolved functor"):
             construct_program(prog)
 
     def test_focus_unknown_carrier_raises(self):
-        prog = parse_program("focus nat = carrier = Nat")
-        with pytest.raises(MorphismError, match="unresolved carrier"):
+        prog = parse_program("let folded = cata[Missing](add1)")
+        with pytest.raises(MorphismError, match="unresolved focus"):
             construct_program(prog)
 
     def test_focus_boundary_mismatch_raises(self, int_env):
         prog = parse_program(
-            "map F = x & 1\n"
-            "focus bad = functor = F forward = add1 backward = mul2\n"
-            "route folded = cata[bad](add1)"
+            "shape F = x & 1\n"
+            "shape bad : F <-> F by add1 / mul2\n"
+            "let folded = cata[bad](add1)"
         )
         with pytest.raises(MorphismError, match="focus bad.forward"):
             construct_program(prog, int_env)
 
     def test_unknown_focus_raises(self, int_env):
-        prog = parse_program("route folded = cata[missing](add1)")
+        prog = parse_program("let folded = cata[missing](add1)")
         with pytest.raises(MorphismError, match="unresolved focus"):
             construct_program(prog, int_env)
 
-    def test_route_ref_runs(self, int_env, ctx, graph):
-        prog = parse_program("route a = add1 >> mul2\nroute b = a >> add1")
+    def test_let_ref_runs(self, int_env, ctx, graph):
+        prog = parse_program("let a = add1 >> mul2\nlet b = a >> add1")
         cp = construct_program(prog, int_env)
-        result = run(cp.routes["b"], P.int32(5).value, ctx, graph)
+        result = run(cp.morphisms["b"], P.int32(5).value, ctx, graph)
         assert result.value.value.value == (5 + 1) * 2 + 1
 
     def test_monadic_lift_runs(self, int_env, ctx, graph):
-        prog = parse_program("route maybe_add1 = pure[Maybe](add1)")
+        prog = parse_program("let maybe_add1 = pure[Maybe](add1)")
         cp = construct_program(prog, int_env)
-        result = run(cp.routes["maybe_add1"], P.int32(5).value, ctx, graph)
+        result = run(cp.morphisms["maybe_add1"], P.int32(5).value, ctx, graph)
         assert isinstance(result.value, Just)
         assert result.value.value.value.value.value == 6
 
@@ -322,31 +327,31 @@ class TestConstructProgram:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# construct_program() — parametric routes
+# construct_program() — parametric lets
 # ---------------------------------------------------------------------------
 
-class TestParametricRoutes:
+class TestParametricMorphisms:
     def test_single_param(self, int_env):
-        prog = parse_program("route f(theta) = theta >> add1\nroute g = f(mul2)")
+        prog = parse_program("let f(theta) = theta >> add1\nlet g = f(mul2)")
         cp = construct_program(prog, int_env)
-        assert "g" in cp.routes
-        assert cp.routes["g"].dom() == INT
-        assert cp.routes["g"].cod() == INT
+        assert "g" in cp.morphisms
+        assert cp.morphisms["g"].dom() == INT
+        assert cp.morphisms["g"].cod() == INT
 
     def test_multi_param(self, int_env):
-        prog = parse_program("route f(a, b) = a >> b\nroute g = f(add1, mul2)")
+        prog = parse_program("let f(a, b) = a >> b\nlet g = f(add1, mul2)")
         cp = construct_program(prog, int_env)
-        assert "g" in cp.routes
+        assert "g" in cp.morphisms
 
     def test_nested_parametric(self, int_env):
         prog = parse_program(
-            "route f(w) = w >> mul2\nroute g(v) = f(v) >> add1\nroute h = g(add1)"
+            "let f(w) = w >> mul2\nlet g(v) = f(v) >> add1\nlet h = g(add1)"
         )
         cp = construct_program(prog, int_env)
-        assert "h" in cp.routes
+        assert "h" in cp.morphisms
 
     def test_wrong_arity_raises(self, int_env):
-        prog = parse_program("route f(a, b) = a >> b\nroute g = f(add1)")
+        prog = parse_program("let f(a, b) = a >> b\nlet g = f(add1)")
         with pytest.raises(MorphismError, match="expects 2.*got 1"):
             construct_program(prog, int_env)
 
@@ -354,41 +359,41 @@ class TestParametricRoutes:
         from unialg.objects import ProductType
         # add1: INT→INT, but par expects ProductType domain
         # f(theta) = theta || add1 requires theta.dom to be part of a product
-        prog = parse_program("route f(theta) = theta || add1\nroute g = f(add1)")
+        prog = parse_program("let f(theta) = theta || add1\nlet g = f(add1)")
         cp = construct_program(prog, int_env)
         # par(add1, add1) should work — both INT→INT
-        assert cp.routes["g"].dom() == ProductType(INT, INT)
+        assert cp.morphisms["g"].dom() == ProductType(INT, INT)
 
     def test_parametric_runs(self, int_env, ctx, graph):
-        prog = parse_program("route f(theta) = theta >> mul2\nroute g = f(add1)")
+        prog = parse_program("let f(theta) = theta >> mul2\nlet g = f(add1)")
         cp = construct_program(prog, int_env)
-        result = run(cp.routes["g"], P.int32(5).value, ctx, graph)
+        result = run(cp.morphisms["g"], P.int32(5).value, ctx, graph)
         # (5+1)*2 = 12
         assert result.value.value.value == 12
 
-    def test_parametric_not_in_routes(self, int_env):
-        prog = parse_program("route f(theta) = theta >> add1\nroute g = f(mul2)")
+    def test_parametric_not_in_lets(self, int_env):
+        prog = parse_program("let f(theta) = theta >> add1\nlet g = f(mul2)")
         cp = construct_program(prog, int_env)
-        assert "f" not in cp.routes  # parametric routes don't appear as constructed routes
+        assert "f" not in cp.morphisms  # parametric lets don't appear as constructed lets
 
 
 class TestParametricNativeBackend:
     def test_single_param_native(self):
         import numpy as np
-        prog = compile_program("load numpy\nroute f(w) = w >> tanh\nroute g = f(exp)")
+        prog = compile_program("load numpy\nlet f(w) = w >> tanh\nlet g = f(exp)")
         result = prog.run(np.array([1.0, 2.0]))
         assert np.allclose(result, np.tanh(np.exp([1.0, 2.0])))
 
     def test_multi_param_native(self):
         import numpy as np
-        prog = compile_program("load numpy\nroute f(a, b) = a >> b\nroute g = f(exp, tanh)")
+        prog = compile_program("load numpy\nlet f(a, b) = a >> b\nlet g = f(exp, tanh)")
         result = prog.run(np.array([1.0, 2.0]))
         assert np.allclose(result, np.tanh(np.exp([1.0, 2.0])))
 
     def test_nested_native(self):
         import numpy as np
         prog = compile_program(
-            "load numpy\nroute f(w) = w >> tanh\nroute g(v) = f(v) >> exp\nroute h = g(log)"
+            "load numpy\nlet f(w) = w >> tanh\nlet g(v) = f(v) >> exp\nlet h = g(log)"
         )
         result = prog.run(np.array([1.0, 2.0]))
         assert np.allclose(result, np.exp(np.tanh(np.log([1.0, 2.0]))))
@@ -406,15 +411,15 @@ class TestLoadDirective:
         pytest.param("cupy", marks=pytest.mark.skipif(not _has_module("cupy"), reason="cupy not installed")),
     ])
     def test_load_backend_compiles(self, backend):
-        prog = compile_program(f"load {backend}\nroute f = tanh")
+        prog = compile_program(f"load {backend}\nlet f = tanh")
         assert prog.term is not None
 
     def test_load_unknown_raises(self):
         with pytest.raises(ValueError, match="unknown backend"):
-            compile_program("load nonexistent\nroute f = id")
+            compile_program("load nonexistent\nlet f = id")
 
     def test_loaded_ops_compose(self):
-        prog = compile_program("load numpy\nroute f = add >> tanh")
+        prog = compile_program("load numpy\nlet f = add >> tanh")
         assert prog.term is not None
 
     @pytest.mark.parametrize("backend", [
@@ -447,19 +452,18 @@ class TestMonadicRecursionDsl:
     def test_maybe_cata_runs(self):
         prog = compile_program(
             """
-            map NatF = 1 | x
-            carrier Nat = fix NatF
-            focus nat = carrier = Nat
+            shape NatF = 1 | x
+            shape Nat = fix NatF
 
-            route zero = |0 >> roll[nat]
-            route succ = |1 >> roll[nat]
-            route one = zero >> succ
-            route two = one >> succ
-            route three = two >> succ
+            let zero = |0 >> roll[Nat]
+            let succ = |1 >> roll[Nat]
+            let one = zero >> succ
+            let two = one >> succ
+            let three = two >> succ
 
-            route safe_id = cata[nat](pure[Maybe](zero | succ))
-            route maybe_three = three >> safe_id
+            let safe_id = cata[Nat](pure[Maybe](zero | succ))
+            let maybe_three = three >> safe_id
             """,
-            route="maybe_three",
+            target="maybe_three",
         )
         assert _peano_value(prog.run()) == 3

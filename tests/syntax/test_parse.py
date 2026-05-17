@@ -14,7 +14,7 @@ from unialg.syntax import expressions as expr
 valid_names = st.from_regex(r"[a-z][a-z0-9_.]*", fullmatch=True).filter(
     lambda n: n not in ("id", "identity", "copy", "dup", "delete", "drop", "del",
                         "absurd", "assoc", "sym", "symmetry", "x",
-                        "route", "map", "load", "focus", "carrier")
+                        "let", "shape", "load", "fix", "by")
 )
 
 structural_keywords = st.sampled_from(["id", "identity", "copy", "absurd", "assoc", "sym"])
@@ -251,65 +251,70 @@ class TestFunctorParse:
 # ---------------------------------------------------------------------------
 
 class TestProgramParse:
-    def test_single_route(self):
-        prog = parse_program("route f = add >> mul")
-        assert "f" in prog.routes
-        assert isinstance(prog.routes["f"], expr.Compose)
+    def test_single_let(self):
+        prog = parse_program("let f = add >> mul")
+        assert "f" in prog.morphisms
+        assert isinstance(prog.morphisms["f"], expr.Compose)
 
     def test_single_map(self):
-        prog = parse_program("map F = x & 1")
+        prog = parse_program("shape F = x & 1")
         assert "F" in prog.functors
         assert isinstance(prog.functors["F"], expr.Prod)
 
     def test_multiple_declarations(self):
-        prog = parse_program("route a = id\nroute b = a >> id\nmap F = x | 1")
-        assert len(prog.routes) == 2
+        prog = parse_program("let a = id\nlet b = a >> id\nshape F = x | 1")
+        assert len(prog.morphisms) == 2
         assert len(prog.functors) == 1
 
     def test_load_directive(self):
-        prog = parse_program("load numpy\nroute f = add")
+        prog = parse_program("load numpy\nlet f = add")
         assert prog.loads == ("numpy",)
-        assert "f" in prog.routes
+        assert "f" in prog.morphisms
 
     def test_multiple_loads(self):
-        prog = parse_program("load numpy\nload torch\nroute f = add")
+        prog = parse_program("load numpy\nload torch\nlet f = add")
         assert prog.loads == ("numpy", "torch")
 
-    def test_route_params(self):
-        prog = parse_program("route f(theta, bias) = theta >> bias")
-        assert prog.route_params["f"] == ("theta", "bias")
+    def test_let_params(self):
+        prog = parse_program("let f(theta, bias) = theta >> bias")
+        assert prog.morphism_params["f"] == ("theta", "bias")
 
     def test_focus_decl(self):
         prog = parse_program(
-            "map Id = x\n"
-            "focus self = functor = Id forward = add1 backward = mul2\n"
-            "route folded = cata[self](add1)"
+            "shape Id = x\n"
+            "shape self : Id <-> Id by add1 / mul2\n"
+            "let folded = cata[self](add1)"
         )
         assert prog.focuses["self"].functor == "Id"
         assert isinstance(prog.focuses["self"].forward, expr.Ref)
-        assert isinstance(prog.routes["folded"], expr.RecursionApp)
+        assert isinstance(prog.morphisms["folded"], expr.RecursionApp)
+
+    def test_explicit_optic_accepts_boundary_annotations(self):
+        prog = parse_program("shape root : Tree(int) <-> int by extract / replace")
+        assert prog.focuses["root"].functor == "Tree"
+        assert isinstance(prog.focuses["root"].forward, expr.Ref)
+        assert isinstance(prog.focuses["root"].backward, expr.Ref)
 
     def test_carrier_decl(self):
-        prog = parse_program("map NatF = 1 | x\ncarrier Nat = fix NatF")
-        assert prog.carriers["Nat"].functor == "NatF"
+        prog = parse_program("shape NatF = 1 | x\nshape Nat = fix NatF")
+        assert isinstance(prog.carriers["Nat"].functor, expr.PolyRef)
+        assert prog.carriers["Nat"].functor.name == "NatF"
 
     def test_carrier_focus_decl(self):
         prog = parse_program(
-            "map NatF = 1 | x\n"
-            "carrier Nat = fix NatF\n"
-            "focus nat = carrier = Nat"
+            "shape NatF = 1 | x\n"
+            "shape Nat = fix NatF"
         )
-        assert prog.focuses["nat"].carrier == "Nat"
-        assert prog.focuses["nat"].functor is None
+        assert "Nat" in prog.carriers
+        assert prog.focuses == {}
 
     def test_focus_composition_decl(self):
         prog = parse_program(
-            "map NatF = 1 | x\n"
-            "carrier Nat = fix NatF\n"
-            "focus nat = carrier = Nat\n"
-            "focus two_layers = nat >> nat"
+            "shape NatF = 1 | x\n"
+            "shape Nat = fix NatF\n"
+            "shape two_layers = Nat >> Nat"
         )
-        assert isinstance(prog.focuses["two_layers"].expr, expr.FocusCompose)
+        assert isinstance(prog.functors["two_layers"], expr.PolyCompose)
 
     def test_invalid_keyword_raises(self):
         with pytest.raises(ParseError):

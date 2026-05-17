@@ -3,7 +3,8 @@
 This module is the backend interpretation layer.  It assumes morphism
 composition and visible types have already been checked by ``morphisms.py`` and
 translates expression trees to raw Hydra terms.  Polynomial functor actions
-live in ``functors.py``; optic recursion helpers live in ``recursion.py``.
+live in ``functors.py``; recursive scheme nodes are emitted here as Hydra
+primitives.
 """
 
 from __future__ import annotations
@@ -110,15 +111,15 @@ def poly_action_term(body: expr.PolyExpr, h: TTerm, monad: Monad | None = None) 
             return poly_action_term(right, left_action, monad)
         case expr.Exp(_, body_inner):
             if monad is not None:
-                raise TypeError("_poly_action_term: Exp polynomials are not traversable for arbitrary monads")
+                raise TypeError("poly_action_term: Exp polynomials are not traversable for arbitrary monads")
             return _exponential_action(body_inner, h)
         case expr.Maybe(body_inner):
             return T.maybe_effects(monad, poly_action_term(body_inner, h, monad))
         case expr.List(body_inner):
             return T.list_effects(monad, poly_action_term(body_inner, h, monad))
         case _:
-            raise TypeError(f"_poly_action_term: unknown PolyExpr {type(body).__name__!r}")
-        
+            raise TypeError(f"poly_action_term: unknown PolyExpr {type(body).__name__!r}")
+
 
 def _apply_parametric_poly_fmap(
     node: expr.PolyFmap, h_term: TTerm, ctx_x: TTerm) -> TTerm:
@@ -186,7 +187,12 @@ def _contextual_term(node: expr.ContextualBinary, build, _prims=None) -> Term:
 
 
 def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
-    """Translate a morphism expression into a raw Hydra term."""
+    """Translate a morphism expression into a raw Hydra term.
+
+    When ``_prims`` is supplied, recursive scheme primitives created while
+    realizing ``AlgExpr``/``Cata``/``Ana`` nodes are appended to that list for
+    the caller to add to the runtime graph.
+    """
     match node:
         case expr.Identity():
             return P.identity().value
@@ -226,18 +232,26 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
                 return T.pair_swap().value
             if isinstance(dom, TypeEither) and isinstance(cod, TypeEither):
                 return T.either_swap().value
+            raise TypeError(
+                "realize: Symmetry requires product or sum operands, "
+                f"got dom={type(dom).__name__!r}, cod={type(cod).__name__!r}"
+            )
 
         case expr.MonadicEmbed():
             f_term = realize_term(node.f, _prims)
             return T.term_lambda("x", lambda x: T.pure(node.monad, P.apply(f_term, x))).value
 
+        case expr.Compose() if node.monad is None:
+            return _contextual_term(
+                node,
+                lambda value, call_f, call_g: call_g(call_f(value)),
+                _prims,
+            )
+
         case expr.Compose():
             return _contextual_term(
                 node,
-                lambda value, call_f, call_g:
-                    call_g(call_f(value))
-                    if node.monad is None
-                    else T.bind(node.monad, call_f(value), "ctx_b", call_g),
+                lambda value, call_f, call_g: T.bind(node.monad, call_f(value), "ctx_b", call_g),
                 _prims,
             )
 
@@ -285,7 +299,7 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
         case expr.SelfRef(name, _, _):
             return P.primitive(Name(name)).value
 
-        case expr.AlgExpr(name, body, dom, cod) | expr.Cata(name, body, dom, cod) | expr.Ana(name, body, dom, cod):
+        case expr.AlgExpr(name, body, dom, cod):
             prim_name = Name(name)
             raw_body_ref = [None]
 
@@ -306,14 +320,14 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
             raw_body_ref[0] = TTerm(realize(body, _prims))
             return P.primitive(prim_name).value
 
-        case expr.Prim(raw, _, _):
+        case expr.Prim(raw=raw):
             return raw
 
-        case expr.BackendPrim(primitive, arity, _, _) if not node.args:
+        case expr.BackendPrim(primitive=primitive, arity=arity, args=()):
             return T.primitive_wrapper_term(primitive.name, arity)
 
-        case expr.BackendPrim(primitive, arity, _, _) if node.args:
-            arg_terms = [realize_term(a, _prims) for a in node.args]
+        case expr.BackendPrim(primitive=primitive, args=args):
+            arg_terms = [realize_term(a, _prims) for a in args]
             def _build_applied(x):
                 return T.apply_curried_primitive(
                     primitive.name, [P.apply(at, x) for at in arg_terms]

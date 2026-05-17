@@ -245,6 +245,31 @@ Design questions:
 
 For multi-headed and branching architectures. Tensor products of morphisms, bilinearity. See `docs/ALGEBRA.md` / `claude-mdtopics/ALGEBRA.md` for context.
 
+## Watch: Residuals, posets, and quantale-enriched adjunctions
+
+Legacy had an "adjoint" tensor mode: a semiring could declare a residual
+operation, and an einsum call-site flag selected the residual contraction form.
+That was not a general adjunction framework; it was an operational use of
+residuation inside semiring tensor contraction.
+
+The abstract law behind it is order-theoretic:
+
+```text
+a ⊗ b ≤ c  iff  b ≤ (a ⇒ c)
+```
+
+This is the right-residual/internal-hom law for an ordered monoidal structure
+and is related to posets, quantales, Galois connections, and enriched
+adjunctions. It is mathematically broader than tensors, but the only concrete
+use case currently present is tensor contraction.
+
+Current guidance:
+
+- Keep the implemented concept scoped as `Semiring.adjoint` / `Semiring.op_env(adjoint=True)` for tensor contraction.
+- Do not introduce a first-class `Quantale`, `Poset`, `EnrichedAdjunction`, or inequality DSL until there is a concrete non-tensor use case.
+- If residuals become useful outside tensors, promote the abstract structure into `semantics/` first, likely as a small ordered/quantale object with `carrier`, `leq`, `join`, `tensor`, `unit`, and optional `residual`.
+- Treat `Functor.category="poset"` as a placeholder only. It currently guards nontrivial poset functors rather than implementing enriched functor semantics.
+
 ## Watch: Strength and distributivity
 
 Lax para composition handles parameter threading with shared context plus `bind`/lambda capture. No explicit strength morphism is part of the current semantics.

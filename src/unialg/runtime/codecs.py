@@ -10,11 +10,6 @@ any framework-specific serialization.
 Public API:
   type_from_spec(spec) -> Type       -- parse JSON type declaration
   coder_for_type(typ)  -> TermCoder  -- derive coder from Hydra Type
-  encode_python(value) -> Term       -- convenience helper; prefer coder_for_type when type is known
-
-Legacy (backward compat, not used by load_spec):
-  TYPE_REGISTRY         -- str -> Type
-  TERM_CODER_REGISTRY   -- str -> TermCoder
 """
 
 from __future__ import annotations
@@ -76,7 +71,12 @@ def _literal_value(term: Term, context: str):
 
 
 def term_value(term: Term, context: str = "term_value"):
-    """Decode ordinary Hydra values into small Python structures."""
+    """Decode ordinary Hydra values into small Python structures.
+
+    Binary literals are returned as raw bytes. RuntimeStore dereferencing is a
+    separate program-boundary concern handled by ``boundary.decode_output`` and
+    ``BackendOps.decode_boundary_output``.
+    """
     match term:
         case TermLiteral():
             return _literal_value(term, context)
@@ -302,59 +302,3 @@ def coder_for_type(typ: Type) -> TermCoder:
     if isinstance(typ, TypeEither):
         return _either_coder(coder_for_type(typ.value.left), coder_for_type(typ.value.right))
     raise TypeError(f"coder_for_type: unsupported type {type(typ).__name__!r}")
-
-
-def encode_python(value) -> Term:
-    """Encode a plain Python value to a Hydra Term via type detection.
-
-    Convenience helper for ad-hoc use. Prefer ``coder_for_type(known_type).decode(ctx, v)``
-    when the Hydra type is known at the call site.
-    """
-    if value is None:            return TermUnit()
-    if isinstance(value, bool):  return P.boolean(value).value
-    if isinstance(value, int):   return P.int64(int(value)).value
-    if isinstance(value, float): return P.float64(float(value)).value
-    if isinstance(value, str):   return P.string(value).value
-    if isinstance(value, bytes): return P.binary(value).value
-    try:
-        return TermList(value=[encode_python(item) for item in value])
-    except TypeError:
-        pass
-    raise TypeError(f"encode_python: cannot encode {type(value).__name__!r}")
-
-
-# ---------------------------------------------------------------------------
-# Legacy registries (backward compat — not used by load_spec)
-# ---------------------------------------------------------------------------
-
-TYPE_REGISTRY: dict[str, Type] = {
-    "INT":    TypeLiteral(LiteralType.INTEGER),
-    "FLOAT":  TypeLiteral(LiteralType.FLOAT),
-    "STRING": TypeLiteral(LiteralType.STRING),
-    "BOOL":   TypeLiteral(LiteralType.BOOLEAN),
-    "BINARY": TypeLiteral(LiteralType.BINARY),
-    "UNIT":   TypeUnit(),
-}
-
-TERM_CODER_REGISTRY: dict[str, TermCoder] = {
-    "int32": _mk_term_coder(
-        TypeLiteral(LiteralType.INTEGER),
-        lambda t: int(_literal_value(t, "int32 coder")),
-        lambda x: P.int32(int(x)).value,
-    ),
-    "int64": _mk_term_coder(
-        TypeLiteral(LiteralType.INTEGER),
-        lambda t: int(_literal_value(t, "int64 coder")),
-        lambda x: P.int64(int(x)).value,
-    ),
-    "float32": _mk_term_coder(
-        TypeLiteral(LiteralType.FLOAT),
-        lambda t: float(_literal_value(t, "float32 coder")),
-        lambda x: P.float32(float(x)).value,
-    ),
-    "float64": _mk_term_coder(
-        TypeLiteral(LiteralType.FLOAT),
-        lambda t: float(_literal_value(t, "float64 coder")),
-        lambda x: P.float64(float(x)).value,
-    ),
-}

@@ -120,15 +120,15 @@ def compile_morphism(morphism: Morphism, graph=None, backend=None) -> CompiledPr
     )
 
 
-def _program_output(routes: dict[str, Morphism], route: str | None) -> Morphism:
-    """Return the explicit route, or the final route in source order."""
-    if not routes:
-        raise ValueError("compile_program: program defines no routes")
-    if route is not None:
-        if route not in routes:
-            raise KeyError(f"compile_program: unknown route {route!r}")
-        return routes[route]
-    return next(reversed(routes.values()))
+def _program_output(morphisms: dict[str, Morphism], target: str | None) -> Morphism:
+    """Return the explicit target, or the final target in source order."""
+    if not morphisms:
+        raise ValueError("compile_program: program defines no morphisms")
+    if target is not None:
+        if target not in morphisms:
+            raise KeyError(f"compile_program: unknown target {target!r}")
+        return morphisms[target]
+    return next(reversed(morphisms.values()))
 
 
 def _resolve_backend_spec(name: str) -> str:
@@ -144,7 +144,7 @@ def compile_program(
     *,
     env: dict[str, Morphism] | None = None,
     graph=None,
-    route: str | None = None,
+    target: str | None = None,
 ) -> CompiledProgram:
     """Parse, semantically construct, and compile a source program."""
     parsed = parse_program(src)
@@ -155,7 +155,7 @@ def compile_program(
         base_env.update(backend_env)
         backend = ops
     constructed = construct_program(parsed, base_env)
-    return compile_morphism(_program_output(constructed.routes, route), graph, backend=backend)
+    return compile_morphism(_program_output(constructed.morphisms, target), graph, backend=backend)
 
 
 def lower(morphism: Morphism, graph, _extra_prims=None):

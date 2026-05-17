@@ -83,6 +83,33 @@ src/unialg/
 └── __init__.py             Public surface
 ```
 
+## Design note — residuals and quantale-enriched structure
+
+Legacy contained an adjoint/residual mode for semiring tensor contraction:
+standard contraction used `plus_reduce(times)`, while adjoint mode used
+`times_reduce(residual)`. This corresponds to the order-theoretic residuation
+law:
+
+```text
+a ⊗ b ≤ c  iff  b ≤ (a ⇒ c)
+```
+
+This is related to posets, quantales, Galois connections, and enriched
+adjunctions, but the current project should not generalize it prematurely.
+
+Current sealed interpretation:
+
+- `tensors/semirings.py` owns the concrete residual hook through optional
+  `Semiring.adjoint`.
+- `Semiring.op_env(adjoint=True)` selects the tensor contraction role
+  `product=adjoint`, `fold=times_reduce`, `seed=one`.
+- A future `contract_morphism(sr, equation, adjoint=True)` should use that
+  selection when tensor contraction is implemented.
+- Do not add first-class `Quantale`, `Poset`, `EnrichedAdjunction`, or
+  inequality syntax until residuals become useful outside tensor contraction.
+- `Functor.category="poset"` remains a placeholder/guard, not a real enriched
+  functor implementation.
+
 ### Layer responsibilities
 
 | File | Layer | Hydra? |

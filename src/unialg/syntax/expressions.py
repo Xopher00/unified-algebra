@@ -231,8 +231,8 @@ class FocusDecl:
 
 @dataclass(frozen=True)
 class CarrierDecl:
-    """Surface recursive carrier declaration: ``carrier Nat = fix NatF``."""
-    functor: str
+    """Surface recursive carrier declaration: ``shape Nat = fix F``."""
+    functor: PolyExpr
 
 
 @dataclass(frozen=True)

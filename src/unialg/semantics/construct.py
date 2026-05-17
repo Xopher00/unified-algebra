@@ -16,6 +16,8 @@ from . import morphisms as ops
 from . import typeops as Ty
 from .morphisms import Morphism, MorphismError
 from .functors import Functor, poly_fmap
+from .optics import Optic, RecursiveCarrier, ana, cata, hylo, recursive_carrier
+from unialg.objects import monad_by_name
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,8 @@ class ConstructedProgram:
 
     routes: dict[str, Morphism]
     functors: dict[str, expr.PolyExpr]
+    carriers: dict[str, RecursiveCarrier]
+    focuses: dict[str, Optic]
 
 
 def _route_refs(node: expr.MorphismExpr) -> set[str]:
@@ -42,10 +46,60 @@ def _route_refs(node: expr.MorphismExpr) -> set[str]:
             for arg in args:
                 refs |= _route_refs(arg)
             return refs
+        case expr.RecursionApp(args=args):
+            refs = set()
+            for arg in args:
+                refs |= _route_refs(arg)
+            return refs
+        case expr.CarrierBoundary():
+            return set()
+        case expr.MonadicLift(body=body):
+            return _route_refs(body)
         case expr.AlgExpr(body=body):
             return _route_refs(body)
         case _:
             return set()
+
+
+def _resolve_poly_refs(
+    node: expr.PolyExpr,
+    functors: dict[str, expr.PolyExpr],
+    stack: tuple[str, ...] = (),
+) -> expr.PolyExpr:
+    """Inline named functor references inside a polynomial expression."""
+    match node:
+        case expr.PolyRef(name=name):
+            if name not in functors:
+                raise MorphismError(f"construct_program: unresolved functor {name!r}")
+            if name in stack:
+                cycle = " -> ".join((*stack, name))
+                raise MorphismError(f"construct_program: cyclic functor reference: {cycle}")
+            return _resolve_poly_refs(functors[name], functors, (*stack, name))
+        case expr.Prod(left=left, right=right):
+            return expr.Prod(
+                _resolve_poly_refs(left, functors, stack),
+                _resolve_poly_refs(right, functors, stack),
+            )
+        case expr.Sum(left=left, right=right):
+            return expr.Sum(
+                _resolve_poly_refs(left, functors, stack),
+                _resolve_poly_refs(right, functors, stack),
+            )
+        case expr.PolyCompose(left=left, right=right):
+            return expr.PolyCompose(
+                _resolve_poly_refs(left, functors, stack),
+                _resolve_poly_refs(right, functors, stack),
+            )
+        case expr.Exp(base=base, body=body):
+            return expr.Exp(base, _resolve_poly_refs(body, functors, stack))
+        case expr.List(body=body):
+            return expr.List(_resolve_poly_refs(body, functors, stack))
+        case expr.Maybe(body=body):
+            return expr.Maybe(_resolve_poly_refs(body, functors, stack))
+        case expr.Zero() | expr.One() | expr.Id() | expr.Const():
+            return node
+        case _:
+            raise TypeError(f"construct_program: unknown PolyExpr {type(node).__name__!r}")
 
 
 def construct_program(
@@ -60,9 +114,96 @@ def construct_program(
     """
 
     base_env = dict(env or {})
+    functors = {
+        name: _resolve_poly_refs(body, program.functors, (name,))
+        for name, body in program.functors.items()
+    }
     routes: dict[str, Morphism] = {}
+    carriers: dict[str, RecursiveCarrier] = {}
+    focuses: dict[str, Optic] = {}
     constructing: list[str] = []
+    constructing_focus: list[str] = []
     _cx = [L.empty_context()]
+
+    def resolve_carrier(name: str) -> RecursiveCarrier:
+        if name in carriers:
+            return carriers[name]
+        if name not in program.carriers:
+            raise MorphismError(f"construct_program: unresolved carrier {name!r}")
+
+        decl = program.carriers[name]
+        if decl.functor not in functors:
+            raise MorphismError(
+                f"construct_program: carrier {name!r} references unknown functor {decl.functor!r}"
+            )
+
+        functor = Functor(name=decl.functor, body=functors[decl.functor])
+        carrier = recursive_carrier(name, functor)
+        carriers[name] = carrier
+        return carrier
+
+    def resolve_focus_expr(node: expr.FocusExpr) -> Optic:
+        match node:
+            case expr.FocusRef(name=name):
+                return resolve_focus(name)
+            case expr.FocusCompose(left=left, right=right):
+                return resolve_focus_expr(left).compose(resolve_focus_expr(right))
+            case _:
+                raise TypeError(f"construct_program: unknown FocusExpr {type(node).__name__!r}")
+
+    def resolve_focus(name: str) -> Optic:
+        if name in focuses:
+            return focuses[name]
+        if name not in program.focuses:
+            raise MorphismError(f"construct_program: unresolved focus {name!r}")
+        if name in constructing_focus:
+            cycle = " -> ".join((*constructing_focus, name))
+            raise MorphismError(f"construct_program: cyclic focus reference: {cycle}")
+
+        decl = program.focuses[name]
+        if decl.expr is not None:
+            constructing_focus.append(name)
+            focus = resolve_focus_expr(decl.expr)
+            focuses[name] = focus
+            constructing_focus.pop()
+            return focus
+        if decl.carrier is not None:
+            focus = resolve_carrier(decl.carrier).optic()
+            focuses[name] = focus
+            return focus
+        if decl.functor is None or decl.forward is None or decl.backward is None:
+            raise MorphismError(f"construct_program: incomplete focus {name!r}")
+        if decl.functor not in functors:
+            raise MorphismError(f"construct_program: focus {name!r} references unknown functor {decl.functor!r}")
+
+        constructing_focus.append(name)
+        route_env = dict(base_env)
+        focus_route_refs = _route_refs(decl.forward) | _route_refs(decl.backward)
+        for ref in sorted(focus_route_refs):
+            if ref in program.routes and ref not in program.route_params:
+                route_env[ref] = resolve_route(ref)
+        route_env.update(routes)
+
+        forward = construct(
+            decl.forward, route_env, functors, program.routes, program.route_params, focuses, _cx,
+        )
+        backward = construct(
+            decl.backward, route_env, functors, program.routes, program.route_params, focuses, _cx,
+        )
+        functor = Functor(name=decl.functor, body=functors[decl.functor])
+        carrier = forward.dom()
+        layer = functor.apply(carrier)
+        try:
+            Ty.require_equal(None, forward.cod(), layer, f"focus {name}.forward")
+            Ty.require_equal(None, backward.dom(), layer, f"focus {name}.backward")
+            Ty.require_equal(None, backward.cod(), carrier, f"focus {name}.carrier")
+        except TypeError as e:
+            raise MorphismError(str(e)) from e
+
+        focus = Optic(functor=functor, forward=forward, backward=backward, carrier=carrier)
+        focuses[name] = focus
+        constructing_focus.pop()
+        return focus
 
     def resolve_route(name: str) -> Morphism:
         if name in routes:
@@ -81,16 +222,27 @@ def construct_program(
             if ref in program.routes and ref not in program.route_params:
                 route_env[ref] = resolve_route(ref)
         route_env.update(routes)
-        route = construct(program.routes[name], route_env, program.functors, program.routes, program.route_params, _cx)
+        route = construct(program.routes[name], route_env, functors, program.routes, program.route_params, focuses, _cx)
         routes[name] = route
         constructing.pop()
         return route
+
+    for name in program.carriers:
+        resolve_carrier(name)
+
+    for name in program.focuses:
+        resolve_focus(name)
 
     for name in program.routes:
         if name not in program.route_params:
             resolve_route(name)
 
-    return ConstructedProgram(routes=routes, functors=dict(program.functors))
+    return ConstructedProgram(
+        routes=routes,
+        functors=functors,
+        carriers=carriers,
+        focuses=focuses,
+    )
 
 
 def construct(
@@ -99,6 +251,7 @@ def construct(
     functor_env: dict[str, expr.PolyExpr] | None = None,
     route_bodies: dict[str, expr.MorphismExpr] | None = None,
     route_params: dict[str, tuple[str, ...]] | None = None,
+    focus_env: dict[str, Optic] | None = None,
     _cx: list | None = None,
 ) -> Morphism:
     """Resolve a parsed expression tree into a typed Morphism.
@@ -110,7 +263,7 @@ def construct(
         _cx = [L.empty_context()]
 
     def _recurse(n):
-        return construct(n, env, functor_env, route_bodies, route_params, _cx)
+        return construct(n, env, functor_env, route_bodies, route_params, focus_env, _cx)
 
     from unialg.objects import TypeUnit, ProductType, SumType
 
@@ -217,7 +370,7 @@ def construct(
                 local_env = dict(env)
                 for pname, arg_node in zip(declared_params, args):
                     local_env[pname] = _recurse(arg_node)
-                return construct(body, local_env, functor_env, route_bodies, route_params, _cx)
+                return construct(body, local_env, functor_env, route_bodies, route_params, focus_env, _cx)
             # Backend primitive with arity > 1: populate args
             resolved_fun = _recurse(fun)
             if isinstance(resolved_fun.node, expr.BackendPrim) and resolved_fun.node.arity > 1:
@@ -241,6 +394,48 @@ def construct(
             raise MorphismError(
                 f"construct: cannot apply {fun!r} (not parametric, not arity > 1)"
             )
+
+        case expr.RecursionApp(kind=kind, focus=focus_name, args=args):
+            foci = focus_env or {}
+            if focus_name not in foci:
+                raise MorphismError(f"construct: unresolved focus {focus_name!r}")
+            fp = foci[focus_name]
+            resolved_args = [_recurse(a) for a in args]
+            match kind:
+                case "cata":
+                    if len(resolved_args) != 1:
+                        raise MorphismError(f"construct: cata[{focus_name}] expects 1 arg, got {len(resolved_args)}")
+                    return cata(fp, resolved_args[0])
+                case "ana":
+                    if len(resolved_args) != 1:
+                        raise MorphismError(f"construct: ana[{focus_name}] expects 1 arg, got {len(resolved_args)}")
+                    return ana(fp, resolved_args[0])
+                case "hylo":
+                    if len(resolved_args) != 2:
+                        raise MorphismError(f"construct: hylo[{focus_name}] expects 2 args, got {len(resolved_args)}")
+                    return hylo(fp, resolved_args[0], resolved_args[1])
+                case _:
+                    raise MorphismError(f"construct: unknown recursion scheme {kind!r}")
+
+        case expr.CarrierBoundary(kind=kind, focus=focus_name):
+            foci = focus_env or {}
+            if focus_name not in foci:
+                raise MorphismError(f"construct: unresolved focus {focus_name!r}")
+            fp = foci[focus_name]
+            match kind:
+                case "roll":
+                    return fp.backward
+                case "unroll":
+                    return fp.forward
+                case _:
+                    raise MorphismError(f"construct: unknown carrier boundary {kind!r}")
+
+        case expr.MonadicLift(monad=monad_name, body=body):
+            try:
+                monad = monad_by_name(monad_name)
+            except ValueError as e:
+                raise MorphismError(str(e)) from e
+            return _recurse(body).to_lax(monad)
 
         case _:
             raise TypeError(f"construct: unhandled node {type(node).__name__!r}")

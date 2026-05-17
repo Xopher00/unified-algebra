@@ -15,7 +15,7 @@ from unialg.objects import TypeUnit, ProductType, SumType
 from unialg.syntax.expressions import (
     MorphismExpr, PolyExpr,
     Compose, SharedCompose, Parallel, Pair, Case,
-    Prod, Sum, List as PolyList,
+    Prod, Sum, PolyCompose, List as PolyList,
 )
 
 # ---------------------------------------------------------------------------
@@ -49,6 +49,7 @@ INDEX_OP   = createOp("[", False, 90, "left")
 STAR_OP    = createOp("*", False, 90, "left")
 
 # Functor operators
+FCOMPOSE_OP = createOp(symbol=">>", padding=True, precedence=50, associativity="left")
 FSTAR_OP = createOp(symbol="*", padding=False, precedence=80, associativity="left")
 FPROD_OP = createOp("&", True, 70, "left")
 FSUM_OP  = createOp("|", True, 60, "left")
@@ -65,6 +66,7 @@ _MORPHISM_OPS: dict[str, hast.Op] = {
 }
 
 _FUNCTOR_OPS: dict[str, hast.Op] = {
+    "COMPOSE": FCOMPOSE_OP,
     "STAR": FSTAR_OP,
     "PAIR": FPROD_OP,
     "CASE": FSUM_OP,
@@ -151,6 +153,11 @@ def make_prod(l: PolyExpr, r: PolyExpr) -> Prod:
 def make_sum(l: PolyExpr, r: PolyExpr) -> Sum:
     """Build a sum polynomial functor node."""
     return Sum(l, r)
+
+
+def make_poly_compose(l: PolyExpr, r: PolyExpr) -> PolyCompose:
+    """Build a diagrammatic polynomial functor composition node."""
+    return PolyCompose(l, r)
 
 
 def make_list(body: PolyExpr) -> PolyList:

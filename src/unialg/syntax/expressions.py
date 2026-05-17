@@ -193,6 +193,66 @@ class MorphismApp(MorphismExpr):
     args: tuple[MorphismExpr, ...]
 
 
+@dataclass(frozen=True)
+class RecursionApp(MorphismExpr):
+    """Recursive scheme application: cata[focus](...), ana[focus](...), hylo[focus](...)."""
+    kind: str
+    focus: str
+    args: tuple[MorphismExpr, ...]
+
+
+@dataclass(frozen=True)
+class CarrierBoundary(MorphismExpr):
+    """Recursive carrier boundary: ``roll[focus]`` or ``unroll[focus]``."""
+    kind: str
+    focus: str
+
+
+@dataclass(frozen=True)
+class MonadicLift(MorphismExpr):
+    """Lift a morphism into a built-in monad: ``pure[Maybe](f)``."""
+    monad: str
+    body: MorphismExpr
+
+
+@dataclass(frozen=True)
+class FocusDecl:
+    """Surface optic declaration.
+
+    A focus can either reference a recursive carrier, or explicitly provide a
+    functor with forward/backward boundary morphisms.
+    """
+    carrier: str | None = None
+    functor: str | None = None
+    forward: MorphismExpr | None = None
+    backward: MorphismExpr | None = None
+    expr: FocusExpr | None = None
+
+
+@dataclass(frozen=True)
+class CarrierDecl:
+    """Surface recursive carrier declaration: ``carrier Nat = fix NatF``."""
+    functor: str
+
+
+@dataclass(frozen=True)
+class FocusExpr:
+    """Base class for focus/optic expressions."""
+
+
+@dataclass(frozen=True)
+class FocusRef(FocusExpr):
+    """Unresolved focus name. Resolved by semantic construction."""
+    name: str
+
+
+@dataclass(frozen=True)
+class FocusCompose(FocusExpr):
+    """Focus composition: first ``left``, then ``right``."""
+    left: FocusExpr
+    right: FocusExpr
+
+
 @singledispatch
 def pretty(expr) -> str:
     """Render a DSL expression for humans.
@@ -245,6 +305,14 @@ def _pretty_morphism(expr: MorphismExpr) -> str:
             return f"cata({pretty(node.body)})"
         case Ana(node=node):
             return f"ana({pretty(node.body)})"
+        case MorphismApp(fun=fun, args=args):
+            return f"{pretty(fun)}({', '.join(pretty(a) for a in args)})"
+        case RecursionApp(kind=kind, focus=focus, args=args):
+            return f"{kind}[{focus}]({', '.join(pretty(a) for a in args)})"
+        case CarrierBoundary(kind=kind, focus=focus):
+            return f"{kind}[{focus}]"
+        case MonadicLift(monad=monad, body=body):
+            return f"pure[{monad}]({pretty(body)})"
         case Prim():
             return "prim"
         case _:
@@ -297,6 +365,13 @@ class Sum(PolyExpr):
 @dataclass(frozen=True)
 class Prod(PolyExpr):
     """F(X) = G(X) × H(X) — product of functors."""
+    left: PolyExpr
+    right: PolyExpr
+
+
+@dataclass(frozen=True)
+class PolyCompose(PolyExpr):
+    """F ∘ G in diagrammatic syntax: first ``left``, then ``right``."""
     left: PolyExpr
     right: PolyExpr
 
@@ -397,6 +472,8 @@ def _pretty_poly(expr: PolyExpr) -> str:
         if isinstance(expr.right, Sum):
             rs = f"({rs})"
         return f"{ls} * {rs}"
+    if isinstance(expr, PolyCompose):
+        return f"{pretty(expr.left)} >> {pretty(expr.right)}"
     if isinstance(expr, Exp):
         bs = pretty(expr.body)
         if isinstance(expr.body, (Sum, Prod)):

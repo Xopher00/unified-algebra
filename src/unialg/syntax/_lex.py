@@ -4,8 +4,8 @@
   tokenize_morphism(src) -> list[Token]   morphism expression tokens
   tokenize_functor(src)  -> list[Token]   functor expression tokens
 
-Reserved keywords: 'route' → ROUTE, 'map' → MAP. These may not be used
-as atom names inside expressions.
+Reserved keywords: 'route' → ROUTE, 'map' → MAP, 'focus' → FOCUS,
+'carrier' → CARRIER. These may not be used as atom names inside expressions.
 
 Imports: hydra.parsers only. No unialg imports.
 """
@@ -94,7 +94,13 @@ def _run(parser, src: str) -> list[Token]:
 # ---------------------------------------------------------------------------
 
 # Reserved top-level keywords — cannot be used as expression atom names.
-_KEYWORDS: dict[str, str] = {"route": "ROUTE", "map": "MAP", "load": "LOAD"}
+_KEYWORDS: dict[str, str] = {
+    "route": "ROUTE",
+    "map": "MAP",
+    "load": "LOAD",
+    "focus": "FOCUS",
+    "carrier": "CARRIER",
+}
 
 
 def _morphism_token():
@@ -138,6 +144,7 @@ tokenize = tokenize_morphism
 def _functor_token():
     """Return the smaller token parser used for standalone functor expressions."""
     return P.choice((
+        _lit(">>", "COMPOSE"),
         _lit("*",  "STAR"),
         _lit("&",  "PAIR"),
         _lit("|",  "CASE"),

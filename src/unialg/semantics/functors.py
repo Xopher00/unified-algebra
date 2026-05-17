@@ -183,6 +183,8 @@ def compose_poly(outer: expr.PolyExpr, inner: expr.PolyExpr) -> expr.PolyExpr:
             return expr.Prod(compose_poly(left, inner), compose_poly(right, inner))
         case expr.Sum(left, right):
             return expr.Sum(compose_poly(left, inner), compose_poly(right, inner))
+        case expr.PolyCompose(left, right):
+            return expr.PolyCompose(compose_poly(left, inner), compose_poly(right, inner))
         case expr.Exp(base, body):
             return expr.Exp(base, compose_poly(body, inner))
         case expr.List(body):
@@ -206,6 +208,8 @@ def apply_poly(body: expr.PolyExpr, space: Type) -> Type:
             return ProductType(apply_poly(left, space), apply_poly(right, space))
         case expr.Sum(left, right):
             return SumType(apply_poly(left, space), apply_poly(right, space))
+        case expr.PolyCompose(left, right):
+            return apply_poly(right, apply_poly(left, space))
         case expr.Zero():
             return VoidType()
         case expr.Exp(base, b):
@@ -250,4 +254,3 @@ def _collect_consts(node: expr.PolyExpr) -> list[Type]:
     if isinstance(node, (expr.List, expr.Maybe)):
         return _collect_consts(node.body)
     raise ValueError(f"_collect_consts: unknown PolyExpr {type(node).__name__!r}")
-

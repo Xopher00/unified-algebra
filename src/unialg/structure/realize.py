@@ -105,6 +105,9 @@ def poly_action_term(body: expr.PolyExpr, h: TTerm, monad: Monad | None = None) 
             left_action = poly_action_term(left, h, monad)
             right_action = poly_action_term(right, h, monad)
             return T.case_effects(monad, left_action, right_action)
+        case expr.PolyCompose(left, right):
+            left_action = poly_action_term(left, h, monad)
+            return poly_action_term(right, left_action, monad)
         case expr.Exp(_, body_inner):
             if monad is not None:
                 raise TypeError("_poly_action_term: Exp polynomials are not traversable for arbitrary monads")

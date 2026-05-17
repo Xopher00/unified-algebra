@@ -7,6 +7,7 @@ import hydra.dsl.meta.phantoms as P
 import hydra.lexical as L
 import hydra.sources.libraries as Libs
 from hydra.core import IntegerType, LiteralTypeInteger, Name, TypeLiteral
+from hydra.dsl.python import Just
 
 from unialg.syntax import expressions as expr
 from unialg.syntax._ops import make_compose, make_pair, make_par, make_case
@@ -14,6 +15,7 @@ from unialg.syntax.parse import parse_morphism, parse_program
 from unialg.semantics.morphisms import Morphism, MorphismError
 from unialg.semantics.construct import construct, construct_program
 from unialg.main import compile_morphism, run, load_backend, compile_program
+from unialg.objects import MAYBE
 
 def _has_module(name: str) -> bool:
     import importlib.util
@@ -177,11 +179,142 @@ class TestConstructProgram:
         cp = construct_program(prog, int_env)
         assert "g" in cp.routes
 
+    def test_focus_decl_resolves(self, int_env):
+        prog = parse_program(
+            "map Id = x\n"
+            "focus self = functor = Id forward = add1 backward = mul2\n"
+            "route folded = cata[self](add1)\n"
+            "route built = ana[self](add1)\n"
+            "route transformed = hylo[self](add1, add1)"
+        )
+        cp = construct_program(prog, int_env)
+        assert "self" in cp.focuses
+        assert cp.focuses["self"].carrier == INT
+        assert cp.routes["folded"].dom() == INT
+        assert cp.routes["folded"].cod() == INT
+        assert cp.routes["built"].dom() == INT
+        assert cp.routes["built"].cod() == INT
+        assert cp.routes["transformed"].dom() == INT
+        assert cp.routes["transformed"].cod() == INT
+
+    def test_recursive_carrier_focus_resolves(self):
+        prog = parse_program(
+            "map NatF = 1 | x\n"
+            "carrier Nat = fix NatF\n"
+            "focus nat = carrier = Nat"
+        )
+        cp = construct_program(prog)
+        assert "Nat" in cp.carriers
+        assert "nat" in cp.focuses
+        assert cp.focuses["nat"].carrier == cp.carriers["Nat"].typ
+        assert cp.focuses["nat"].forward.dom() == cp.carriers["Nat"].typ
+        assert cp.focuses["nat"].forward.cod() == cp.carriers["Nat"].layer
+        assert cp.focuses["nat"].backward.dom() == cp.carriers["Nat"].layer
+        assert cp.focuses["nat"].backward.cod() == cp.carriers["Nat"].typ
+
+    def test_recursive_carrier_boundaries_resolve(self):
+        prog = parse_program(
+            "map NatF = 1 | x\n"
+            "carrier Nat = fix NatF\n"
+            "focus nat = carrier = Nat\n"
+            "route inspect = unroll[nat]\n"
+            "route pack = roll[nat]\n"
+            "route zero = |0 >> roll[nat]\n"
+            "route succ = |1 >> roll[nat]"
+        )
+        cp = construct_program(prog)
+        carrier = cp.carriers["Nat"]
+        assert cp.routes["inspect"].dom() == carrier.typ
+        assert cp.routes["inspect"].cod() == carrier.layer
+        assert cp.routes["pack"].dom() == carrier.layer
+        assert cp.routes["pack"].cod() == carrier.typ
+        assert cp.routes["zero"].cod() == carrier.typ
+        assert cp.routes["succ"].dom() == carrier.typ
+        assert cp.routes["succ"].cod() == carrier.typ
+
+    def test_functor_composition_resolves(self):
+        prog = parse_program(
+            "map F = x | 1\n"
+            "map G = x & 1\n"
+            "map H = F >> G"
+        )
+        cp = construct_program(prog)
+        from unialg.semantics.functors import apply_poly
+        h_int = apply_poly(cp.functors["H"], INT)
+        expected = apply_poly(cp.functors["G"], apply_poly(cp.functors["F"], INT))
+        assert h_int == expected
+
+    def test_focus_composition_resolves(self):
+        prog = parse_program(
+            "map NatF = 1 | x\n"
+            "carrier Nat = fix NatF\n"
+            "focus nat = carrier = Nat\n"
+            "focus two_layers = nat >> nat\n"
+            "route inspect2 = unroll[two_layers]\n"
+            "route pack2 = roll[two_layers]"
+        )
+        cp = construct_program(prog)
+        carrier = cp.carriers["Nat"]
+        two_layers = cp.focuses["two_layers"]
+        assert two_layers.source == carrier.typ
+        assert cp.routes["inspect2"].dom() == carrier.typ
+        assert cp.routes["inspect2"].cod() == two_layers.forward.cod()
+        assert cp.routes["pack2"].dom() == two_layers.backward.dom()
+        assert cp.routes["pack2"].cod() == carrier.typ
+
+    def test_focus_composition_cycle_raises(self):
+        prog = parse_program("focus bad = bad >> bad")
+        with pytest.raises(MorphismError, match="cyclic focus"):
+            construct_program(prog)
+
+    def test_monadic_lift_resolves(self, int_env):
+        prog = parse_program("route maybe_add1 = pure[Maybe](add1)")
+        cp = construct_program(prog, int_env)
+        assert cp.routes["maybe_add1"].dom() == INT
+        assert cp.routes["maybe_add1"].cod() == INT
+        assert cp.routes["maybe_add1"].monad is MAYBE
+
+    def test_unknown_monad_raises(self, int_env):
+        prog = parse_program("route bad = pure[Unknown](add1)")
+        with pytest.raises(MorphismError, match="unknown monad"):
+            construct_program(prog, int_env)
+
+    def test_recursive_carrier_unknown_functor_raises(self):
+        prog = parse_program("carrier Nat = fix Missing\nfocus nat = carrier = Nat")
+        with pytest.raises(MorphismError, match="unknown functor"):
+            construct_program(prog)
+
+    def test_focus_unknown_carrier_raises(self):
+        prog = parse_program("focus nat = carrier = Nat")
+        with pytest.raises(MorphismError, match="unresolved carrier"):
+            construct_program(prog)
+
+    def test_focus_boundary_mismatch_raises(self, int_env):
+        prog = parse_program(
+            "map F = x & 1\n"
+            "focus bad = functor = F forward = add1 backward = mul2\n"
+            "route folded = cata[bad](add1)"
+        )
+        with pytest.raises(MorphismError, match="focus bad.forward"):
+            construct_program(prog, int_env)
+
+    def test_unknown_focus_raises(self, int_env):
+        prog = parse_program("route folded = cata[missing](add1)")
+        with pytest.raises(MorphismError, match="unresolved focus"):
+            construct_program(prog, int_env)
+
     def test_route_ref_runs(self, int_env, ctx, graph):
         prog = parse_program("route a = add1 >> mul2\nroute b = a >> add1")
         cp = construct_program(prog, int_env)
         result = run(cp.routes["b"], P.int32(5).value, ctx, graph)
         assert result.value.value.value == (5 + 1) * 2 + 1
+
+    def test_monadic_lift_runs(self, int_env, ctx, graph):
+        prog = parse_program("route maybe_add1 = pure[Maybe](add1)")
+        cp = construct_program(prog, int_env)
+        result = run(cp.routes["maybe_add1"], P.int32(5).value, ctx, graph)
+        assert isinstance(result.value, Just)
+        assert result.value.value.value.value.value == 6
 
 
 # ---------------------------------------------------------------------------
@@ -296,3 +429,37 @@ class TestLoadDirective:
         )
         for op in ("add", "multiply", "tanh", "exp", "log"):
             assert op in env, f"{backend} missing {op}"
+
+
+def _peano_value(value) -> int:
+    n = 0
+    while True:
+        tag, payload = value
+        if tag == "left":
+            return n
+        if tag != "right":
+            raise AssertionError(f"unexpected Peano layer: {value!r}")
+        n += 1
+        value = payload
+
+
+class TestMonadicRecursionDsl:
+    def test_maybe_cata_runs(self):
+        prog = compile_program(
+            """
+            map NatF = 1 | x
+            carrier Nat = fix NatF
+            focus nat = carrier = Nat
+
+            route zero = |0 >> roll[nat]
+            route succ = |1 >> roll[nat]
+            route one = zero >> succ
+            route two = one >> succ
+            route three = two >> succ
+
+            route safe_id = cata[nat](pure[Maybe](zero | succ))
+            route maybe_three = three >> safe_id
+            """,
+            route="maybe_three",
+        )
+        assert _peano_value(prog.run()) == 3

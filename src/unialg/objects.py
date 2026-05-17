@@ -78,6 +78,18 @@ class Monad:
 
 MAYBE: Monad = Monad(TypeMaybe, Names.maybes_bind, Names.maybes_pure)
 LIST: Monad = Monad(TypeList, Names.lists_bind, Names.lists_pure)
+MONADS: dict[str, Monad] = {
+    "Maybe": MAYBE,
+    "List": LIST,
+}
+
+
+def monad_by_name(name: str) -> Monad:
+    """Resolve a built-in monad descriptor by DSL name."""
+    try:
+        return MONADS[name]
+    except KeyError as e:
+        raise ValueError(f"unknown monad {name!r}") from e
 
 
 def repeated_product(t: Type, n: int) -> Type:

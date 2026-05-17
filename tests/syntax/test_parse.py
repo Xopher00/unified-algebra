@@ -14,7 +14,7 @@ from unialg.syntax import expressions as expr
 valid_names = st.from_regex(r"[a-z][a-z0-9_.]*", fullmatch=True).filter(
     lambda n: n not in ("id", "identity", "copy", "dup", "delete", "drop", "del",
                         "absurd", "assoc", "sym", "symmetry", "x",
-                        "route", "map", "load")
+                        "route", "map", "load", "focus", "carrier")
 )
 
 structural_keywords = st.sampled_from(["id", "identity", "copy", "absurd", "assoc", "sym"])
@@ -76,6 +76,37 @@ class TestMorphismAtoms:
         tree = parse_morphism(name)
         assert isinstance(tree, expr.Ref)
         assert tree.name == name
+
+    def test_cata_app(self):
+        tree = parse_morphism("cata[nat](alg)")
+        assert isinstance(tree, expr.RecursionApp)
+        assert tree.kind == "cata"
+        assert tree.focus == "nat"
+        assert len(tree.args) == 1
+
+    def test_hylo_app(self):
+        tree = parse_morphism("hylo[nat](coalg, alg)")
+        assert isinstance(tree, expr.RecursionApp)
+        assert tree.kind == "hylo"
+        assert tree.focus == "nat"
+        assert len(tree.args) == 2
+
+    def test_carrier_boundary(self):
+        tree = parse_morphism("roll[nat]")
+        assert isinstance(tree, expr.CarrierBoundary)
+        assert tree.kind == "roll"
+        assert tree.focus == "nat"
+
+        tree = parse_morphism("unroll[nat]")
+        assert isinstance(tree, expr.CarrierBoundary)
+        assert tree.kind == "unroll"
+        assert tree.focus == "nat"
+
+    def test_monadic_lift(self):
+        tree = parse_morphism("pure[Maybe](add1)")
+        assert isinstance(tree, expr.MonadicLift)
+        assert tree.monad == "Maybe"
+        assert isinstance(tree.body, expr.Ref)
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +234,12 @@ class TestFunctorParse:
         assert isinstance(tree, expr.PolyRef)
         assert tree.name == "MyFunctor"
 
+    def test_functor_composition(self):
+        tree = parse_functor("F >> G")
+        assert isinstance(tree, expr.PolyCompose)
+        assert isinstance(tree.left, expr.PolyRef) and tree.left.name == "F"
+        assert isinstance(tree.right, expr.PolyRef) and tree.right.name == "G"
+
     def test_nested(self):
         tree = parse_functor("List[x & 1]")
         assert isinstance(tree, expr.List)
@@ -241,6 +278,38 @@ class TestProgramParse:
     def test_route_params(self):
         prog = parse_program("route f(theta, bias) = theta >> bias")
         assert prog.route_params["f"] == ("theta", "bias")
+
+    def test_focus_decl(self):
+        prog = parse_program(
+            "map Id = x\n"
+            "focus self = functor = Id forward = add1 backward = mul2\n"
+            "route folded = cata[self](add1)"
+        )
+        assert prog.focuses["self"].functor == "Id"
+        assert isinstance(prog.focuses["self"].forward, expr.Ref)
+        assert isinstance(prog.routes["folded"], expr.RecursionApp)
+
+    def test_carrier_decl(self):
+        prog = parse_program("map NatF = 1 | x\ncarrier Nat = fix NatF")
+        assert prog.carriers["Nat"].functor == "NatF"
+
+    def test_carrier_focus_decl(self):
+        prog = parse_program(
+            "map NatF = 1 | x\n"
+            "carrier Nat = fix NatF\n"
+            "focus nat = carrier = Nat"
+        )
+        assert prog.focuses["nat"].carrier == "Nat"
+        assert prog.focuses["nat"].functor is None
+
+    def test_focus_composition_decl(self):
+        prog = parse_program(
+            "map NatF = 1 | x\n"
+            "carrier Nat = fix NatF\n"
+            "focus nat = carrier = Nat\n"
+            "focus two_layers = nat >> nat"
+        )
+        assert isinstance(prog.focuses["two_layers"].expr, expr.FocusCompose)
 
     def test_invalid_keyword_raises(self):
         with pytest.raises(ParseError):

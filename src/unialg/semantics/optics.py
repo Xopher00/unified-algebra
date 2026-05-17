@@ -15,12 +15,17 @@ Lens, Prism, and Traversal are specific functor choices:
     Prism  — F = Sum(Id, Const(residue))    sum focus
     Traversal — arbitrary polynomial F      multi-element focus
 
-No Hydra imports.  No encoding logic.  The action methods return semantic
-``Morphism`` values; ``structure/realize.py`` lowers deferred recursion nodes.
+No backend encoding logic.  The action methods return semantic ``Morphism``
+values; ``structure/realize.py`` lowers deferred recursion nodes.  Recursive
+carriers use small Hydra type/term constructors for their roll/unroll boundary
+morphisms.
 """
 
 from __future__ import annotations
 from dataclasses import dataclass, field
+
+from hydra.core import Name, TypeVariable
+import hydra.dsl.meta.phantoms as P
 
 from . import typeops as Ty
 from .functors import Functor
@@ -115,6 +120,51 @@ class Optic:
     def compose(self, inner: Optic) -> Optic:
         """Compose two optics: focus through ``outer`` then ``inner``."""
         return _compose_optic(self, inner)
+
+
+@dataclass(frozen=True)
+class RecursiveCarrier:
+    """Semantic fixed-point carrier for a polynomial functor.
+
+    ``typ`` is an opaque carrier type standing for ``μ functor``. ``roll`` and
+    ``unroll`` are the structural boundary morphisms between the carrier and one
+    functor layer. The current runtime representation is layer-shaped, so these
+    boundaries are identity terms with distinct semantic types.
+    """
+
+    name: str
+    functor: Functor
+    typ: Type
+    roll: Morphism
+    unroll: Morphism
+
+    @property
+    def layer(self) -> Type:
+        """One unrolled layer, ``F(μF)``."""
+        return self.functor.apply(self.typ)
+
+    def optic(self) -> Optic:
+        """Return the recursive optic induced by this carrier."""
+        return Optic(
+            functor=self.functor,
+            forward=self.unroll,
+            backward=self.roll,
+            carrier=self.typ,
+        )
+
+
+def recursive_carrier(name: str, functor: Functor) -> RecursiveCarrier:
+    """Build a nominal fixed-point carrier and its roll/unroll boundaries."""
+    typ = TypeVariable(Name(f"unialg.carrier.{name}"))
+    layer = functor.apply(typ)
+    raw_identity = P.lam("x", P.var("x")).value
+    return RecursiveCarrier(
+        name=name,
+        functor=functor,
+        typ=typ,
+        roll=Morphism(expr.Prim(raw_identity, layer, typ)),
+        unroll=Morphism(expr.Prim(raw_identity, typ, layer)),
+    )
     
 
 def _compose_optic(outer: Optic, inner: Optic) -> Optic:

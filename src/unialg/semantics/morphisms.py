@@ -346,19 +346,20 @@ def compose(f: Morphism, g: Morphism, *, shared_context: bool = False,
     ``g.param × f.param``.  With ``shared_context=True``, matching non-unit
     params are shared instead; distinct non-unit params are rejected.
     """
+    dom = f.dom()
     try:
-        Ty.unify_or_equal(
-            graph, f.cod(), g.dom(),
-            "Cannot compose morphisms",
-            allow_unification=allow_unification,
-        )
+        if allow_unification and f.cod() != g.dom():
+            match = Ty.unify(f.cod(), g.dom(), "Cannot compose morphisms")
+            dom = Ty.apply_subst(match.substitution, dom)
+        else:
+            Ty.require_equal(graph, f.cod(), g.dom(), "Cannot compose morphisms")
     except TypeError as e:
         raise MorphismError(str(e)) from e
     return _contextual_binary(
         expr.Compose,
         f,
         g,
-        f.dom(),
+        dom,
         g.cod(),
         shared_context=shared_context,
         graph=graph,
@@ -429,4 +430,3 @@ def case(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, 
         graph=graph,
         allow_unification=allow_unification,
     )
-

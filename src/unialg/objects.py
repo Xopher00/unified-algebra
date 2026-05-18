@@ -13,8 +13,8 @@ from typing import cast
 import hydra.dsl.types as T
 import hydra.show.core as ShowCore
 from hydra.core import (
-    Name, Type, TypeEither, TypeFunction, TypePair, TypeList, 
-    TypeMaybe, TypeVoid, TypeScheme, TypeUnit, TypeVariable,
+    LiteralType, Name, Type, TypeEither, TypeFunction, TypePair, TypeList, 
+    TypeLiteral, TypeMaybe, TypeVoid, TypeScheme, TypeUnit, TypeVariable,
 )
 from hydra.lib import names as Names
 
@@ -32,6 +32,9 @@ def SumType(left: Type, right: Type) -> TypeEither:
 def ExpType(left: Type, right: Type) -> TypeFunction:
     """Build the exponentiated function type, used in functors"""
     return cast(TypeFunction, T.function(left, right))
+
+
+BINARY: TypeLiteral = TypeLiteral(LiteralType.BINARY)
 
 
 def ListType(inner: Type) -> TypeList:

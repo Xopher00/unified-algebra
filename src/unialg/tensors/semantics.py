@@ -3,7 +3,7 @@
 Converts parsed declarations and expressions into typed substrate objects.
 No Hydra terms, no runtime calls, no backend-specific code.
 
-Imports from substrate: Morphism, objects (types), expressions (Prim).
+Imports from substrate: Morphism and objects/types.
 Does NOT import from runtime/, structure/, or any backend library.
 """
 from __future__ import annotations
@@ -11,23 +11,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from unialg.semantics.morphisms import Morphism, MorphismError
-from unialg.syntax import expressions as expr
-from unialg.objects import repeated_product
-from unialg.runtime.codecs import type_from_spec
+from unialg.objects import BINARY, repeated_product
 
 from .notation import SemiringDecl, ContractExpr, Equation
 from .semirings import Semiring
 
-BINARY = type_from_spec("BINARY")
-
 
 # ---------------------------------------------------------------------------
-# Staging nodes for deferred lowering (Phase 5)
+# Internal compile data for tensor contraction lowering
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class ContractSpec:
-    """Staging node: a semiring contraction to be lowered in Phase 5."""
+    """Internal tensor contraction spec consumed before returning to core semantics."""
     semiring: Semiring
     equation: Equation
     adjoint: bool = False
@@ -96,25 +92,25 @@ def _parse_identity_value(value: str | float) -> float:
 
 
 # ---------------------------------------------------------------------------
-# contract_morphism: equation + semiring → Morphism(Prim(ContractSpec))
+# contract_morphism: equation + semiring → composed Morphism
 # ---------------------------------------------------------------------------
 
 def contract_morphism(
     sr: Semiring,
     equation: str,
     *,
+    context=None,
     adjoint: bool = False,
 ) -> Morphism:
     """Build a contraction Morphism from a semiring and equation string.
 
-    Returns a staging ``Prim(ContractSpec)`` that composes with any other
-    Morphism via standard substrate combinators.  Lowering to executable
-    substrate happens in Phase 5 (``tensors/primitives.py``).
+    Returns a normal substrate ``Morphism`` composed from primitive leaves and
+    core combinators. ``ContractSpec`` is internal tensor compile data only.
     """
     eq = Equation.parse(equation)
     spec = ContractSpec(semiring=sr, equation=eq, adjoint=adjoint)
-    aux = _collect_semiring_aux(sr)
-    return Morphism(expr.Prim(spec, spec.dom, spec.cod), aux_primitives=aux)
+    from .primitives import compile_contract_spec
+    return compile_contract_spec(spec, context)
 
 
 def _collect_semiring_aux(sr: Semiring) -> tuple:
@@ -142,12 +138,10 @@ def construct(declarations: list, env: dict) -> dict:
 
 
 def construct_expr(node, env: dict) -> Morphism:
-    """Resolve a ContractExpr into a Morphism(Prim(ContractSpec))."""
+    """Resolve a ContractExpr into a composed substrate Morphism."""
     if not isinstance(node, ContractExpr):
         raise TypeError(f"tensor construct_expr: unexpected {type(node).__name__!r}")
 
-    from unialg.extensions import get_domain_protocol
-    protocol = get_domain_protocol("tensors")
     domain_data = env.get("_domain_data", {}).get("tensors", {})
     semirings = domain_data.get("semirings", {})
 
@@ -156,7 +150,12 @@ def construct_expr(node, env: dict) -> Morphism:
             f"contract references unknown algebra '{node.semiring_name}'"
         )
     sr = semirings[node.semiring_name]
-    return contract_morphism(sr, node.equation_str, adjoint=node.adjoint)
+    return contract_morphism(
+        sr,
+        node.equation_str,
+        context=env.get("_domain_context"),
+        adjoint=node.adjoint,
+    )
 
 
 def refs(node) -> set[str]:

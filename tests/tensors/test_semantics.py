@@ -4,9 +4,10 @@ from pathlib import Path
 
 from unialg.syntax import expressions as expr
 from unialg.objects import ProductType
+from unialg.runtime import BackendOps
+from unialg.semantics.morphisms import Morphism
 from unialg.tensors.semantics import (
     BINARY,
-    ContractSpec,
     resolve_semiring,
     contract_morphism,
     construct,
@@ -20,8 +21,19 @@ SPEC = str(Path(__file__).parent.parent.parent / "src" / "unialg" / "runtime" / 
 
 
 @pytest.fixture
-def numpy_env():
-    return load_backend(SPEC)
+def numpy_backend():
+    return BackendOps.from_spec(SPEC)
+
+
+@pytest.fixture
+def numpy_env(numpy_backend):
+    return {
+        name: Morphism(
+            node=expr.BackendPrim(bp.primitive, bp.arity, bp.dom, bp.result_type),
+            aux_primitives=(bp.primitive,),
+        )
+        for name, bp in numpy_backend.primitives.items()
+    }
 
 
 @pytest.fixture
@@ -102,47 +114,48 @@ class TestResolveSemiring:
 
 
 class TestContractMorphism:
-    def test_matmul_types(self, real_semiring):
-        m = contract_morphism(real_semiring, "ij,jk->ik")
+    def test_matmul_types(self, real_semiring, numpy_backend):
+        m = contract_morphism(real_semiring, "ij,jk->ik", context=numpy_backend)
         assert m.dom() == ProductType(BINARY, BINARY)
         assert m.cod() == BINARY
 
-    def test_matvec_types(self, real_semiring):
-        m = contract_morphism(real_semiring, "ij,j->i")
+    def test_matvec_types(self, real_semiring, numpy_backend):
+        m = contract_morphism(real_semiring, "ij,j->i", context=numpy_backend)
         assert m.dom() == ProductType(BINARY, BINARY)
         assert m.cod() == BINARY
 
-    def test_single_input(self, real_semiring):
-        m = contract_morphism(real_semiring, "ij->i")
+    def test_single_input(self, real_semiring, numpy_backend):
+        m = contract_morphism(real_semiring, "ij->i", context=numpy_backend)
         assert m.dom() == BINARY
         assert m.cod() == BINARY
 
-    def test_three_inputs(self, real_semiring):
-        m = contract_morphism(real_semiring, "ij,jk,kl->il")
+    def test_three_inputs(self, real_semiring, numpy_backend):
+        m = contract_morphism(real_semiring, "ij,jk,kl->il", context=numpy_backend)
         expected = ProductType(ProductType(BINARY, BINARY), BINARY)
         assert m.dom() == expected
         assert m.cod() == BINARY
 
-    def test_node_is_prim_with_contract_spec(self, real_semiring):
-        m = contract_morphism(real_semiring, "ij,jk->ik")
-        assert isinstance(m.node, expr.Prim)
-        assert isinstance(m.node.raw, ContractSpec)
-        spec = m.node.raw
-        assert spec.semiring is real_semiring
-        assert spec.equation.reduced == ("j",)
-        assert spec.adjoint is False
+    def test_node_is_composed_substrate_not_contract_spec(self, real_semiring, numpy_backend):
+        m = contract_morphism(real_semiring, "ij,jk->ik", context=numpy_backend)
+        assert not isinstance(m.node, expr.Prim)
+        assert isinstance(m.node, expr.Compose)
 
-    def test_adjoint_mode(self, real_semiring):
+    def test_adjoint_mode_requires_adjoint(self, real_semiring, numpy_backend):
+        with pytest.raises(Exception, match="no adjoint"):
+            contract_morphism(real_semiring, "ij,jk->ik", context=numpy_backend, adjoint=True)
+
+    def test_adjoint_mode_with_adjoint(self, numpy_env, numpy_backend):
         decl = SemiringDecl(
             name="with_adj", plus="add", times="multiply",
             zero=0.0, one=1.0, adjoint="divide",
         )
-        # real_semiring doesn't have adjoint, build one that does
-        m = contract_morphism(real_semiring, "ij,jk->ik", adjoint=True)
-        assert m.node.raw.adjoint is True
+        sr = resolve_semiring(decl, numpy_env)
+        m = contract_morphism(sr, "ij,jk->ik", context=numpy_backend, adjoint=True)
+        assert m.dom() == ProductType(BINARY, BINARY)
+        assert m.cod() == BINARY
 
-    def test_aux_primitives_collected(self, real_semiring):
-        m = contract_morphism(real_semiring, "ij,jk->ik")
+    def test_aux_primitives_collected(self, real_semiring, numpy_backend):
+        m = contract_morphism(real_semiring, "ij,jk->ik", context=numpy_backend)
         assert len(m.aux_primitives) > 0
 
 
@@ -157,7 +170,7 @@ class TestConstructProtocol:
         sr = result["semirings"]["real"]
         assert sr.name == "real"
 
-    def test_construct_expr(self, numpy_env):
+    def test_construct_expr(self, numpy_env, numpy_backend):
         decls = [
             SemiringDecl(name="real", plus="add", times="multiply", zero=0.0, one=1.0),
         ]
@@ -165,6 +178,7 @@ class TestConstructProtocol:
         node = ContractExpr(semiring_name="real", equation_str="ij,jk->ik")
         env = dict(numpy_env)
         env["_domain_data"] = {"tensors": domain_data}
+        env["_domain_context"] = numpy_backend
         m = construct_expr(node, env)
         assert m.dom() == ProductType(BINARY, BINARY)
         assert m.cod() == BINARY

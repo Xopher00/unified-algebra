@@ -218,10 +218,10 @@ def construct_program(
         morphism_env = morphism_env_for(decl.forward)
         morphism_env.update(morphism_env_for(decl.backward))
         forward = construct(
-            decl.forward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx, domain_data,
+            decl.forward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx, domain_data, domain_context,
         )
         backward = construct(
-            decl.backward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx, domain_data,
+            decl.backward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx, domain_data, domain_context,
         )
         functor = Functor(name=decl.functor, body=functors[decl.functor])
         carrier = forward.dom()
@@ -295,6 +295,7 @@ def construct_program(
                 focuses,
                 _cx,
                 domain_data,
+                domain_context,
             )
             morphisms[name] = morphism
             return morphism
@@ -345,6 +346,7 @@ def construct(
     focus_env: dict[str, Optic] | None = None,
     _cx: list | None = None,
     _domain_data: dict[str, object] | None = None,
+    _domain_context: object | None = None,
 ) -> Morphism:
     """Resolve a parsed expression tree into a typed Morphism.
 
@@ -358,7 +360,7 @@ def construct(
         _cx = [L.empty_context()]
 
     def _recurse(n):
-        return construct(n, env, functor_env, morphism_bodies, morphism_params, focus_env, _cx, _domain_data)
+        return construct(n, env, functor_env, morphism_bodies, morphism_params, focus_env, _cx, _domain_data, _domain_context)
 
     from unialg.objects import TypeUnit, ProductType, SumType
 
@@ -386,7 +388,7 @@ def construct(
         local_env = dict(env)
         for pname, arg_node in zip(declared_params, args):
             local_env[pname] = _recurse(arg_node)
-        return construct(body, local_env, functor_env, morphism_bodies, morphism_params, focus_env, _cx, _domain_data)
+        return construct(body, local_env, functor_env, morphism_bodies, morphism_params, focus_env, _cx, _domain_data, _domain_context)
 
     def _apply_backend_primitive(resolved_fun: Morphism, fun, args: tuple[expr.MorphismExpr, ...]) -> Morphism:
         bp = resolved_fun.node
@@ -541,6 +543,7 @@ def construct(
             if protocol is not None:
                 ext_env = dict(env)
                 ext_env["_domain_data"] = _domain_data or {}
+                ext_env["_domain_context"] = _domain_context
                 return protocol.construct_expr(node, ext_env)
             raise TypeError(f"construct: no registered domain for tag {node._domain_tag!r}")
 

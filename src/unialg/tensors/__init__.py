@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from .notation import SemiringDecl, ContractExpr, Equation
 
-from unialg.syntax._pratt import ParseError as _ParseError
+from unialg.syntax.parse import ParseError as _ParseError
 
 
 

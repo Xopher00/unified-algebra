@@ -22,8 +22,8 @@ def _m():
 def full_semiring():
     plus = _m()
     times = _m()
-    zero = _m()
-    one = _m()
+    zero = 0.0
+    one = 1.0
     adjoint = _m()
     plus_r = _m()
     times_r = _m()
@@ -50,8 +50,8 @@ def partial_semiring():
         carrier=UNIT,
         plus=_m(),
         times=_m(),
-        zero=_m(),
-        one=_m(),
+        zero=0.0,
+        one=1.0,
     )
 
 
@@ -61,7 +61,7 @@ def partial_semiring():
 
 def test_semiring_fields_default_to_none():
     sr = Semiring(name="x", carrier=UNIT, plus=_m(), times=_m(),
-                  zero=_m(), one=_m())
+                  zero=0.0, one=1.0)
     assert sr.adjoint is None
     assert sr.plus_reduce is None
     assert sr.times_reduce is None
@@ -70,7 +70,7 @@ def test_semiring_fields_default_to_none():
 
 def test_semiring_is_frozen():
     sr = Semiring(name="x", carrier=UNIT, plus=_m(), times=_m(),
-                  zero=_m(), one=_m())
+                  zero=0.0, one=1.0)
     with pytest.raises((AttributeError, TypeError)):
         sr.name = "y"  # type: ignore[misc]
 
@@ -114,7 +114,7 @@ def test_op_env_adjoint_raises_when_adjoint_morphism_missing(partial_semiring):
 def test_op_env_adjoint_raises_when_times_reduce_missing():
     sr = Semiring(
         name="x", carrier=UNIT,
-        plus=_m(), times=_m(), zero=_m(), one=_m(),
+        plus=_m(), times=_m(), zero=0.0, one=1.0,
         adjoint=_m(),       # adjoint present
         plus_reduce=_m(),   # but times_reduce absent
     )

@@ -85,6 +85,7 @@ class BackendPrimitive:
     dom: Type
     arg_coder: TermCoder
     result_coder: TermCoder
+    fn: Callable
     # Operation metadata. BackendOps owns the adapter used at the whole-program
     # I/O boundary; primitive impls only need the RuntimeStore.
     binary_adapter: object | None = None
@@ -219,9 +220,19 @@ def register_backend_primitive(
         dom=repeated_product(arg_type, arity),
         arg_coder=arg_coder,
         result_coder=result_coder,
+        fn=fn,
         binary_adapter=binary_adapter,
         store=store,
     )
+
+
+def _resolve_structural(spec: dict) -> dict[str, Callable]:
+    """Resolve non-user-facing backend structural callables from spec metadata."""
+    backend_name = spec.get("backend", "<unknown>")
+    return {
+        name: _resolve_operation_function(backend_name, f"structural.{name}", path)
+        for name, path in spec.get("structural", {}).items()
+    }
 
 
 def load_spec(
@@ -323,17 +334,25 @@ class BackendOps:
         primitives: dict[str, BackendPrimitive],
         binary_adapter=None,
         store: RuntimeStore | None = None,
+        structural: dict[str, Callable] | None = None,
     ):
         self._primitives = primitives
         self._binary_adapter = binary_adapter
         self._store = store
+        self._structural = dict(structural or {})
         self._library = backend_library(primitives)
 
     @classmethod
     def from_spec(cls, spec: dict | str | Path) -> "BackendOps":
         """Construct from a JSON spec file path, path string, or parsed dict."""
-        primitives, binary_adapter, store = load_spec(spec)
-        return cls(primitives, binary_adapter=binary_adapter, store=store)
+        if isinstance(spec, (str, Path)):
+            with open(spec) as f:
+                spec_dict = json.load(f)
+        else:
+            spec_dict = spec
+        structural = _resolve_structural(spec_dict)
+        primitives, binary_adapter, store = load_spec(spec_dict)
+        return cls(primitives, binary_adapter=binary_adapter, store=store, structural=structural)
 
     @property
     def library(self) -> Library:
@@ -354,6 +373,15 @@ class BackendOps:
     def store(self) -> RuntimeStore | None:
         """The RuntimeStore for native tensor lifetime, or None."""
         return self._store
+
+    @property
+    def structural(self) -> dict[str, Callable]:
+        """Non-user-facing backend structural callables from backend JSON metadata."""
+        return self._structural
+
+    def structural_op(self, name: str) -> Callable:
+        """Return a structural callable declared in backend JSON metadata."""
+        return self._structural[name]
 
     def _put_input(self, v) -> bytes:
         """Convert an external input to native and return its store handle.

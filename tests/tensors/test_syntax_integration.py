@@ -84,25 +84,22 @@ class TestFullPipelineParse:
 
     def test_compile_program_with_contract(self):
         from unialg.main import compile_program
-        from unialg.tensors.semantics import ContractSpec
         from unialg.syntax import expressions as expr
 
         # This exercises: parse → extension dispatch → domain construct →
-        # construct_expr → contract_morphism. Compilation will hit the
-        # lowering stub (NotImplementedError) so we stop before compile.
+        # construct_expr → contract_morphism.
         from unialg.semantics.construct import construct_program
         prog = parse_program(
             'load numpy\n'
             'algebra real(plus=add, times=multiply, zero=0.0, one=1.0)\n'
             'let matmul = contract[real]("ij,jk->ik")'
         )
-        from unialg.main import load_backend, _resolve_backend_spec
-        env = load_backend(_resolve_backend_spec("numpy"))
-        constructed = construct_program(prog, env)
+        from unialg.main import _load_backend_with_runtime, _resolve_backend_spec
+        env, backend = _load_backend_with_runtime(_resolve_backend_spec("numpy"))
+        constructed = construct_program(prog, env, domain_context=backend)
         m = constructed.morphisms["matmul"]
-        assert isinstance(m.node, expr.Prim)
-        assert isinstance(m.node.raw, ContractSpec)
-        assert m.node.raw.equation.reduced == ("j",)
+        assert not isinstance(m.node, expr.Prim)
+        assert isinstance(m.node, expr.Compose)
 
 
 class TestContractExpression:

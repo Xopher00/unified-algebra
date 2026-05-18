@@ -36,8 +36,8 @@ def _semiring(
         carrier=UNIT,
         plus=plus or stub,
         times=times or stub,
-        zero=zero or stub,
-        one=one or stub,
+        zero=0.0 if zero is None else zero,
+        one=1.0 if one is None else one,
         adjoint=adjoint,
         plus_reduce=plus_reduce,
         times_reduce=times_reduce,
@@ -50,7 +50,7 @@ def _semiring(
 # ---------------------------------------------------------------------------
 
 @settings(max_examples=50)
-@given(plain_morphisms(), plain_morphisms(), plain_morphisms())
+@given(plain_morphisms(), plain_morphisms(), st.floats(allow_nan=False))
 def test_op_env_standard_product_is_always_times(times, plus_reduce, zero):
     sr = _semiring(times=times, plus_reduce=plus_reduce, zero=zero)
     env = sr.op_env(adjoint=False)
@@ -58,7 +58,7 @@ def test_op_env_standard_product_is_always_times(times, plus_reduce, zero):
 
 
 @settings(max_examples=50)
-@given(plain_morphisms(), plain_morphisms(), plain_morphisms())
+@given(plain_morphisms(), plain_morphisms(), st.floats(allow_nan=False))
 def test_op_env_standard_fold_is_always_plus_reduce(times, plus_reduce, zero):
     sr = _semiring(times=times, plus_reduce=plus_reduce, zero=zero)
     env = sr.op_env(adjoint=False)
@@ -66,7 +66,7 @@ def test_op_env_standard_fold_is_always_plus_reduce(times, plus_reduce, zero):
 
 
 @settings(max_examples=50)
-@given(plain_morphisms(), plain_morphisms(), plain_morphisms())
+@given(plain_morphisms(), plain_morphisms(), st.floats(allow_nan=False))
 def test_op_env_standard_seed_is_always_zero(times, plus_reduce, zero):
     sr = _semiring(times=times, plus_reduce=plus_reduce, zero=zero)
     env = sr.op_env(adjoint=False)
@@ -75,7 +75,7 @@ def test_op_env_standard_seed_is_always_zero(times, plus_reduce, zero):
 
 @settings(max_examples=50)
 @given(
-    plain_morphisms(), plain_morphisms(), plain_morphisms(),
+    plain_morphisms(), plain_morphisms(), st.floats(allow_nan=False),
     # extra optional fields — should be ignored by standard op_env
     plain_morphisms(), plain_morphisms(), plain_morphisms(),
 )
@@ -97,7 +97,7 @@ def test_op_env_standard_unaffected_by_optional_fields(
 # ---------------------------------------------------------------------------
 
 @settings(max_examples=50)
-@given(plain_morphisms(), plain_morphisms(), plain_morphisms())
+@given(plain_morphisms(), plain_morphisms(), st.floats(allow_nan=False))
 def test_op_env_adjoint_product_is_adjoint_morphism(adjoint, times_reduce, one):
     sr = _semiring(adjoint=adjoint, times_reduce=times_reduce, one=one)
     env = sr.op_env(adjoint=True)
@@ -105,7 +105,7 @@ def test_op_env_adjoint_product_is_adjoint_morphism(adjoint, times_reduce, one):
 
 
 @settings(max_examples=50)
-@given(plain_morphisms(), plain_morphisms(), plain_morphisms())
+@given(plain_morphisms(), plain_morphisms(), st.floats(allow_nan=False))
 def test_op_env_adjoint_fold_is_times_reduce(adjoint, times_reduce, one):
     sr = _semiring(adjoint=adjoint, times_reduce=times_reduce, one=one)
     env = sr.op_env(adjoint=True)
@@ -113,7 +113,7 @@ def test_op_env_adjoint_fold_is_times_reduce(adjoint, times_reduce, one):
 
 
 @settings(max_examples=50)
-@given(plain_morphisms(), plain_morphisms(), plain_morphisms())
+@given(plain_morphisms(), plain_morphisms(), st.floats(allow_nan=False))
 def test_op_env_adjoint_seed_is_one(adjoint, times_reduce, one):
     sr = _semiring(adjoint=adjoint, times_reduce=times_reduce, one=one)
     env = sr.op_env(adjoint=True)

@@ -1,5 +1,9 @@
 {
   "backend": "jax",
+  "structural": {
+    "expand_dims": "jax.numpy.expand_dims",
+    "transpose": "jax.numpy.transpose"
+  },
   "operations": {
     "add":              {"kind": "elementwise binary", "path": "jax.numpy.add",           "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},
     "subtract":         {"kind": "elementwise binary", "path": "jax.numpy.subtract",      "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},

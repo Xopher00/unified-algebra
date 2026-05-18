@@ -154,7 +154,7 @@ def compile_program(
         backend_env, ops = _load_backend_with_runtime(_resolve_backend_spec(backend_name))
         base_env.update(backend_env)
         backend = ops
-    constructed = construct_program(parsed, base_env)
+    constructed = construct_program(parsed, base_env, domain_context=backend)
     return compile_morphism(_program_output(constructed.morphisms, target), graph, backend=backend)
 
 

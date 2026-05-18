@@ -1,14 +1,15 @@
 """Semiring semantics for the unialg DSL.
 
 A semiring is a carrier type with two binary operations (⊕ and ⊗) and their
-identity elements.  All four components are ``Morphism`` objects so they
-participate in the typed composition machinery.
+identity elements.  The operations are ``Morphism`` objects so they participate
+in the typed composition machinery.  The identity elements are floats retained
+for semantic correctness checks; they are not runtime scalar morphisms.
 
 Invariants (not checked at construction, checked at use sites):
     plus  : carrier × carrier → carrier
     times : carrier × carrier → carrier
-    zero  : 1 → carrier          (additive identity for ⊕)
-    one   : 1 → carrier          (multiplicative identity for ⊗)
+    zero  : float                (additive identity for ⊕)
+    one   : float                (multiplicative identity for ⊗)
 
 Adjoint (right residual of ⊗, optional):
     adjoint : carrier × carrier → carrier
@@ -45,7 +46,7 @@ Morphism = morphisms.Morphism
 
 @dataclass(frozen=True)
 class Semiring:
-    """A semiring: carrier type plus two binary operations and their identities."""
+    """A semiring: carrier type plus two binary operations and float identities."""
     name: str
     carrier: Type
     plus: Morphism
@@ -65,7 +66,7 @@ class Semiring:
     # (runtime layer) because tensor semantics should not own backend loading.
     #
     # A user who already holds Morphisms constructs Semiring directly:
-    #   sr = Semiring("real", FLOAT, add_m, mul_m, zero_m, one_m,
+    #   sr = Semiring("real", FLOAT, add_m, mul_m, 0.0, 1.0,
     #                 adjoint=div_m)
     #
     # A convenience factory that resolves op names against a BackendOps instance

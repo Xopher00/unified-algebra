@@ -2,7 +2,8 @@
 
 Responsibility: produce a typed ``Morphism`` for a semiring contraction.  The
 result is assembled from the semiring's own sub-morphisms (``sr.plus``,
-``sr.times``, ``sr.zero``) — no new backend primitive is needed at this layer.
+``sr.times`` and reduce morphisms).  Identity values such as ``sr.zero`` and
+``sr.one`` are floats for semantic law checking, not scalar runtime morphisms.
 No Hydra term reduction and no Python-native numeric evaluation happen here.
 
 Layer position: tensors/ — receives a parsed index equation and a Semiring,
@@ -18,7 +19,7 @@ Core equation
 
 ⊕ = sr.plus   (carrier × carrier → carrier)
 ⊗ = sr.times  (carrier × carrier → carrier)
-ε = sr.zero   (1 → carrier, additive identity)
+ε = sr.zero   (float additive identity, reserved for semantic law checks)
 
 This is NOT numpy.einsum.  numpy.einsum is hardwired to + and ×.  Here ⊕ and
 ⊗ are arbitrary user-defined morphisms.  Change the semiring, change the
@@ -101,11 +102,11 @@ Expected public surface (not yet implemented)
 
           adjoint=False (standard):
             elementwise step → sr.times
-            fold step        → sr.plus   (seed: sr.zero)
+            fold step        → sr.plus_reduce   (identity value: sr.zero)
 
           adjoint=True:
             elementwise step → sr.adjoint   (right residual of ⊗)
-            fold step        → sr.times     (seed: sr.one)
+            fold step        → sr.times_reduce  (identity value: sr.one)
 
         Raises if adjoint=True and sr.adjoint is None.
 

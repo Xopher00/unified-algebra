@@ -36,6 +36,15 @@ class Equation:
         inputs = tuple(tuple(c for c in inp.strip()) for inp in input_strs)
         output = tuple(c for c in rhs.strip())
 
+        seen_output: set[str] = set()
+        duplicate_output: list[str] = []
+        for label in output:
+            if label in seen_output and label not in duplicate_output:
+                duplicate_output.append(label)
+            seen_output.add(label)
+        if duplicate_output:
+            raise ValueError(f"output labels must be unique: {tuple(duplicate_output)}")
+
         all_input_labels: set[str] = set()
         for inp in inputs:
             all_input_labels.update(inp)

@@ -14,11 +14,14 @@ import hydra.dsl.meta.phantoms as P
 import hydra.dsl.meta.lib.lists as Lists
 import hydra.dsl.meta.lib.maybes as Maybes
 import hydra.dsl.terms as Terms
+from hydra.dsl.python import Right
 from hydra.core import Name, Term
 from hydra.graph import Graph
 from hydra.lib import names as Names
 from hydra.phantoms import TTerm
 import hydra.hoisting as Hoisting
+import hydra.lexical as Lexical
+import hydra.reduction as Reduction
 import hydra.rewriting as Rewriting
 
 class MonadDescriptor(Protocol):
@@ -108,12 +111,20 @@ def optimize_term(term: TTerm | Term) -> TTerm:
     return TTerm(Rewriting.rewrite_term(rule, raw))
 
 
+def _reduce_with_graph(term: Term, graph: Graph) -> Term:
+    result = Reduction.reduce_term(Lexical.empty_context(), graph, True, term)
+    if isinstance(result, Right):
+        return result.value
+    return term
+
+
 def normalize_term(term: TTerm | Term, graph: Graph | None = None) -> TTerm:
     """Run structural normalization passes on a realized Hydra term."""
     out = optimize_term(term)
-    if graph is not None:
-        out = TTerm(Hoisting.hoist_case_statements(graph, out.value))
-    return out
+    if graph is None:
+        return out
+    reduced = _reduce_with_graph(out.value, graph)
+    return TTerm(Hoisting.hoist_case_statements(graph, reduced))
 
 
 def bind(monad: MonadDescriptor, value: TTerm, name: str,

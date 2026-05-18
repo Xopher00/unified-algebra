@@ -23,6 +23,8 @@ from hydra.core import Name, Field as CoreField
 from hydra.dsl.python import Right, Nothing
 from hydra.phantoms import TTerm
 
+from unialg.structure.terms import normalize_term
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -118,6 +120,13 @@ class TestProducts:
         p = P.pair(P.int32(10), P.string("b"))
         result = reduce(ctx, graph, P.first(p))
         assert result.value.value.value == 10
+
+    def test_normalize_term_uses_graph_reduction(self, graph):
+        term = P.first(P.pair(P.int32(10), P.string("b")))
+
+        result = normalize_term(term, graph)
+
+        assert result.value == P.int32(10).value
 
     def test_snd_law(self, ctx, graph):
         """snd(pair(a, b)) = b"""

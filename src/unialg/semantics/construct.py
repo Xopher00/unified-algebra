@@ -14,10 +14,21 @@ import hydra.lexical as L
 
 from . import morphisms as ops
 from . import typeops as Ty
+from ._construct_helpers import (
+    construct_carrier_boundary,
+    construct_domain_expr,
+    construct_domain_extensions,
+    construct_monadic_lift,
+    construct_poly_fmap,
+    construct_recursion_app,
+    finalize_domain_morphisms,
+    focus_alias_candidate,
+    morphism_refs,
+    resolve_poly_refs,
+)
 from .morphisms import Morphism, MorphismError
-from .functors import Functor, poly_fmap
-from .optics import Optic, RecursiveCarrier, ana, cata, hylo, recursive_carrier
-from unialg.objects import monad_by_name
+from .functors import Functor
+from .optics import Optic, RecursiveCarrier, recursive_carrier
 
 
 @dataclass(frozen=True)
@@ -29,110 +40,6 @@ class ConstructedProgram:
     carriers: dict[str, RecursiveCarrier]
     focuses: dict[str, Optic]
     domain_data: dict[str, object] = dataclass_field(default_factory=dict)
-
-
-def _morphism_refs(node: expr.MorphismExpr) -> set[str]:
-    """Collect morphism references from a parsed morphism expression."""
-    match node:
-        case expr.Ref(name=name):
-            return {name}
-        case (
-            expr.Identity()
-            | expr.Copy()
-            | expr.Delete()
-            | expr.First()
-            | expr.Second()
-            | expr.Left()
-            | expr.Right()
-            | expr.Absurd()
-            | expr.Assoc()
-            | expr.Symmetry()
-            | expr.Prim()
-            | expr.SelfRef()
-            | expr.CarrierBoundary()
-        ):
-            return set()
-        case expr.BackendPrim(args=args):
-            refs = set()
-            for arg in args:
-                refs |= _morphism_refs(arg)
-            return refs
-        case expr.MonadicEmbed(f=f):
-            return _morphism_refs(f)
-        case expr.ContextualBinary(f=f, g=g):
-            return _morphism_refs(f) | _morphism_refs(g)
-        case expr.PolyFmap(f=f):
-            return _morphism_refs(f)
-        case expr.MorphismApp(fun=fun, args=args):
-            refs = _morphism_refs(fun)
-            for arg in args:
-                refs |= _morphism_refs(arg)
-            return refs
-        case expr.RecursionApp(args=args):
-            refs = set()
-            for arg in args:
-                refs |= _morphism_refs(arg)
-            return refs
-        case expr.MonadicLift(body=body):
-            return _morphism_refs(body)
-        case expr.AlgExpr(body=body):
-            return _morphism_refs(body)
-        case _ if hasattr(node, '_domain_tag'):
-            return set()
-        case _:
-            raise TypeError(f"_morphism_refs: unknown MorphismExpr {type(node).__name__!r}")
-
-
-def _resolve_poly_refs(
-    node: expr.PolyExpr,
-    functors: dict[str, expr.PolyExpr],
-    stack: tuple[str, ...] = (),
-) -> expr.PolyExpr:
-    """Inline named functor references inside a polynomial expression."""
-    match node:
-        case expr.PolyRef(name=name):
-            if name not in functors:
-                raise MorphismError(f"construct_program: unresolved functor {name!r}")
-            if name in stack:
-                cycle = " -> ".join((*stack, name))
-                raise MorphismError(f"construct_program: cyclic functor reference: {cycle}")
-            return _resolve_poly_refs(functors[name], functors, (*stack, name))
-        case expr.Prod(left=left, right=right):
-            return expr.Prod(
-                _resolve_poly_refs(left, functors, stack),
-                _resolve_poly_refs(right, functors, stack),
-            )
-        case expr.Sum(left=left, right=right):
-            return expr.Sum(
-                _resolve_poly_refs(left, functors, stack),
-                _resolve_poly_refs(right, functors, stack),
-            )
-        case expr.PolyCompose(left=left, right=right):
-            return expr.PolyCompose(
-                _resolve_poly_refs(left, functors, stack),
-                _resolve_poly_refs(right, functors, stack),
-            )
-        case expr.Exp(base=base, body=body):
-            return expr.Exp(base, _resolve_poly_refs(body, functors, stack))
-        case expr.List(body=body):
-            return expr.List(_resolve_poly_refs(body, functors, stack))
-        case expr.Maybe(body=body):
-            return expr.Maybe(_resolve_poly_refs(body, functors, stack))
-        case expr.Zero() | expr.One() | expr.Id() | expr.Const():
-            return node
-        case _:
-            raise TypeError(f"construct_program: unknown PolyExpr {type(node).__name__!r}")
-
-
-def _focus_alias_candidate(node: expr.PolyExpr) -> bool:
-    """Return True when ``node`` could be an optic alias expression."""
-    match node:
-        case expr.PolyRef():
-            return True
-        case expr.PolyCompose(left=left, right=right):
-            return _focus_alias_candidate(left) and _focus_alias_candidate(right)
-        case _:
-            return False
 
 
 def construct_program(
@@ -164,7 +71,7 @@ def construct_program(
         if name not in raw_functors:
             raise MorphismError(f"construct_program: unresolved functor {name!r}")
         body = raw_functors[name]
-        resolved = _resolve_poly_refs(body, raw_functors, (name,))
+        resolved = resolve_poly_refs(body, raw_functors, (name,))
         functors[name] = resolved
         return resolved
 
@@ -175,7 +82,7 @@ def construct_program(
             raise MorphismError(f"construct_program: unresolved carrier {name!r}")
 
         decl = program.carriers[name]
-        functor_body = _resolve_poly_refs(decl.functor, raw_functors, (name,))
+        functor_body = resolve_poly_refs(decl.functor, raw_functors, (name,))
         functor = Functor(name=f"{name}F", body=functor_body)
         carrier = recursive_carrier(name, functor)
         carriers[name] = carrier
@@ -193,11 +100,19 @@ def construct_program(
 
     def morphism_env_for(node: expr.MorphismExpr) -> dict[str, Morphism]:
         morphism_env = dict(base_env)
-        for ref in sorted(_morphism_refs(node)):
-            if ref in program.morphisms and ref not in program.morphism_params:
-                morphism_env[ref] = resolve_morphism(ref)
+        for ref in sorted(morphism_refs(node)):
+            if ref not in program.morphisms or ref in program.morphism_params:
+                continue
+            morphism_env[ref] = resolve_morphism(ref)
         morphism_env.update(morphisms)
         return morphism_env
+
+    def focus_decl_for(name: str) -> expr.FocusDecl:
+        if name in program.focuses:
+            return program.focuses[name]
+        if name in raw_functors and focus_alias_candidate(raw_functors[name]):
+            return expr.FocusDecl(expr=poly_to_focus_expr(raw_functors[name]))
+        raise MorphismError(f"construct_program: unresolved focus {name!r}")
 
     def resolve_focus_alias(name: str, decl: expr.FocusDecl) -> Optic:
         if decl.expr is None:
@@ -246,13 +161,7 @@ def construct_program(
             focus = resolve_carrier(name).optic()
             focuses[name] = focus
             return focus
-        if name not in program.focuses:
-            if name in raw_functors and _focus_alias_candidate(raw_functors[name]):
-                decl = expr.FocusDecl(expr=poly_to_focus_expr(raw_functors[name]))
-            else:
-                raise MorphismError(f"construct_program: unresolved focus {name!r}")
-        else:
-            decl = program.focuses[name]
+        decl = focus_decl_for(name)
         if name in constructing_focus:
             cycle = " -> ".join((*constructing_focus, name))
             raise MorphismError(f"construct_program: cyclic focus reference: {cycle}")
@@ -312,35 +221,17 @@ def construct_program(
         try:
             resolve_functor(name)
         except MorphismError:
-            if not _focus_alias_candidate(body):
+            if not focus_alias_candidate(body):
                 raise
             resolve_focus(name)
 
-    for tag, decls in program.extensions.items():
-        from unialg.extensions import get_domain_protocol
-        protocol = get_domain_protocol(tag)
-        if protocol is not None:
-            ext_env = dict(base_env)
-            ext_env["_domain_context"] = domain_context
-            domain_data[tag] = protocol.construct(decls, ext_env)
+    domain_data = construct_domain_extensions(program, base_env, domain_context)
 
     for name in program.morphisms:
         if name not in program.morphism_params:
             resolve_morphism(name)
 
-    # Apply domain finalize hooks (e.g. tensor contraction fusion).
-    # Runs after all morphisms are resolved; hook rewrites and decomposes
-    # any DomainPrim nodes before lowering.
-    from unialg.extensions import get_domain_protocol, registered_domains
-    if registered_domains():
-        fin_env = dict(base_env)
-        fin_env["_domain_context"] = domain_context
-        fin_env["_domain_data"] = domain_data
-        for tag in registered_domains():
-            protocol = get_domain_protocol(tag)
-            if protocol is not None and protocol.finalize is not None:
-                for name in list(morphisms.keys()):
-                    morphisms[name] = protocol.finalize(morphisms[name], fin_env)
+    finalize_domain_morphisms(morphisms, base_env, domain_context, domain_data)
 
     return ConstructedProgram(
         morphisms=morphisms,
@@ -493,15 +384,7 @@ def construct(
             )
 
         case expr.PolyFmap(body=body, f=f):
-            fenv = functor_env or {}
-            if isinstance(body, expr.PolyRef):
-                if body.name not in fenv:
-                    raise MorphismError(f"construct: unresolved functor {body.name!r}")
-                resolved_body = fenv[body.name]
-            else:
-                resolved_body = body
-            functor = Functor(name="anonymous", body=resolved_body)
-            return poly_fmap(functor, _recurse(f))
+            return construct_poly_fmap(body, f, functor_env, _recurse)
 
         case expr.MorphismApp(fun=fun, args=args):
             params = morphism_params or {}
@@ -510,56 +393,16 @@ def construct(
             return _apply_backend_primitive(_recurse(fun), fun, args)
 
         case expr.RecursionApp(kind=kind, focus=focus_name, args=args):
-            foci = focus_env or {}
-            if focus_name not in foci:
-                raise MorphismError(f"construct: unresolved focus {focus_name!r}")
-            fp = foci[focus_name]
-            resolved_args = [_recurse(a) for a in args]
-            match kind:
-                case "cata":
-                    if len(resolved_args) != 1:
-                        raise MorphismError(f"construct: cata[{focus_name}] expects 1 arg, got {len(resolved_args)}")
-                    return cata(fp, resolved_args[0])
-                case "ana":
-                    if len(resolved_args) != 1:
-                        raise MorphismError(f"construct: ana[{focus_name}] expects 1 arg, got {len(resolved_args)}")
-                    return ana(fp, resolved_args[0])
-                case "hylo":
-                    if len(resolved_args) != 2:
-                        raise MorphismError(f"construct: hylo[{focus_name}] expects 2 args, got {len(resolved_args)}")
-                    return hylo(fp, resolved_args[0], resolved_args[1])
-                case _:
-                    raise MorphismError(f"construct: unknown recursion scheme {kind!r}")
+            return construct_recursion_app(kind, focus_name, args, focus_env, _recurse)
 
         case expr.CarrierBoundary(kind=kind, focus=focus_name):
-            foci = focus_env or {}
-            if focus_name not in foci:
-                raise MorphismError(f"construct: unresolved focus {focus_name!r}")
-            fp = foci[focus_name]
-            match kind:
-                case "roll":
-                    return fp.backward
-                case "unroll":
-                    return fp.forward
-                case _:
-                    raise MorphismError(f"construct: unknown carrier boundary {kind!r}")
+            return construct_carrier_boundary(kind, focus_name, focus_env)
 
         case expr.MonadicLift(monad=monad_name, body=body):
-            try:
-                monad = monad_by_name(monad_name)
-            except ValueError as e:
-                raise MorphismError(str(e)) from e
-            return _recurse(body).to_lax(monad)
+            return construct_monadic_lift(monad_name, body, _recurse)
 
         case _ if hasattr(node, '_domain_tag'):
-            from unialg.extensions import get_domain_protocol
-            protocol = get_domain_protocol(node._domain_tag)
-            if protocol is not None:
-                ext_env = dict(env)
-                ext_env["_domain_data"] = _domain_data or {}
-                ext_env["_domain_context"] = _domain_context
-                return protocol.construct_expr(node, ext_env)
-            raise TypeError(f"construct: no registered domain for tag {node._domain_tag!r}")
+            return construct_domain_expr(node, env, _domain_data, _domain_context)
 
         case _:
             raise TypeError(f"construct: unhandled node {type(node).__name__!r}")

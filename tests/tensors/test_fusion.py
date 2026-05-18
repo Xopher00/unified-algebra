@@ -188,6 +188,18 @@ class TestFusionStructural:
 
         assert isinstance(fused.node, expr.Compose)
 
+    def test_alpha_rename_uses_hydra_fresh_labels(self, real_semiring):
+        """Reduced-label collisions are not capped at ascii_lowercase."""
+        from unialg.tensors.fusion import _rename_reduced_labels
+
+        spec = contract_morphism(real_semiring, "az,z->a").node.raw
+        avoid = {chr(c) for c in range(ord("a"), ord("z") + 1)}
+
+        renamed = _rename_reduced_labels(spec, avoid)
+
+        assert renamed.equation.inputs == (("a", "z'"), ("z'",))
+        assert renamed.equation.reduced == ("z'",)
+
 
 # ---------------------------------------------------------------------------
 # Numerical equivalence tests

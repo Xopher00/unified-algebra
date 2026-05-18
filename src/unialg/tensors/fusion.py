@@ -8,9 +8,9 @@ No imports from ``unialg.runtime``, ``unialg.structure``, or ``unialg.main``.
 """
 from __future__ import annotations
 
-import string
 from collections.abc import Callable
 
+import hydra.names as HydraNames
 from hydra.core import Name, TypeVariable, TypePair, PairType, TypeUnit
 from hydra.dsl.python import FrozenDict
 from hydra.variables import substitute_type_variables
@@ -52,6 +52,36 @@ def _type_to_labels(typ) -> tuple[str, ...]:
     raise ValueError(f"unexpected type in label decode: {type(typ)}")
 
 
+def _labels_in_order(inputs: tuple[tuple[str, ...], ...]) -> tuple[str, ...]:
+    """Return input labels in first-seen order."""
+    seen: list[str] = []
+    seen_set: set[str] = set()
+    for inp in inputs:
+        for label in inp:
+            if label not in seen_set:
+                seen.append(label)
+                seen_set.add(label)
+    return tuple(seen)
+
+
+def _reduced_labels(
+    inputs: tuple[tuple[str, ...], ...],
+    output: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Derive reduced labels from inputs and output labels."""
+    output_set = set(output)
+    return tuple(label for label in _labels_in_order(inputs) if label not in output_set)
+
+
+def _equation_from_inputs(
+    inputs: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
+    output: tuple[str, ...],
+) -> Equation:
+    """Build an Equation with reduced labels derived consistently."""
+    merged = tuple(inputs)
+    return Equation(inputs=merged, output=output, reduced=_reduced_labels(merged, output))
+
+
 def _rename_reduced_labels(spec: ContractSpec, avoid: set[str]) -> ContractSpec:
     """Alpha-rename spec's reduced labels that collide with avoid set.
 
@@ -69,13 +99,9 @@ def _rename_reduced_labels(spec: ContractSpec, avoid: set[str]) -> ContractSpec:
 
     rename_map: dict[str, str] = {}
     for label in sorted(collisions):
-        for c in string.ascii_lowercase:
-            if c not in all_used:
-                rename_map[label] = c
-                all_used.add(c)
-                break
-        else:
-            raise MorphismError("exhausted single-character label names for alpha-rename")
+        fresh = HydraNames.unique_label(frozenset(all_used), label)
+        rename_map[label] = fresh
+        all_used.add(fresh)
 
     subst = FrozenDict({Name(old): Name(new) for old, new in rename_map.items()})
 
@@ -88,22 +114,9 @@ def _rename_reduced_labels(spec: ContractSpec, avoid: set[str]) -> ContractSpec:
         if spec.equation.output else ()
     )
 
-    all_inp_labels: set[str] = set()
-    for inp in renamed_inputs:
-        all_inp_labels.update(inp)
-    output_set = set(renamed_output)
-    seen: list[str] = []
-    seen_set: set[str] = set()
-    for inp in renamed_inputs:
-        for l in inp:
-            if l not in seen_set:
-                seen.append(l)
-                seen_set.add(l)
-    reduced = tuple(l for l in seen if l not in output_set)
-
     return ContractSpec(
         semiring=spec.semiring,
-        equation=Equation(renamed_inputs, renamed_output, reduced),
+        equation=_equation_from_inputs(renamed_inputs, renamed_output),
         adjoint=spec.adjoint,
         shape=spec.shape,
     )
@@ -136,6 +149,41 @@ def normalize_contracts(m: Morphism, env: dict) -> Morphism:
 # Bottom-up traversal helper
 # ---------------------------------------------------------------------------
 
+def _child_morphism(node, child, param) -> Morphism:
+    return Morphism(node=child, param=param, monad=node.monad, aux_primitives=())
+
+
+def _rebuild_contextual_binary(node, f_new: Morphism, g_new: Morphism) -> Morphism | None:
+    if isinstance(node, (expr.Compose, expr.SharedCompose)):
+        return ops.compose(f_new, g_new)
+    if isinstance(node, expr.Parallel):
+        return ops.par(f_new, g_new)
+    if isinstance(node, expr.Pair):
+        return ops.pair(f_new, g_new)
+    if isinstance(node, expr.Case):
+        return ops.case(f_new, g_new)
+    return None
+
+
+def _rewrite_contextual_children(m: Morphism, xf: Callable) -> Morphism:
+    node = m.node
+    if not isinstance(node, expr.ContextualBinary):
+        return m
+
+    if isinstance(node.f, expr.MonadicEmbed) or isinstance(node.g, expr.MonadicEmbed):
+        return m
+
+    f_m = _child_morphism(node, node.f, node.f_param)
+    g_m = _child_morphism(node, node.g, node.g_param)
+    f_new = _rewrite_bottom_up(f_m, xf)
+    g_new = _rewrite_bottom_up(g_m, xf)
+
+    if f_new.node is f_m.node and g_new.node is g_m.node:
+        return m
+
+    return _rebuild_contextual_binary(node, f_new, g_new) or m
+
+
 def _rewrite_bottom_up(m: Morphism, xf: Callable) -> Morphism:
     """Apply xf bottom-up, rebuilding ContextualBinary nodes when children change.
 
@@ -143,35 +191,7 @@ def _rewrite_bottom_up(m: Morphism, xf: Callable) -> Morphism:
     The return value is always the result of xf applied to the (possibly
     rebuilt) top-level node.
     """
-    node = m.node
-
-    if isinstance(node, expr.ContextualBinary):
-        f_node = node.f
-        g_node = node.g
-
-        # Skip traversal if children are monadically embedded — don't rewrite
-        # through monad boundaries in this pass.
-        if isinstance(f_node, expr.MonadicEmbed) or isinstance(g_node, expr.MonadicEmbed):
-            return xf(m)
-
-        f_m = Morphism(node=f_node, param=node.f_param, monad=node.monad, aux_primitives=())
-        g_m = Morphism(node=g_node, param=node.g_param, monad=node.monad, aux_primitives=())
-
-        f_new = _rewrite_bottom_up(f_m, xf)
-        g_new = _rewrite_bottom_up(g_m, xf)
-
-        if f_new.node is not f_m.node or g_new.node is not g_m.node:
-            if isinstance(node, (expr.Compose, expr.SharedCompose)):
-                m = ops.compose(f_new, g_new)
-            elif isinstance(node, expr.Parallel):
-                m = ops.par(f_new, g_new)
-            elif isinstance(node, expr.Pair):
-                m = ops.pair(f_new, g_new)
-            elif isinstance(node, expr.Case):
-                m = ops.case(f_new, g_new)
-            # Unknown ContextualBinary subclass — leave m unchanged
-
-    return xf(m)
+    return xf(_rewrite_contextual_children(m, xf))
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +207,21 @@ def _tensor_spec(node: expr.MorphismExpr) -> ContractSpec | None:
     ):
         return node.raw
     return None
+
+
+def _contract_morphism_from_spec(
+    spec: ContractSpec,
+    *,
+    param,
+    monad,
+) -> Morphism:
+    """Wrap a ContractSpec as a tensor DomainPrim Morphism."""
+    return Morphism(
+        node=expr.DomainPrim("tensors", spec, spec.dom, spec.cod),
+        param=param,
+        monad=monad,
+        aux_primitives=_collect_semiring_aux(spec.semiring),
+    )
 
 
 _ABSORB_FIELDS = ("inputs", "shape", "pre", "has_opaque", "has_absorbed")
@@ -269,6 +304,48 @@ def _absorb_par_tree(par_node, outer_inputs, outer_spec):
     )
 
 
+def _pair_tensor_branch(pair_node) -> tuple[ContractSpec, bool] | None:
+    """Return the contract branch and whether it is first in the Pair."""
+    left_spec = _tensor_spec(pair_node.f)
+    right_spec = _tensor_spec(pair_node.g)
+
+    if (left_spec is None) == (right_spec is None):
+        return None
+
+    if left_spec is not None:
+        if not isinstance(pair_node.g, expr.Identity):
+            return None
+        return left_spec, True
+
+    if not isinstance(pair_node.f, expr.Identity):
+        return None
+    return right_spec, False
+
+
+def _pair_slot_labels(
+    outer_inputs: list[tuple[str, ...]],
+    inner_n_inputs: int,
+    contract_first: bool,
+) -> tuple[tuple[str, ...], list[tuple[str, ...]]] | None:
+    """Return outer contract slot labels and shared identity labels."""
+    if len(outer_inputs) != 1 + inner_n_inputs:
+        return None
+
+    if contract_first:
+        return outer_inputs[0], outer_inputs[1:]
+    return outer_inputs[inner_n_inputs], outer_inputs[:inner_n_inputs]
+
+
+def _avoid_labels(
+    identity_slot_labels: list[tuple[str, ...]],
+    output: tuple[str, ...],
+) -> set[str]:
+    avoid = set(output)
+    for labels in identity_slot_labels:
+        avoid.update(labels)
+    return avoid
+
+
 def _try_fuse_pair(m: Morphism, pair_node, outer_spec) -> Morphism | None:
     """Fuse compose(Pair(c1, id), outer) into compose(Copy, fused_contract).
 
@@ -282,22 +359,10 @@ def _try_fuse_pair(m: Morphism, pair_node, outer_spec) -> Morphism | None:
     if pair_node.param != TU() or pair_node.monad is not None:
         return None
 
-    left_spec = _tensor_spec(pair_node.f)
-    right_spec = _tensor_spec(pair_node.g)
-
-    if (left_spec is None) == (right_spec is None):
+    branch = _pair_tensor_branch(pair_node)
+    if branch is None:
         return None
-
-    if left_spec is not None:
-        inner_spec = left_spec
-        if not isinstance(pair_node.g, expr.Identity):
-            return None
-        contract_first = True
-    else:
-        inner_spec = right_spec
-        if not isinstance(pair_node.f, expr.Identity):
-            return None
-        contract_first = False
+    inner_spec, contract_first = branch
 
     if inner_spec.semiring != outer_spec.semiring:
         return None
@@ -306,28 +371,17 @@ def _try_fuse_pair(m: Morphism, pair_node, outer_spec) -> Morphism | None:
 
     outer_inputs = list(outer_spec.equation.inputs)
     inner_n_inputs = len(inner_spec.equation.inputs)
-
-    expected_total = 1 + inner_n_inputs
-    if len(outer_inputs) != expected_total:
+    slots = _pair_slot_labels(outer_inputs, inner_n_inputs, contract_first)
+    if slots is None:
         return None
-
-    if contract_first:
-        contract_slot_labels = outer_inputs[0]
-        identity_slot_labels = outer_inputs[1:]
-    else:
-        identity_slot_labels = outer_inputs[:inner_n_inputs]
-        contract_slot_labels = outer_inputs[inner_n_inputs]
+    contract_slot_labels, identity_slot_labels = slots
 
     if inner_spec.equation.output != contract_slot_labels:
         return None
     if tuple(identity_slot_labels) != inner_spec.equation.inputs:
         return None
 
-    avoid: set[str] = set()
-    for labels in identity_slot_labels:
-        avoid.update(labels)
-    avoid.update(outer_spec.equation.output)
-
+    avoid = _avoid_labels(identity_slot_labels, outer_spec.equation.output)
     renamed_spec = _rename_reduced_labels(inner_spec, avoid)
 
     inner_shape = renamed_spec.shape or _left_nested_shape(inner_n_inputs)
@@ -340,18 +394,7 @@ def _try_fuse_pair(m: Morphism, pair_node, outer_spec) -> Morphism | None:
         fused_inputs = list(identity_slot_labels) + list(renamed_spec.equation.inputs)
         fused_shape = expr.Prod(id_shape, inner_shape)
 
-    merged = tuple(fused_inputs)
-    output_set = set(outer_spec.equation.output)
-    seen: list[str] = []
-    seen_set: set[str] = set()
-    for inp in merged:
-        for l in inp:
-            if l not in seen_set:
-                seen.append(l)
-                seen_set.add(l)
-    reduced = tuple(l for l in seen if l not in output_set)
-
-    fused_eq = Equation(inputs=merged, output=outer_spec.equation.output, reduced=reduced)
+    fused_eq = _equation_from_inputs(fused_inputs, outer_spec.equation.output)
     fused_spec = ContractSpec(
         semiring=inner_spec.semiring,
         equation=fused_eq,
@@ -359,11 +402,10 @@ def _try_fuse_pair(m: Morphism, pair_node, outer_spec) -> Morphism | None:
         shape=fused_shape,
     )
 
-    fused_contract = Morphism(
-        node=expr.DomainPrim("tensors", fused_spec, fused_spec.dom, fused_spec.cod),
+    fused_contract = _contract_morphism_from_spec(
+        fused_spec,
         param=m.param,
         monad=m.monad,
-        aux_primitives=_collect_semiring_aux(inner_spec.semiring),
     )
 
     shared_dom = pair_node.dom
@@ -408,32 +450,18 @@ def _try_fuse(m: Morphism) -> Morphism:
     if result.has_opaque and not result.has_absorbed:
         return m
 
-    merged = tuple(result.inputs)
-    fused_shape = result.shape
-
-    output_set = set(outer_spec.equation.output)
-    seen: list[str] = []
-    seen_set: set[str] = set()
-    for inp in merged:
-        for label in inp:
-            if label not in seen_set:
-                seen.append(label)
-                seen_set.add(label)
-    reduced = tuple(l for l in seen if l not in output_set)
-
-    fused_eq = Equation(inputs=merged, output=outer_spec.equation.output, reduced=reduced)
+    fused_eq = _equation_from_inputs(result.inputs, outer_spec.equation.output)
     fused_spec = ContractSpec(
         semiring=outer_spec.semiring,
         equation=fused_eq,
         adjoint=outer_spec.adjoint,
-        shape=fused_shape,
+        shape=result.shape,
     )
 
-    fused_contract = Morphism(
-        node=expr.DomainPrim("tensors", fused_spec, fused_spec.dom, fused_spec.cod),
+    fused_contract = _contract_morphism_from_spec(
+        fused_spec,
         param=m.param,
         monad=m.monad,
-        aux_primitives=_collect_semiring_aux(outer_spec.semiring),
     )
 
     if result.has_opaque:

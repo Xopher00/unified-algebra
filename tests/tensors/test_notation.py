@@ -85,6 +85,10 @@ class TestEquationParse:
         with pytest.raises(ValueError, match="not in any input"):
             Equation.parse("ij->iz")
 
+    def test_duplicate_output_label_raises(self):
+        with pytest.raises(ValueError, match="output labels must be unique"):
+            Equation.parse("i->ii")
+
 
 class TestTargetVars:
     def test_matmul(self):

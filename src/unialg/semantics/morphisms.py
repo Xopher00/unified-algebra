@@ -245,6 +245,8 @@ def signature(
             return dom, cod
         case expr.Prim(_, dom, cod):
             return dom, cod
+        case expr.DomainPrim(_, _, dom=dom, cod=cod):
+            return dom, cod
         case expr.BackendPrim(_, _, dom, cod):
             return dom, cod
         case expr.PolyFmap(dom=dom, cod=cod):

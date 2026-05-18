@@ -115,34 +115,36 @@ class TestResolveSemiring:
 
 class TestContractMorphism:
     def test_matmul_types(self, real_semiring, numpy_backend):
-        m = contract_morphism(real_semiring, "ij,jk->ik", context=numpy_backend)
+        m = contract_morphism(real_semiring, "ij,jk->ik")
         assert m.dom() == ProductType(BINARY, BINARY)
         assert m.cod() == BINARY
 
     def test_matvec_types(self, real_semiring, numpy_backend):
-        m = contract_morphism(real_semiring, "ij,j->i", context=numpy_backend)
+        m = contract_morphism(real_semiring, "ij,j->i")
         assert m.dom() == ProductType(BINARY, BINARY)
         assert m.cod() == BINARY
 
     def test_single_input(self, real_semiring, numpy_backend):
-        m = contract_morphism(real_semiring, "ij->i", context=numpy_backend)
+        m = contract_morphism(real_semiring, "ij->i")
         assert m.dom() == BINARY
         assert m.cod() == BINARY
 
     def test_three_inputs(self, real_semiring, numpy_backend):
-        m = contract_morphism(real_semiring, "ij,jk,kl->il", context=numpy_backend)
+        m = contract_morphism(real_semiring, "ij,jk,kl->il")
         expected = ProductType(ProductType(BINARY, BINARY), BINARY)
         assert m.dom() == expected
         assert m.cod() == BINARY
 
-    def test_node_is_composed_substrate_not_contract_spec(self, real_semiring, numpy_backend):
-        m = contract_morphism(real_semiring, "ij,jk->ik", context=numpy_backend)
-        assert not isinstance(m.node, expr.Prim)
-        assert isinstance(m.node, expr.Compose)
+    def test_node_is_domain_prim(self, real_semiring, numpy_backend):
+        """contract_morphism is now lazy: returns a DomainPrim pending finalize."""
+        from unialg.syntax.expressions import DomainPrim
+        m = contract_morphism(real_semiring, "ij,jk->ik")
+        assert isinstance(m.node, DomainPrim)
+        assert m.node.tag == "tensors"
 
     def test_adjoint_mode_requires_adjoint(self, real_semiring, numpy_backend):
         with pytest.raises(Exception, match="no adjoint"):
-            contract_morphism(real_semiring, "ij,jk->ik", context=numpy_backend, adjoint=True)
+            contract_morphism(real_semiring, "ij,jk->ik", adjoint=True)
 
     def test_adjoint_mode_with_adjoint(self, numpy_env, numpy_backend):
         decl = SemiringDecl(
@@ -150,12 +152,12 @@ class TestContractMorphism:
             zero=0.0, one=1.0, adjoint="divide",
         )
         sr = resolve_semiring(decl, numpy_env)
-        m = contract_morphism(sr, "ij,jk->ik", context=numpy_backend, adjoint=True)
+        m = contract_morphism(sr, "ij,jk->ik", adjoint=True)
         assert m.dom() == ProductType(BINARY, BINARY)
         assert m.cod() == BINARY
 
     def test_aux_primitives_collected(self, real_semiring, numpy_backend):
-        m = contract_morphism(real_semiring, "ij,jk->ik", context=numpy_backend)
+        m = contract_morphism(real_semiring, "ij,jk->ik")
         assert len(m.aux_primitives) > 0
 
 

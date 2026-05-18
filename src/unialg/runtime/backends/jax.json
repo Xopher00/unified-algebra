@@ -2,7 +2,8 @@
   "backend": "jax",
   "structural": {
     "expand_dims": "jax.numpy.expand_dims",
-    "transpose": "jax.numpy.transpose"
+    "transpose": "jax.numpy.transpose",
+    "take_diagonal": "jax.numpy.diagonal"
   },
   "operations": {
     "add":              {"kind": "elementwise binary", "path": "jax.numpy.add",           "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},

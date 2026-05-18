@@ -3,7 +3,8 @@
   "binary_adapter": {"dump": "numpy.save", "load": "numpy.load", "dump_style": "file_first"},
   "structural": {
     "expand_dims": "numpy.expand_dims",
-    "transpose": "numpy.transpose"
+    "transpose": "numpy.transpose",
+    "take_diagonal": "numpy.diagonal"
   },
   "operations": {
     "add":              {"kind": "elementwise binary", "path": "numpy.add",               "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},

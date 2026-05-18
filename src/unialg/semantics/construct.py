@@ -328,6 +328,20 @@ def construct_program(
         if name not in program.morphism_params:
             resolve_morphism(name)
 
+    # Apply domain finalize hooks (e.g. tensor contraction fusion).
+    # Runs after all morphisms are resolved; hook rewrites and decomposes
+    # any DomainPrim nodes before lowering.
+    from unialg.extensions import get_domain_protocol, registered_domains
+    if registered_domains():
+        fin_env = dict(base_env)
+        fin_env["_domain_context"] = domain_context
+        fin_env["_domain_data"] = domain_data
+        for tag in registered_domains():
+            protocol = get_domain_protocol(tag)
+            if protocol is not None and protocol.finalize is not None:
+                for name in list(morphisms.keys()):
+                    morphisms[name] = protocol.finalize(morphisms[name], fin_env)
+
     return ConstructedProgram(
         morphisms=morphisms,
         functors=functors,

@@ -3,7 +3,8 @@
   "binary_adapter": {"dump": "torch.save", "load": "torch.load", "dump_style": "value_first", "load_kwargs": {"weights_only": false}},
   "structural": {
     "expand_dims": "torch.unsqueeze",
-    "transpose": "torch.permute"
+    "transpose": "torch.permute",
+    "take_diagonal": "torch.diagonal"
   },
   "operations": {
     "add":              {"kind": "elementwise binary", "path": "torch.add",               "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},

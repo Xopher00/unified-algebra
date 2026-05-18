@@ -167,6 +167,20 @@ class Prim(MorphismExpr):
 
 
 @dataclass(frozen=True)
+class DomainPrim(MorphismExpr):
+    """Opaque domain-owned primitive. Must be rewritten before realize.
+
+    Carries a domain-specific payload (e.g. ContractSpec for the tensors domain).
+    The domain's ``finalize`` hook replaces every DomainPrim with a substrate
+    Morphism tree before ``realize`` is called.
+    """
+    tag: str    # which domain owns this (e.g. "tensors")
+    raw: object # domain-specific payload
+    dom: Type
+    cod: Type
+
+
+@dataclass(frozen=True)
 class BackendPrim(MorphismExpr):
     """Backend primitive: type info + Hydra Primitive, term built at realization.
 
@@ -315,6 +329,8 @@ def _pretty_morphism(expr: MorphismExpr) -> str:
             return f"pure[{monad}]({pretty(body)})"
         case Prim():
             return "prim"
+        case DomainPrim(tag=tag):
+            return f"domain_prim[{tag}]"
         case _:
             raise ValueError(f"pretty: unknown MorphismExpr {type(expr).__name__!r}")
 

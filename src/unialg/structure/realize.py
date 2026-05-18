@@ -320,6 +320,12 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
             raw_body_ref[0] = TTerm(realize(body, _prims))
             return P.primitive(prim_name).value
 
+        case expr.DomainPrim(tag=tag):
+            raise NotImplementedError(
+                f"DomainPrim({tag!r}) must be rewritten before realize — "
+                f"ensure the domain's finalize hook ran"
+            )
+
         case expr.Prim(raw=raw):
             return raw
 

@@ -3,7 +3,8 @@
   "binary_adapter": {"dump": "cupy.save", "load": "cupy.load", "dump_style": "file_first"},
   "structural": {
     "expand_dims": "cupy.expand_dims",
-    "transpose": "cupy.transpose"
+    "transpose": "cupy.transpose",
+    "take_diagonal": "cupy.diagonal"
   },
   "operations": {
     "add":              {"kind": "elementwise binary", "path": "cupy.add",                "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},

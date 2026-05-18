@@ -12,7 +12,6 @@ from typing import Any, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .semantics.morphisms import Morphism
-    from .syntax.expressions import MorphismExpr
 
 
 @dataclass(frozen=True)
@@ -21,8 +20,8 @@ class DomainProtocol:
 
     construct: Callable[[list, dict], Any]
     construct_expr: Callable[[Any, dict], "Morphism"]
-    lower: Callable[[Any, Any], tuple["MorphismExpr", tuple]]
     refs: Callable[[Any], set[str]]
+    finalize: Callable[["Morphism", dict], "Morphism"] | None = None
 
 
 _keyword_handlers: dict[str, Callable] = {}
@@ -56,3 +55,7 @@ def get_domain_protocol(tag: str) -> DomainProtocol | None:
 
 def registered_keywords() -> frozenset[str]:
     return frozenset(_keyword_handlers)
+
+
+def registered_domains() -> frozenset[str]:
+    return frozenset(_domain_protocols)

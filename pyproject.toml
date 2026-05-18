@@ -111,7 +111,10 @@ name = "tensor modules stay above runtime and lowering"
 type = "forbidden"
 source_modules = [
     "unialg.tensors.semirings",
-    "unialg.tensors.contractions",
+    "unialg.tensors.primitives",
+    "unialg.tensors.notation",
+    "unialg.tensors.semantics",
+    "unialg.tensors.fusion",
 ]
 forbidden_modules = [
     "unialg.structure",

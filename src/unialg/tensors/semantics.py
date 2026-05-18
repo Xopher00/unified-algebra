@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from unialg.semantics.functors import apply_poly
 from unialg.semantics.morphisms import Morphism, MorphismError
 from unialg.objects import BINARY, repeated_product
+from unialg.syntax import expressions as expr
 
 from .notation import SemiringDecl, ContractExpr, Equation
 from .semirings import Semiring
@@ -21,16 +23,42 @@ from .semirings import Semiring
 # Internal compile data for tensor contraction lowering
 # ---------------------------------------------------------------------------
 
+def _left_nested_shape(n: int):
+    """Build a left-nested Prod(Id, ...) tree for n inputs."""
+    from unialg.syntax.expressions import Prod, Id
+    if n <= 0:
+        raise ValueError("need at least 1 input for shape")
+    if n == 1:
+        return Id()
+    shape = Prod(Id(), Id())
+    for _ in range(n - 2):
+        shape = Prod(shape, Id())
+    return shape
+
+
+def _count_id(shape) -> int:
+    """Count Id positions in a PolyExpr shape."""
+    from unialg.syntax.expressions import Prod, Id
+    if isinstance(shape, Id):
+        return 1
+    if isinstance(shape, Prod):
+        return _count_id(shape.left) + _count_id(shape.right)
+    raise ValueError(f"unexpected shape node in _count_id: {type(shape).__name__}")
+
+
 @dataclass(frozen=True)
 class ContractSpec:
     """Internal tensor contraction spec consumed before returning to core semantics."""
     semiring: Semiring
     equation: Equation
     adjoint: bool = False
+    shape: object = None
     _domain_tag: str = field(default="tensors", init=False, repr=False)
 
     @property
     def dom(self):
+        if self.shape is not None:
+            return apply_poly(self.shape, BINARY)
         n = len(self.equation.inputs)
         return BINARY if n == 1 else repeated_product(BINARY, n)
 
@@ -97,20 +125,25 @@ def _parse_identity_value(value: str | float) -> float:
 
 def contract_morphism(
     sr: Semiring,
-    equation: str,
+    equation: str | Equation,
     *,
-    context=None,
     adjoint: bool = False,
 ) -> Morphism:
-    """Build a contraction Morphism from a semiring and equation string.
+    """Build a lazy contraction Morphism from a semiring and equation string.
 
-    Returns a normal substrate ``Morphism`` composed from primitive leaves and
-    core combinators. ``ContractSpec`` is internal tensor compile data only.
+    Returns a ``DomainPrim("tensors", ContractSpec)`` node.  The contraction
+    is compiled into the substrate composition (align/product/reduce) during
+    the ``normalize_contracts`` finalize pass in ``tensors/fusion.py``.
     """
-    eq = Equation.parse(equation)
-    spec = ContractSpec(semiring=sr, equation=eq, adjoint=adjoint)
-    from .primitives import compile_contract_spec
-    return compile_contract_spec(spec, context)
+    if adjoint and sr.adjoint is None:
+        raise ValueError(f"Semiring '{sr.name}' has no adjoint operation")
+    eq = Equation.parse(equation) if isinstance(equation, str) else equation
+    spec = ContractSpec(semiring=sr, equation=eq, adjoint=adjoint,
+                        shape=_left_nested_shape(len(eq.inputs)))
+    return Morphism(
+        node=expr.DomainPrim("tensors", spec, spec.dom, spec.cod),
+        aux_primitives=_collect_semiring_aux(sr),
+    )
 
 
 def _collect_semiring_aux(sr: Semiring) -> tuple:
@@ -153,7 +186,6 @@ def construct_expr(node, env: dict) -> Morphism:
     return contract_morphism(
         sr,
         node.equation_str,
-        context=env.get("_domain_context"),
         adjoint=node.adjoint,
     )
 

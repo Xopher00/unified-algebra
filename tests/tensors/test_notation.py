@@ -22,9 +22,39 @@ class TestEquationParse:
         assert eq.output == ("i", "j")
         assert eq.reduced == ()
 
-    def test_trace_rejected(self):
-        with pytest.raises(ValueError, match="repeated labels"):
-            Equation.parse("ii->")
+    def test_trace_parses(self):
+        eq = Equation.parse("ii->")
+        assert eq.inputs == (("i", "i"),)
+        assert eq.output == ()
+        assert eq.reduced == ("i",)
+
+    def test_diagonal_extraction_parses(self):
+        eq = Equation.parse("ii->i")
+        assert eq.inputs == (("i", "i"),)
+        assert eq.output == ("i",)
+        assert eq.reduced == ()
+
+    def test_diagonal_axes(self):
+        eq = Equation.parse("ii->i")
+        assert eq.diagonal_axes(0) == [(0, 1)]
+        eq2 = Equation.parse("iij->ij")
+        assert eq2.diagonal_axes(0) == [(0, 1)]
+        eq3 = Equation.parse("iji->ij")
+        assert eq3.diagonal_axes(0) == [(0, 2)]
+
+    def test_post_diagonal_labels(self):
+        eq = Equation.parse("ii->i")
+        assert eq.post_diagonal_labels(0) == ("i",)
+        eq2 = Equation.parse("iij->ij")
+        assert eq2.post_diagonal_labels(0) == ("j", "i")
+        eq3 = Equation.parse("iji->ij")
+        assert eq3.post_diagonal_labels(0) == ("j", "i")
+
+    def test_no_diagonal_when_labels_unique(self):
+        eq = Equation.parse("ij,jk->ik")
+        assert eq.diagonal_axes(0) == []
+        assert eq.diagonal_axes(1) == []
+        assert eq.post_diagonal_labels(0) == ("i", "j")
 
     def test_batched_matmul(self):
         eq = Equation.parse("bij,bjk->bik")

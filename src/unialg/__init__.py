@@ -9,6 +9,7 @@ from .semantics.morphisms import (
     compose, par, pair, case, absurd,
 )
 from .tensors.semirings import Semiring
+from . import tensors as _tensors  # noqa: F401  — triggers extension registration
 from .semantics.optics import Optic, _compose_optic
 
 

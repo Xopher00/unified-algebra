@@ -50,8 +50,8 @@ class Semiring:
     carrier: Type
     plus: Morphism
     times: Morphism
-    zero: Morphism
-    one: Morphism
+    zero: float  # additive identity ⊕; for future law checking, not contraction pipeline
+    one: float   # multiplicative identity ⊗; for future law checking, not contraction pipeline
     adjoint: Morphism | None = None  # right residual of ⊗; absent means no adjoint mode
     plus_reduce: Morphism | None = None    # axis-fold ⊕, seed = zero
     times_reduce: Morphism | None = None   # axis-fold ⊗, seed = one

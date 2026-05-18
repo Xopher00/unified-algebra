@@ -6,7 +6,7 @@ typed Morphism ready for compile_program.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 
 from unialg.syntax import expressions as expr
 from unialg.syntax.parse import Program, poly_to_focus_expr
@@ -28,6 +28,7 @@ class ConstructedProgram:
     functors: dict[str, expr.PolyExpr]
     carriers: dict[str, RecursiveCarrier]
     focuses: dict[str, Optic]
+    domain_data: dict[str, object] = dataclass_field(default_factory=dict)
 
 
 def _morphism_refs(node: expr.MorphismExpr) -> set[str]:
@@ -76,6 +77,8 @@ def _morphism_refs(node: expr.MorphismExpr) -> set[str]:
             return _morphism_refs(body)
         case expr.AlgExpr(body=body):
             return _morphism_refs(body)
+        case _ if hasattr(node, '_domain_tag'):
+            return set()
         case _:
             raise TypeError(f"_morphism_refs: unknown MorphismExpr {type(node).__name__!r}")
 
@@ -135,6 +138,7 @@ def _focus_alias_candidate(node: expr.PolyExpr) -> bool:
 def construct_program(
     program: Program,
     env: dict[str, Morphism] | None = None,
+    domain_context: object | None = None,
 ) -> ConstructedProgram:
     """Resolve every parsed morphism in ``program`` into a typed ``Morphism``.
 
@@ -148,6 +152,7 @@ def construct_program(
     functors: dict[str, expr.PolyExpr] = {}
     morphisms: dict[str, Morphism] = {}
     carriers: dict[str, RecursiveCarrier] = {}
+    domain_data: dict[str, object] = {}
     focuses: dict[str, Optic] = {}
     constructing: list[str] = []
     constructing_focus: list[str] = []
@@ -213,10 +218,10 @@ def construct_program(
         morphism_env = morphism_env_for(decl.forward)
         morphism_env.update(morphism_env_for(decl.backward))
         forward = construct(
-            decl.forward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx,
+            decl.forward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx, domain_data,
         )
         backward = construct(
-            decl.backward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx,
+            decl.backward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx, domain_data,
         )
         functor = Functor(name=decl.functor, body=functors[decl.functor])
         carrier = forward.dom()
@@ -289,6 +294,7 @@ def construct_program(
                 program.morphism_params,
                 focuses,
                 _cx,
+                domain_data,
             )
             morphisms[name] = morphism
             return morphism
@@ -309,6 +315,14 @@ def construct_program(
                 raise
             resolve_focus(name)
 
+    for tag, decls in program.extensions.items():
+        from unialg.extensions import get_domain_protocol
+        protocol = get_domain_protocol(tag)
+        if protocol is not None:
+            ext_env = dict(base_env)
+            ext_env["_domain_context"] = domain_context
+            domain_data[tag] = protocol.construct(decls, ext_env)
+
     for name in program.morphisms:
         if name not in program.morphism_params:
             resolve_morphism(name)
@@ -318,6 +332,7 @@ def construct_program(
         functors=functors,
         carriers=carriers,
         focuses=focuses,
+        domain_data=domain_data,
     )
 
 
@@ -329,6 +344,7 @@ def construct(
     morphism_params: dict[str, tuple[str, ...]] | None = None,
     focus_env: dict[str, Optic] | None = None,
     _cx: list | None = None,
+    _domain_data: dict[str, object] | None = None,
 ) -> Morphism:
     """Resolve a parsed expression tree into a typed Morphism.
 
@@ -342,7 +358,7 @@ def construct(
         _cx = [L.empty_context()]
 
     def _recurse(n):
-        return construct(n, env, functor_env, morphism_bodies, morphism_params, focus_env, _cx)
+        return construct(n, env, functor_env, morphism_bodies, morphism_params, focus_env, _cx, _domain_data)
 
     from unialg.objects import TypeUnit, ProductType, SumType
 
@@ -370,7 +386,7 @@ def construct(
         local_env = dict(env)
         for pname, arg_node in zip(declared_params, args):
             local_env[pname] = _recurse(arg_node)
-        return construct(body, local_env, functor_env, morphism_bodies, morphism_params, focus_env, _cx)
+        return construct(body, local_env, functor_env, morphism_bodies, morphism_params, focus_env, _cx, _domain_data)
 
     def _apply_backend_primitive(resolved_fun: Morphism, fun, args: tuple[expr.MorphismExpr, ...]) -> Morphism:
         bp = resolved_fun.node
@@ -518,6 +534,15 @@ def construct(
             except ValueError as e:
                 raise MorphismError(str(e)) from e
             return _recurse(body).to_lax(monad)
+
+        case _ if hasattr(node, '_domain_tag'):
+            from unialg.extensions import get_domain_protocol
+            protocol = get_domain_protocol(node._domain_tag)
+            if protocol is not None:
+                ext_env = dict(env)
+                ext_env["_domain_data"] = _domain_data or {}
+                return protocol.construct_expr(node, ext_env)
+            raise TypeError(f"construct: no registered domain for tag {node._domain_tag!r}")
 
         case _:
             raise TypeError(f"construct: unhandled node {type(node).__name__!r}")

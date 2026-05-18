@@ -175,6 +175,12 @@ def _morphism_nud(p: PrattParser, tok: Token) -> MorphismExpr:
             args = _parse_arg_list(p)
             return MorphismApp(Ref(name), args)
 
+        # extension expression forms (e.g., contract[sr]("eq"))
+        from unialg.extensions import get_expr_handler
+        ext_handler = get_expr_handler(name)
+        if ext_handler is not None:
+            return ext_handler(p)
+
         return Ref(name)
 
     raise ParseError(f"unexpected token {kind!r} ({val!r}) in morphism expression")

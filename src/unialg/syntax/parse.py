@@ -29,9 +29,22 @@ class Program:
     carriers: dict[str, CarrierDecl] = field(default_factory=dict)
     focuses: dict[str, FocusDecl] = field(default_factory=dict)
     morphism_params: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    extensions: dict[str, list] = field(default_factory=dict)
 
 
-_DECL_KINDS = frozenset({"LET", "SHAPE", "LOAD", "EOF"})
+def _decl_kinds() -> frozenset[str]:
+    from unialg.extensions import registered_keywords
+    return frozenset({"LET", "SHAPE", "LOAD", "EOF"}) | registered_keywords()
+
+
+def _is_decl_start(tok: tuple) -> bool:
+    """True if token starts a new top-level declaration."""
+    if tok[0] in _decl_kinds():
+        return True
+    if tok[0] == "NAME":
+        from unialg.extensions import registered_keywords
+        return tok[1] in registered_keywords()
+    return False
 
 
 def parse_morphism(src: str) -> MorphismExpr:
@@ -69,6 +82,11 @@ def parse_program(src: str) -> Program:
             continue
 
         if kw_tok[0] not in ("LET", "SHAPE"):
+            from unialg.extensions import get_keyword_handler
+            ext_handler = get_keyword_handler(str(kw_tok[1]))
+            if ext_handler is not None:
+                ext_handler(cursor, prog)
+                continue
             raise ParseError(
                 "program: expected 'load', 'let', or 'shape', "
                 f"got {kw_tok[0]!r} ({kw_tok[1]!r})"
@@ -99,7 +117,7 @@ def parse_program(src: str) -> Program:
         end = start
         while end < len(cursor._tokens):
             tok = cursor._tokens[end]
-            if tok[0] in _DECL_KINDS:
+            if _is_decl_start(tok):
                 break
             end += 1
         rhs_tokens = cursor._tokens[start:end] + [("EOF", None)]
@@ -169,7 +187,7 @@ def _parse_explicit_optic_shape(cursor: TokenCursor, name: str, bp_m, nud_m, led
     cursor.expect("SLASH", "'/'")
 
     b_start = cursor.pos
-    while cursor.peek()[0] not in _DECL_KINDS:
+    while not _is_decl_start(cursor.peek()):
         cursor.advance()
     backward_tokens = cursor._tokens[b_start:cursor.pos] + [("EOF", None)]
 

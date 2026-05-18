@@ -64,6 +64,34 @@ def _raw_int():
         lambda ds: P.pure(int("".join(chr(c) for c in ds))),
     )
 
+
+def _raw_number():
+    """Parse INT or FLOAT: digits optionally followed by '.' digits."""
+    digit = P.satisfy(lambda c: chr(c).isdigit())
+    dot_frac = P.bind(
+        P.char(ord(".")),
+        lambda _: P.bind(P.some(digit), lambda frac: P.pure(frac)),
+    )
+    def _finish(int_part):
+        int_str = "".join(chr(c) for c in int_part)
+        def _with_frac(maybe_frac):
+            if hasattr(maybe_frac, 'value'):
+                frac_str = "".join(chr(c) for c in maybe_frac.value)
+                return P.pure(("FLOAT", float(int_str + "." + frac_str)))
+            return P.pure(("INT", int(int_str)))
+        return P.bind(P.optional(dot_frac), _with_frac)
+    return P.bind(P.some(digit), _finish)
+
+
+def _raw_string():
+    """Parse a double-quoted string literal."""
+    inner_char = P.satisfy(lambda c: chr(c) != '"' and chr(c) != '\n')
+    return P.bind(
+        P.char(ord('"')), lambda _:
+        P.bind(P.many(inner_char), lambda cs:
+        P.bind(P.char(ord('"')), lambda _:
+        P.pure("".join(chr(c) for c in cs)))))
+
 def _lit(text: str, kind: str, value: object = None):
     """Build a parser for a fixed literal token."""
     v = text if value is None else value
@@ -126,8 +154,10 @@ def _morphism_token():
         _lit("?",  "QUESTION"),
         _lit("=",  "EQ"),
         _lit(";",  "ERROR", "use '>>' instead of ';'"),
-        P.bind(_raw_int(),   lambda n: P.pure(("INT",  n))),
-        P.bind(_raw_ident(), lambda s: P.pure((_KEYWORDS.get(s, "NAME"), s))),
+        _lit("-",  "MINUS"),
+        P.bind(_raw_string(), lambda s: P.pure(("STRING", s))),
+        _raw_number(),
+        P.bind(_raw_ident(),  lambda s: P.pure((_KEYWORDS.get(s, "NAME"), s))),
     ))
 
 

@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field as dataclass_field
 
+from hydra.sorting import topological_sort
+from hydra.dsl.python import Left
+
 from unialg.syntax import expressions as expr
 from unialg.syntax.parse import Program, poly_to_focus_expr
 import hydra.lexical as L
@@ -23,7 +26,9 @@ from ._construct_helpers import (
     construct_recursion_app,
     finalize_domain_morphisms,
     focus_alias_candidate,
+    focus_expr_refs,
     morphism_refs,
+    poly_refs,
     resolve_poly_refs,
 )
 from .morphisms import Morphism, MorphismError
@@ -40,6 +45,21 @@ class ConstructedProgram:
     carriers: dict[str, RecursiveCarrier]
     focuses: dict[str, Optic]
     domain_data: dict[str, object] = dataclass_field(default_factory=dict)
+
+
+def _topo_order(names, deps, kind):
+    names = tuple(names)
+    pairs = []
+    for name in names:
+        refs = deps(name)
+        if name in refs:
+            raise MorphismError(f"construct_program: cyclic {kind} reference: {name} -> {name}")
+        pairs.append((name, tuple(r for r in refs if r in names)))
+    result = topological_sort(tuple(pairs))
+    if isinstance(result, Left):
+        cycles = " | ".join(" -> ".join((*scc, scc[0])) for scc in result.value)
+        raise MorphismError(f"construct_program: cyclic {kind} reference: {cycles}")
+    return result.value
 
 
 def construct_program(
@@ -61,8 +81,6 @@ def construct_program(
     carriers: dict[str, RecursiveCarrier] = {}
     domain_data: dict[str, object] = {}
     focuses: dict[str, Optic] = {}
-    constructing: list[str] = []
-    constructing_focus: list[str] = []
     _cx = [L.empty_context()]
 
     def resolve_functor(name: str) -> expr.PolyExpr:
@@ -71,7 +89,7 @@ def construct_program(
         if name not in raw_functors:
             raise MorphismError(f"construct_program: unresolved functor {name!r}")
         body = raw_functors[name]
-        resolved = resolve_poly_refs(body, raw_functors, (name,))
+        resolved = resolve_poly_refs(body, raw_functors)
         functors[name] = resolved
         return resolved
 
@@ -82,7 +100,7 @@ def construct_program(
             raise MorphismError(f"construct_program: unresolved carrier {name!r}")
 
         decl = program.carriers[name]
-        functor_body = resolve_poly_refs(decl.functor, raw_functors, (name,))
+        functor_body = resolve_poly_refs(decl.functor, raw_functors)
         functor = Functor(name=f"{name}F", body=functor_body)
         carrier = recursive_carrier(name, functor)
         carriers[name] = carrier
@@ -162,22 +180,14 @@ def construct_program(
             focuses[name] = focus
             return focus
         decl = focus_decl_for(name)
-        if name in constructing_focus:
-            cycle = " -> ".join((*constructing_focus, name))
-            raise MorphismError(f"construct_program: cyclic focus reference: {cycle}")
-
         if decl.carrier is not None:
             focus = resolve_focus_from_carrier(name, decl)
             focuses[name] = focus
             return focus
-        constructing_focus.append(name)
-        try:
-            if decl.expr is not None:
-                focus = resolve_focus_alias(name, decl)
-            else:
-                focus = resolve_explicit_focus(name, decl)
-        finally:
-            constructing_focus.pop()
+        if decl.expr is not None:
+            focus = resolve_focus_alias(name, decl)
+        else:
+            focus = resolve_explicit_focus(name, decl)
         focuses[name] = focus
         return focus
 
@@ -188,36 +198,34 @@ def construct_program(
             if name in base_env:
                 return base_env[name]
             raise MorphismError(f"construct_program: unresolved morphism {name!r}")
-        if name in constructing:
-            cycle = " -> ".join((*constructing, name))
-            raise MorphismError(f"construct_program: cyclic morphism reference: {cycle}")
+        morphism_env = morphism_env_for(program.morphisms[name])
+        morphism = construct(
+            program.morphisms[name],
+            morphism_env,
+            functors,
+            program.morphisms,
+            program.morphism_params,
+            focuses,
+            _cx,
+            domain_data,
+            domain_context,
+        )
+        morphisms[name] = morphism
+        return morphism
 
-        constructing.append(name)
-        try:
-            morphism_env = morphism_env_for(program.morphisms[name])
-            morphism = construct(
-                program.morphisms[name],
-                morphism_env,
-                functors,
-                program.morphisms,
-                program.morphism_params,
-                focuses,
-                _cx,
-                domain_data,
-                domain_context,
-            )
-            morphisms[name] = morphism
-            return morphism
-        finally:
-            constructing.pop()
+    morphism_names = [n for n in program.morphisms if n not in program.morphism_params]
+    focus_order = _topo_order(program.focuses, lambda n: focus_expr_refs(program.focuses[n].expr), "focus")
+    functor_order = _topo_order(raw_functors, lambda n: poly_refs(raw_functors[n]), "functor")
+    morphism_order = _topo_order(morphism_names, lambda n: morphism_refs(program.morphisms[n]), "morphism")
 
     for name in program.carriers:
         resolve_carrier(name)
 
-    for name in program.focuses:
+    for name in focus_order:
         resolve_focus(name)
 
-    for name, body in raw_functors.items():
+    for name in functor_order:
+        body = raw_functors[name]
         try:
             resolve_functor(name)
         except MorphismError:
@@ -227,9 +235,8 @@ def construct_program(
 
     domain_data = construct_domain_extensions(program, base_env, domain_context)
 
-    for name in program.morphisms:
-        if name not in program.morphism_params:
-            resolve_morphism(name)
+    for name in morphism_order:
+        resolve_morphism(name)
 
     finalize_domain_morphisms(morphisms, base_env, domain_context, domain_data)
 

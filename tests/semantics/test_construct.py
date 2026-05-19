@@ -269,7 +269,7 @@ class TestConstructProgram:
 
     def test_focus_composition_cycle_raises(self):
         prog = parse_program("shape bad = bad >> bad")
-        with pytest.raises(MorphismError, match="cyclic focus"):
+        with pytest.raises(MorphismError, match="cyclic functor"):
             construct_program(prog)
 
     def test_monadic_lift_resolves(self, int_env):

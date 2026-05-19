@@ -54,7 +54,10 @@ def VoidType() -> TypeVoid:
 
 def show_type(typ: Type) -> str:
     """Return Hydra's compact display form for a type."""
-    return ShowCore.type(typ)
+    try:
+        return ShowCore.type(typ)
+    except (AssertionError, AttributeError):
+        return repr(typ)
 
 
 @dataclass(frozen=True)

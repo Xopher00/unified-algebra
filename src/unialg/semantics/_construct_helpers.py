@@ -1,8 +1,3 @@
-"""Helper routines for semantic construction.
-
-Kept separate from construct.py so the main constructor reads as orchestration
-rather than a pile of branch-specific helpers.
-"""
 from __future__ import annotations
 
 from unialg.objects import monad_by_name
@@ -12,6 +7,13 @@ from unialg.syntax.parse import Program
 from .functors import Functor, poly_fmap
 from .morphisms import Morphism, MorphismError
 from .optics import Optic, ana, cata, hylo
+
+
+def _many_morphism_refs(nodes) -> set[str]:
+    refs = set()
+    for node in nodes:
+        refs |= morphism_refs(node)
+    return refs
 
 
 def morphism_refs(node: expr.MorphismExpr) -> set[str]:
@@ -36,10 +38,7 @@ def morphism_refs(node: expr.MorphismExpr) -> set[str]:
         ):
             return set()
         case expr.BackendPrim(args=args):
-            refs = set()
-            for arg in args:
-                refs |= morphism_refs(arg)
-            return refs
+            return _many_morphism_refs(args)
         case expr.MonadicEmbed(f=f):
             return morphism_refs(f)
         case expr.ContextualBinary(f=f, g=g):
@@ -47,15 +46,9 @@ def morphism_refs(node: expr.MorphismExpr) -> set[str]:
         case expr.PolyFmap(f=f):
             return morphism_refs(f)
         case expr.MorphismApp(fun=fun, args=args):
-            refs = morphism_refs(fun)
-            for arg in args:
-                refs |= morphism_refs(arg)
-            return refs
+            return morphism_refs(fun) | _many_morphism_refs(args)
         case expr.RecursionApp(args=args):
-            refs = set()
-            for arg in args:
-                refs |= morphism_refs(arg)
-            return refs
+            return _many_morphism_refs(args)
         case expr.MonadicLift(body=body):
             return morphism_refs(body)
         case expr.AlgExpr(body=body):
@@ -69,38 +62,25 @@ def morphism_refs(node: expr.MorphismExpr) -> set[str]:
 def resolve_poly_refs(
     node: expr.PolyExpr,
     functors: dict[str, expr.PolyExpr],
-    stack: tuple[str, ...] = (),
 ) -> expr.PolyExpr:
     """Inline named functor references inside a polynomial expression."""
     match node:
         case expr.PolyRef(name=name):
             if name not in functors:
                 raise MorphismError(f"construct_program: unresolved functor {name!r}")
-            if name in stack:
-                cycle = " -> ".join((*stack, name))
-                raise MorphismError(f"construct_program: cyclic functor reference: {cycle}")
-            return resolve_poly_refs(functors[name], functors, (*stack, name))
-        case expr.Prod(left=left, right=right):
-            return expr.Prod(
-                resolve_poly_refs(left, functors, stack),
-                resolve_poly_refs(right, functors, stack),
-            )
-        case expr.Sum(left=left, right=right):
-            return expr.Sum(
-                resolve_poly_refs(left, functors, stack),
-                resolve_poly_refs(right, functors, stack),
-            )
-        case expr.PolyCompose(left=left, right=right):
-            return expr.PolyCompose(
-                resolve_poly_refs(left, functors, stack),
-                resolve_poly_refs(right, functors, stack),
-            )
+            return resolve_poly_refs(functors[name], functors)
+        case expr.Prod(left=l, right=r):
+            return expr.Prod(resolve_poly_refs(l, functors), resolve_poly_refs(r, functors))
+        case expr.Sum(left=l, right=r):
+            return expr.Sum(resolve_poly_refs(l, functors), resolve_poly_refs(r, functors))
+        case expr.PolyCompose(left=l, right=r):
+            return expr.PolyCompose(resolve_poly_refs(l, functors), resolve_poly_refs(r, functors))
         case expr.Exp(base=base, body=body):
-            return expr.Exp(base, resolve_poly_refs(body, functors, stack))
+            return expr.Exp(base, resolve_poly_refs(body, functors))
         case expr.List(body=body):
-            return expr.List(resolve_poly_refs(body, functors, stack))
+            return expr.List(resolve_poly_refs(body, functors))
         case expr.Maybe(body=body):
-            return expr.Maybe(resolve_poly_refs(body, functors, stack))
+            return expr.Maybe(resolve_poly_refs(body, functors))
         case expr.Zero() | expr.One() | expr.Id() | expr.Const():
             return node
         case _:
@@ -118,23 +98,30 @@ def focus_alias_candidate(node: expr.PolyExpr) -> bool:
             return False
 
 
-def domain_construct_env(
-    base_env: dict[str, Morphism],
-    domain_context: object | None,
-) -> dict:
-    ext_env = dict(base_env)
-    ext_env["_domain_context"] = domain_context
-    return ext_env
+def focus_expr_refs(node) -> set[str]:
+    match node:
+        case None:
+            return set()
+        case expr.FocusRef(name=name):
+            return {name}
+        case expr.FocusCompose(left=l, right=r):
+            return focus_expr_refs(l) | focus_expr_refs(r)
+        case _:
+            raise TypeError(f"focus_expr_refs: unknown FocusExpr {type(node).__name__!r}")
 
 
-def domain_finalize_env(
-    base_env: dict[str, Morphism],
-    domain_context: object | None,
-    domain_data: dict[str, object],
-) -> dict:
-    fin_env = domain_construct_env(base_env, domain_context)
-    fin_env["_domain_data"] = domain_data
-    return fin_env
+def poly_refs(node: expr.PolyExpr) -> set[str]:
+    match node:
+        case expr.PolyRef(name=name):
+            return {name}
+        case expr.Prod(left=l, right=r) | expr.Sum(left=l, right=r) | expr.PolyCompose(left=l, right=r):
+            return poly_refs(l) | poly_refs(r)
+        case expr.Exp(body=b) | expr.List(body=b) | expr.Maybe(body=b):
+            return poly_refs(b)
+        case expr.Zero() | expr.One() | expr.Id() | expr.Const():
+            return set()
+        case _:
+            raise TypeError(f"poly_refs: unknown PolyExpr {type(node).__name__!r}")
 
 
 def construct_domain_extensions(
@@ -151,7 +138,7 @@ def construct_domain_extensions(
             continue
         domain_data[tag] = protocol.construct(
             decls,
-            domain_construct_env(base_env, domain_context),
+            {**base_env, "_domain_context": domain_context},
         )
     return domain_data
 
@@ -167,7 +154,7 @@ def finalize_domain_morphisms(
     if not registered_domains():
         return
 
-    fin_env = domain_finalize_env(base_env, domain_context, domain_data)
+    fin_env = {**base_env, "_domain_context": domain_context, "_domain_data": domain_data}
     for tag in registered_domains():
         protocol = get_domain_protocol(tag)
         if protocol is None or protocol.finalize is None:

@@ -18,6 +18,7 @@ from hydra.graph import Primitive
 from hydra.dsl.python import Right
 import hydra.dsl.terms as Terms
 import hydra.reduction as R
+import hydra.show.errors as ShowErrors
 import hydra.analysis as Analysis
 
 from . import terms as T
@@ -308,7 +309,7 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
                 result = R.reduce_term(ctx, graph, True, term)
                 if isinstance(result, Right):
                     return result
-                raise RuntimeError(f"{name} reduction failed: {result!r}")
+                raise RuntimeError(f"{name} reduction failed: {ShowErrors.error(result.value)}")
 
             prim = Primitive(
                 prim_name,

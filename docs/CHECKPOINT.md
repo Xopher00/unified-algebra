@@ -181,10 +181,12 @@ Current sealed interpretation:
 - Single `Optic(functor: Functor, forward: Morphism, backward: Morphism)` — unified polynomial functor optic
 - `forward: S → F(A)` decomposes source into F-shaped container; `backward: F(B) → T` reconstructs target
 - Uniform action for all optics: `compose(forward, poly_fmap(F, h), backward)` — implemented as methods on `Optic`
+- `Optic.compose(inner)` — sequential optic composition (zoom further in)
+- `Optic.par(other)` — parallel/product combinator: `functor.body = Prod(L.body, R.body)`, `forward = par(L.forward, R.forward)`, `backward = par(L.backward, R.backward)`. Requires shared carrier. Mirrors `ops.par` for morphisms.
 - `focus` and `replacement` derived via strict `functor.unapply()` on forward codomain / backward domain
 - `source` and `target` derived from `forward.dom()` / `backward.cod()`
 - `Functor.unapply(fa)` — strict public inverse: builds `F(A)` with a Hydra type variable, asks `hydra.unification.unify_types` to solve `F(A) = fa`, then checks round-trip `self.apply(A) == fa`
-- Validation: `Optic.__post_init__` relies on strict `Functor.unapply()` for forward/backward compatibility
+- Validation: `Optic.__post_init__` relies on strict `Functor.unapply()` for forward/backward compatibility; handles arbitrarily nested `Prod` shapes via Hydra unification
 - Lens, Prism, Traversal are functor choices, not separate types:
   - Lens: `F = Prod(Id(), Const(residue))` — product focus
   - Prism: `F = Sum(Id(), Const(residue))` — sum focus
@@ -263,7 +265,7 @@ Constraint derived: **Do not create new `MorphismExpr` subclasses for tensor ope
 - `MorphismError.check` replaces all `CompositionError`/`CaseError` call sites
 
 ## Current status and remaining work
-- **Tests updated** — live suite uses pytest + Hypothesis law tests; stale legacy tests remain quarantined under `tests/regression/stale_old_api/`; currently 240 passing, 6 skipped
+- **Tests updated** — live suite uses pytest + Hypothesis law tests; stale legacy tests remain quarantined under `tests/regression/stale_old_api/`; currently 402 passing, 4 skipped
 - **Optics layer complete for current semantics** — unified `Optic(functor, forward, backward)` subsumes Lens, Prism, and Traversal; height-2 optics supported via deeper polynomial bodies
 - **Recursion layer complete for current semantics** — `act`, `act_forward`, `act_backward`, `compose_optic`, `list_carrier`, `cata`, `ana`, `hylo`; plain/para/lax/lax-para algebras and coalgebras are represented as `Morphism` values
 - Semiring tensor equations beyond the current tensor helper notes

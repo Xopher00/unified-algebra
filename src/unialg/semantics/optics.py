@@ -29,7 +29,7 @@ import hydra.dsl.meta.phantoms as P
 
 from . import typeops as Ty
 from .functors import Functor
-from .morphisms import Morphism, MorphismError, compose, identity, raw_signature
+from .morphisms import Morphism, MorphismError, compose, identity, par as _par_morphisms, raw_signature
 from unialg.syntax import expressions as expr
 from unialg.objects import Type
 
@@ -117,9 +117,44 @@ class Optic:
         """
         return compose(self.act_forward(h), self.backward)
     
-    def compose(self, inner: Optic) -> Optic:
+    def compose(self, inner: "Optic") -> "Optic":
         """Compose two optics: focus through ``outer`` then ``inner``."""
         return _compose_optic(self, inner)
+
+    def par(self, other: "Optic") -> "Optic":
+        """Parallel composition of two optics (product of optics).
+
+        Combines two optics that observe disjoint positions of a product
+        (the categorical product on optics, analogous to ``ops.par`` on morphisms):
+
+            functor.body = Prod(self.functor.body, other.functor.body)
+            forward      = par(self.forward, other.forward)   : S1×S2 → F(A1)×G(A2)
+            backward     = par(self.backward, other.backward) : F(B1)×G(B2) → T1×T2
+            carrier      = Prod(self.carrier, other.carrier)  (when both set)
+
+        Both optics must have the same carrier type (A1 = A2), enforced by
+        ``Optic.__post_init__`` via ``functor.unapply``.
+        """
+        body = expr.Prod(self.functor.body, other.functor.body)
+        functor = Functor(
+            name=f"{self.functor.name}|{other.functor.name}",
+            body=body,
+        )
+        fwd = _par_morphisms(self.forward, other.forward)
+        bwd = _par_morphisms(self.backward, other.backward)
+        # Both optics must observe the same carrier type X so that
+        # apply_poly(Prod(L.body, R.body), X) == fwd.cod().  Keeping carrier
+        # as the shared X (not Prod(X, X)) ensures _compose_optic's focus
+        # check passes when this optic is composed further.
+        if self.carrier is not None and other.carrier is not None:
+            if self.carrier != other.carrier:
+                raise MorphismError(
+                    f"Optic.par: carrier mismatch {self.carrier!r} vs {other.carrier!r}"
+                )
+            carrier = self.carrier
+        else:
+            carrier = self.carrier or other.carrier
+        return Optic(functor=functor, forward=fwd, backward=bwd, carrier=carrier)
 
 
 @dataclass(frozen=True)

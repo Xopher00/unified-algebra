@@ -17,7 +17,9 @@ from hydra.variables import substitute_type_variables
 
 from unialg.objects import BINARY
 from unialg.semantics import morphisms as ops
+from unialg.semantics.functors import Functor as _Functor
 from unialg.semantics.morphisms import Morphism, MorphismError, _copy
+from unialg.semantics.optics import Optic as _Optic
 from unialg.syntax import expressions as expr
 
 from .notation import Equation
@@ -224,205 +226,104 @@ def _contract_morphism_from_spec(
     )
 
 
-_ABSORB_FIELDS = ("inputs", "shape", "pre", "has_opaque", "has_absorbed")
+def _is_all_identity(node) -> bool:
+    """True when node is a tree of Identity and Parallel(Identity, ...) nodes."""
+    if isinstance(node, expr.Identity):
+        return True
+    if isinstance(node, expr.Parallel):
+        return _is_all_identity(node.f) and _is_all_identity(node.g)
+    return False
 
 
-class _AbsorbResult:
-    __slots__ = _ABSORB_FIELDS
+def _count_slots(space) -> int:
+    """Count BINARY factors in a nested TypePair."""
+    if isinstance(space, TypePair):
+        return _count_slots(space.value.first) + _count_slots(space.value.second)
+    return 1
 
-    def __init__(self, inputs, shape, pre, has_opaque, has_absorbed):
+
+class _LeafData:
+    __slots__ = ("inputs", "has_opaque", "has_absorbed")
+
+    def __init__(self, inputs, has_opaque, has_absorbed):
         self.inputs = inputs
-        self.shape = shape
-        self.pre = pre
         self.has_opaque = has_opaque
         self.has_absorbed = has_absorbed
 
 
-def _absorb_par_tree(par_node, outer_inputs, outer_spec):
-    """Walk a Parallel tree recursively, building equation inputs + shape + pre_map.
-
-    Returns _AbsorbResult or None if fusion is structurally impossible
-    (e.g. semiring mismatch, label mismatch).
-    """
-    if isinstance(par_node, expr.Parallel):
-        left = _absorb_par_tree(par_node.f, outer_inputs, outer_spec)
-        if left is None:
-            return None
-        right = _absorb_par_tree(par_node.g, outer_inputs, outer_spec)
-        if right is None:
-            return None
-        return _AbsorbResult(
-            inputs=left.inputs + right.inputs,
-            shape=expr.Prod(left.shape, right.shape),
-            pre=ops.par(left.pre, right.pre),
-            has_opaque=left.has_opaque or right.has_opaque,
-            has_absorbed=left.has_absorbed or right.has_absorbed,
-        )
-
-    if isinstance(par_node, expr.Identity):
-        expected = next(outer_inputs)
-        return _AbsorbResult(
-            inputs=[expected],
-            shape=expr.Id(),
-            pre=ops.identity(BINARY),
-            has_opaque=False,
-            has_absorbed=False,
-        )
-
-    inner_spec = _tensor_spec(par_node)
-
-    if inner_spec is not None:
-        expected = next(outer_inputs)
-        if inner_spec.semiring != outer_spec.semiring:
-            return None
-        if inner_spec.adjoint != outer_spec.adjoint:
-            return None
-        if inner_spec.equation.output != expected:
-            return None
-        inner_shape = inner_spec.shape or _left_nested_shape(len(inner_spec.equation.inputs))
-        inner_dom = inner_spec.dom
-        return _AbsorbResult(
-            inputs=list(inner_spec.equation.inputs),
-            shape=inner_shape,
-            pre=ops.identity(inner_dom),
-            has_opaque=False,
-            has_absorbed=True,
-        )
-
-    # Opaque leaf: not a tensor contraction, not identity.
-    # Treat as residue — passthrough label, opaque morphism in pre_map.
-    # Note: aux_primitives are not carried here; normalize_contracts
-    # restores them from the original morphism's aux_primitives.
-    expected = next(outer_inputs)
-    opaque_m = Morphism(node=par_node, aux_primitives=())
-    return _AbsorbResult(
-        inputs=[expected],
-        shape=expr.Id(),
-        pre=opaque_m,
-        has_opaque=True,
-        has_absorbed=False,
-    )
+def _leaf_optic(body, fwd, carrier=BINARY):
+    return _Optic(functor=_Functor(name="_", body=body), forward=fwd, backward=fwd, carrier=carrier)
 
 
-def _pair_tensor_branch(pair_node) -> tuple[ContractSpec, bool] | None:
-    """Return the contract branch and whether it is first in the Pair."""
-    left_spec = _tensor_spec(pair_node.f)
-    right_spec = _tensor_spec(pair_node.g)
+def _par_to_optic(par_node, outer_inputs, outer_spec, avoid):
+    """Reduce a Parallel/Pair/Identity/contract subtree to (Optic, _LeafData).
 
-    if (left_spec is None) == (right_spec is None):
-        return None
-
-    if left_spec is not None:
-        if not isinstance(pair_node.g, expr.Identity):
-            return None
-        return left_spec, True
-
-    if not isinstance(pair_node.f, expr.Identity):
-        return None
-    return right_spec, False
-
-
-def _pair_slot_labels(
-    outer_inputs: list[tuple[str, ...]],
-    inner_n_inputs: int,
-    contract_first: bool,
-) -> tuple[tuple[str, ...], list[tuple[str, ...]]] | None:
-    """Return outer contract slot labels and shared identity labels."""
-    if len(outer_inputs) != 1 + inner_n_inputs:
-        return None
-
-    if contract_first:
-        return outer_inputs[0], outer_inputs[1:]
-    return outer_inputs[inner_n_inputs], outer_inputs[:inner_n_inputs]
-
-
-def _avoid_labels(
-    identity_slot_labels: list[tuple[str, ...]],
-    output: tuple[str, ...],
-) -> set[str]:
-    avoid = set(output)
-    for labels in identity_slot_labels:
-        avoid.update(labels)
-    return avoid
-
-
-def _try_fuse_pair(m: Morphism, pair_node, outer_spec) -> Morphism | None:
-    """Fuse compose(Pair(c1, id), outer) into compose(Copy, fused_contract).
-
-    Only handles the case where exactly one Pair branch is a tensor DomainPrim
-    and the other is Identity with matching labels (shared-input correspondence).
+    Polynomial-functor catamorphism whose algebra emits an Optic.
+    Returns None on structural mismatch.
     """
     from unialg.objects import TypeUnit as TU
 
-    if m.param != TU() or m.monad is not None:
-        return None
-    if pair_node.param != TU() or pair_node.monad is not None:
-        return None
+    # Binary nodes: Parallel combines directly; Pair factors through Copy.
+    if isinstance(par_node, (expr.Parallel, expr.Pair)):
+        is_pair = isinstance(par_node, expr.Pair)
+        if is_pair and (par_node.param != TU() or par_node.monad is not None):
+            return None
+        left = _par_to_optic(par_node.f, outer_inputs, outer_spec, avoid)
+        if left is None:
+            return None
+        l_optic, l_data = left
+        right = _par_to_optic(par_node.g, outer_inputs, outer_spec, avoid)
+        if right is None:
+            return None
+        r_optic, r_data = right
+        try:
+            combined = l_optic.par(r_optic)
+        except MorphismError:
+            return None
+        if is_pair:
+            copy_m = _copy(par_node.dom)
+            fwd = copy_m if _is_all_identity(combined.forward.node) else ops.compose(copy_m, combined.forward)
+            combined = _Optic(functor=combined.functor, forward=fwd, backward=combined.backward, carrier=BINARY)
+        return combined, _LeafData(
+            l_data.inputs + r_data.inputs,
+            l_data.has_opaque or r_data.has_opaque,
+            l_data.has_absorbed or r_data.has_absorbed,
+        )
 
-    branch = _pair_tensor_branch(pair_node)
-    if branch is None:
-        return None
-    inner_spec, contract_first = branch
+    if isinstance(par_node, expr.Identity):
+        n = _count_slots(par_node.space)
+        consumed = tuple(next(outer_inputs) for _ in range(n))
+        avoid.update(l for slot in consumed for l in slot)
+        shape = _left_nested_shape(n) if n > 1 else expr.Id()
+        return _leaf_optic(shape, ops.identity(par_node.space)), _LeafData(consumed, False, False)
 
-    if inner_spec.semiring != outer_spec.semiring:
-        return None
-    if inner_spec.adjoint != outer_spec.adjoint:
-        return None
+    inner_spec = _tensor_spec(par_node)
+    if inner_spec is not None:
+        expected = next(outer_inputs)
+        if (inner_spec.semiring != outer_spec.semiring
+                or inner_spec.adjoint != outer_spec.adjoint
+                or inner_spec.equation.output != expected):
+            return None
+        renamed = _rename_reduced_labels(inner_spec, avoid)
+        avoid.update(l for inp in renamed.equation.inputs for l in inp)
+        avoid.update(renamed.equation.reduced)
+        shape = renamed.shape or _left_nested_shape(len(renamed.equation.inputs))
+        return _leaf_optic(shape, ops.identity(renamed.dom)), _LeafData(tuple(renamed.equation.inputs), False, True)
 
-    outer_inputs = list(outer_spec.equation.inputs)
-    inner_n_inputs = len(inner_spec.equation.inputs)
-    slots = _pair_slot_labels(outer_inputs, inner_n_inputs, contract_first)
-    if slots is None:
-        return None
-    contract_slot_labels, identity_slot_labels = slots
-
-    if inner_spec.equation.output != contract_slot_labels:
-        return None
-    if tuple(identity_slot_labels) != inner_spec.equation.inputs:
-        return None
-
-    avoid = _avoid_labels(identity_slot_labels, outer_spec.equation.output)
-    renamed_spec = _rename_reduced_labels(inner_spec, avoid)
-
-    inner_shape = renamed_spec.shape or _left_nested_shape(inner_n_inputs)
-    id_shape = inner_spec.shape or _left_nested_shape(inner_n_inputs)
-
-    if contract_first:
-        fused_inputs = list(renamed_spec.equation.inputs) + list(identity_slot_labels)
-        fused_shape = expr.Prod(inner_shape, id_shape)
-    else:
-        fused_inputs = list(identity_slot_labels) + list(renamed_spec.equation.inputs)
-        fused_shape = expr.Prod(id_shape, inner_shape)
-
-    fused_eq = _equation_from_inputs(fused_inputs, outer_spec.equation.output)
-    fused_spec = ContractSpec(
-        semiring=inner_spec.semiring,
-        equation=fused_eq,
-        adjoint=inner_spec.adjoint,
-        shape=fused_shape,
-    )
-
-    fused_contract = _contract_morphism_from_spec(
-        fused_spec,
-        param=m.param,
-        monad=m.monad,
-    )
-
-    shared_dom = pair_node.dom
-    copy_m = _copy(shared_dom)
-
-    if copy_m.cod() != fused_contract.dom():
-        return None
-
-    return ops.compose(copy_m, fused_contract)
+    # Opaque leaf
+    expected = next(outer_inputs)
+    fwd = Morphism(node=par_node, aux_primitives=())
+    optic = _Optic(functor=_Functor(name="_", body=expr.Id()), forward=fwd, backward=ops.identity(BINARY), carrier=None)
+    return optic, _LeafData((expected,), True, False)
 
 
 def _try_fuse(m: Morphism) -> Morphism:
-    """If m is compose(par_tree, outer_contract), try to fuse into one contract.
+    """Fuse compose(par_tree, outer_contract) into a single contract.
 
-    Walks the par-tree recursively (not flattening), building equation inputs
-    and polynomial shape together. The shape preserves the tree nesting so
-    apply_poly(shape, BINARY) matches the original compose's dom.
+    Reduces the par-tree via _par_to_optic — the polynomial-functor catamorphism
+    whose algebra emits an Optic (functor.body=shape, forward=pre-map).  The
+    fused contract is built from the absorbed inputs and composed with the
+    pre-map when non-trivial.
     """
     node = m.node
     if not isinstance(node, expr.Compose):
@@ -432,30 +333,27 @@ def _try_fuse(m: Morphism) -> Morphism:
     if outer_spec is None:
         return m
 
-    if isinstance(node.f, expr.Pair):
-        pair_result = _try_fuse_pair(m, node.f, outer_spec)
-        if pair_result is not None:
-            return pair_result
-
+    avoid = set(outer_spec.equation.output)
     outer_inputs = iter(outer_spec.equation.inputs)
-    result = _absorb_par_tree(node.f, outer_inputs, outer_spec)
+    result = _par_to_optic(node.f, outer_inputs, outer_spec, avoid)
 
     if result is None:
         return m
 
-    remaining = list(outer_inputs)
-    if remaining:
+    if list(outer_inputs):
         return m
 
-    if result.has_opaque and not result.has_absorbed:
+    inner_optic, leaf = result
+
+    if leaf.has_opaque and not leaf.has_absorbed:
         return m
 
-    fused_eq = _equation_from_inputs(result.inputs, outer_spec.equation.output)
+    fused_eq = _equation_from_inputs(leaf.inputs, outer_spec.equation.output)
     fused_spec = ContractSpec(
         semiring=outer_spec.semiring,
         equation=fused_eq,
         adjoint=outer_spec.adjoint,
-        shape=result.shape,
+        shape=inner_optic.functor.body,
     )
 
     fused_contract = _contract_morphism_from_spec(
@@ -464,16 +362,20 @@ def _try_fuse(m: Morphism) -> Morphism:
         monad=m.monad,
     )
 
-    if result.has_opaque:
-        # pre_map >> fused_contract: optic operational form
-        pre_map = result.pre
-        if pre_map.cod() != fused_contract.dom():
-            return m
-        return ops.compose(pre_map, fused_contract)
-
-    if fused_spec.dom != m.dom() or fused_spec.cod != m.cod():
+    pre = inner_optic.forward
+    if pre.dom() != m.dom() or pre.cod() != fused_contract.dom():
         return m
-    return fused_contract
+    if fused_spec.cod != m.cod():
+        return m
+
+    # Identity-tree forward (pure Parallel with no opaque/Copy routing) — skip wrap.
+    if _is_all_identity(pre.node):
+        return fused_contract
+    # Non-trivial routing (Copy from Pair, opaque pre-map). Only worth wrapping
+    # if at least one inner contract was actually absorbed into the fused spec.
+    if not leaf.has_absorbed:
+        return m
+    return ops.compose(pre, fused_contract)
 
 
 def _fuse_one(m: Morphism) -> Morphism:

@@ -15,6 +15,7 @@ from itertools import count
 from hydra.context import Context
 from hydra.core import Name
 from hydra.dsl.python import Nothing, Right
+import hydra.show.errors as ShowErrors
 from hydra.graph import Graph, Primitive
 
 from unialg.objects import BINARY, ExpType, TypeScheme
@@ -87,7 +88,7 @@ def align_morphism(plan: AlignmentPlan, ctx) -> Morphism:
     ):
         result = coder.encode(hctx, graph, args[0])
         if not isinstance(result, Right):
-            raise TypeError(f"tensor align decode: {result!r}")
+            raise TypeError(f"tensor align decode: {ShowErrors.error(result.value)}")
         arr = store.get(result.value)
         for axis in plan.unsqueeze_axes:
             arr = expand_dims(arr, axis)
@@ -160,7 +161,7 @@ def diagonal_extract_morphism(diag_axes: list[tuple[int, int]], ctx) -> Morphism
     ):
         result = coder.encode(hctx, graph, args[0])
         if not isinstance(result, Right):
-            raise TypeError(f"tensor diagonal decode: {result!r}")
+            raise TypeError(f"tensor diagonal decode: {ShowErrors.error(result.value)}")
         arr = store.get(result.value)
         for a1, a2 in axes:
             arr = _call_diagonal(take_diag, arr, a1, a2)
@@ -194,7 +195,7 @@ def axis_reduce_morphism(fold: Morphism, axes: tuple[int, ...], ctx) -> Morphism
     ):
         result = coder.encode(hctx, graph, args[0])
         if not isinstance(result, Right):
-            raise TypeError(f"tensor reduce decode: {result!r}")
+            raise TypeError(f"tensor reduce decode: {ShowErrors.error(result.value)}")
         arr = store.get(result.value)
         return coder.decode(hctx, store.put(_call_reduce(fn, arr, axes)))
 

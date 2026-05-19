@@ -41,6 +41,15 @@ from hydra.core import (
 from hydra.dsl.python import Just, Left, Nothing, Right
 from hydra.graph import TermCoder
 import hydra.dsl.meta.phantoms as P
+import hydra.show.core as ShowCore
+import hydra.show.errors as ShowErrors
+
+
+def _show_term(term) -> str:
+    try:
+        return ShowCore.term(term)
+    except (AssertionError, AttributeError):
+        return repr(term)
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +59,7 @@ import hydra.dsl.meta.phantoms as P
 def expect_right(result, context: str):
     """Unwrap a Hydra Either result or raise a readable error."""
     if isinstance(result, Left):
-        raise TypeError(f"{context}: {result.value!r}")
+        raise TypeError(f"{context}: {ShowErrors.error(result.value)}")
     return result.value
 
 
@@ -67,7 +76,7 @@ def _literal_value(term: Term, context: str):
             return lit.value
         return lit.value.value  # FloatValueFloat64.value or IntegerValueInt64.value
     except Exception as e:
-        raise TypeError(f"{context}: expected literal term, got {term!r}") from e
+        raise TypeError(f"{context}: expected literal term, got {_show_term(term)}") from e
 
 
 def term_value(term: Term, context: str = "term_value"):
@@ -96,7 +105,7 @@ def term_value(term: Term, context: str = "term_value"):
                 return ("left", term_value(branch.value, context))
             if isinstance(branch, Right):
                 return ("right", term_value(branch.value, context))
-    raise TypeError(f"{context}: expected value term, got {term!r}")
+    raise TypeError(f"{context}: expected value term, got {_show_term(term)}")
 
 
 def _mk_term_coder(

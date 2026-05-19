@@ -595,17 +595,19 @@ class TestPairFusion:
         # No reduced labels → no collision → spec returned unchanged
         assert renamed is spec
 
-    def test_pair_both_contract_blocks(self, real_semiring):
-        """pair(c1, c2) — both are contracts, not handled."""
+    def test_pair_both_contract_fuses(self, real_semiring):
+        """pair(c1, c2) — both branches are contracts, fuses via Copy."""
         c1 = contract_morphism(real_semiring, "ij->i")
-        c2 = contract_morphism(real_semiring, "ij->i")
+        c2 = contract_morphism(real_semiring, "ab->a")
         pair_m = ops.pair(c1, c2)
-        outer = contract_morphism(real_semiring, "i,i->")
+        outer = contract_morphism(real_semiring, "i,a->")
         composed = ops.compose(pair_m, outer)
         fused = _fuse(composed)
-        # Should NOT fuse (both branches are contracts)
-        assert isinstance(fused.node, expr.Compose)
-        assert not isinstance(fused.node.f, expr.Copy)
+        assert isinstance(fused.node, expr.Compose), "Should be compose(Copy, fused_contract)"
+        assert isinstance(fused.node.f, expr.Copy), "First part should be Copy"
+        fused_spec = fused.node.g.raw
+        assert len(fused_spec.equation.inputs) == 2
+        assert fused_spec.equation.output == ()
 
     def test_pair_both_identity_blocks(self, real_semiring):
         """pair(id, id) — no contract to absorb."""

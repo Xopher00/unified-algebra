@@ -12,8 +12,10 @@ from dataclasses import dataclass, field
 
 from unialg.semantics.functors import apply_poly
 from unialg.semantics.morphisms import Morphism, MorphismError
-from unialg.objects import BINARY, repeated_product
+from unialg.objects import BINARY, ExpType, ProductType, repeated_product
 from unialg.syntax import expressions as expr
+
+import hydra.core as core
 
 from .notation import SemiringDecl, ContractExpr, Equation
 from .semirings import Semiring
@@ -38,12 +40,66 @@ def _left_nested_shape(n: int):
 
 def _count_id(shape) -> int:
     """Count Id positions in a PolyExpr shape."""
-    from unialg.syntax.expressions import Prod, Id
+    from unialg.syntax.expressions import Prod, Id, Exp
     if isinstance(shape, Id):
         return 1
+    if isinstance(shape, Exp):
+        return _count_id(shape.body)
     if isinstance(shape, Prod):
         return _count_id(shape.left) + _count_id(shape.right)
     raise ValueError(f"unexpected shape node in _count_id: {type(shape).__name__}")
+
+
+def _index_product(labels: tuple[str, ...]):
+    """Encode label tuple as a Hydra type: product of TypeVariable(idx.<label>)."""
+    if not labels:
+        return core.TypeUnit()
+    cur = core.TypeVariable(core.Name(f"idx.{labels[0]}"))
+    for lab in labels[1:]:
+        cur = ProductType(cur, core.TypeVariable(core.Name(f"idx.{lab}")))
+    return cur
+
+
+def _slot_shape(labels: tuple[str, ...]):
+    """Polynomial shape for a single tensor slot.
+
+    Empty labels → Id() (scalar).  Non-empty → Exp(index_product, Id()).
+    """
+    if not labels:
+        return expr.Id()
+    return expr.Exp(_index_product(labels), expr.Id())
+
+
+def _exp_shape_from_equation(eq):
+    """Build polynomial shape encoding input labels as Exp bases."""
+    shapes = [_slot_shape(inp) for inp in eq.inputs]
+    if len(shapes) == 1:
+        return shapes[0]
+    result = shapes[0]
+    for s in shapes[1:]:
+        result = expr.Prod(result, s)
+    return result
+
+
+def tensor_type(labels: tuple[str, ...], carrier=BINARY):
+    """Type of a tensor indexed by labels: ExpType(index_product, carrier)."""
+    if not labels:
+        return carrier
+    return ExpType(_index_product(labels), carrier)
+
+
+def _strip_exp(typ):
+    """Remove Exp wrappers from a type tree: ExpType(base, carrier) → carrier.
+
+    Keeps dom/cod as BINARY products for substrate compatibility while the
+    polynomial shape carries label metadata in Exp bases.
+    """
+    from hydra.core import TypePair, TypeFunction
+    if isinstance(typ, TypePair):
+        return ProductType(_strip_exp(typ.value.first), _strip_exp(typ.value.second))
+    if isinstance(typ, TypeFunction):
+        return typ.value.codomain
+    return typ
 
 
 @dataclass(frozen=True)
@@ -64,7 +120,7 @@ class ContractSpec:
 
     @property
     def cod(self):
-        return BINARY
+        return tensor_type(self.equation.output)
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +195,7 @@ def contract_morphism(
         raise ValueError(f"Semiring '{sr.name}' has no adjoint operation")
     eq = Equation.parse(equation) if isinstance(equation, str) else equation
     spec = ContractSpec(semiring=sr, equation=eq, adjoint=adjoint,
-                        shape=_left_nested_shape(len(eq.inputs)))
+                        shape=_exp_shape_from_equation(eq))
     return Morphism(
         node=expr.DomainPrim("tensors", spec, spec.dom, spec.cod),
         aux_primitives=_collect_semiring_aux(sr),

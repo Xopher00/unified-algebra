@@ -99,14 +99,14 @@ class Optic:
     def replacement(self) -> Type:
         """B — extracted from backward.dom() via functor.unapply."""
         return self._replacement
-    
+
     def act_forward(self, h: Morphism) -> Morphism:
         """Decompose through an optic, then lift ``h`` through the optic functor."""
-        return compose(self.forward, self.functor.map(h)) 
+        return compose(self.forward, self.functor.map(h))
 
     def act_backward(self, h: Morphism) -> Morphism:
         """Lift ``h`` through the optic functor, then reconstruct through the optic."""
-        return compose(self.functor.map(h), self.backward)    
+        return compose(self.functor.map(h), self.backward)
 
     def act(self, h: Morphism) -> Morphism:
         """Apply an optic action to ``h``.
@@ -116,7 +116,7 @@ class Optic:
         morphism composition rules.
         """
         return compose(self.act_forward(h), self.backward)
-    
+
     def compose(self, inner: "Optic") -> "Optic":
         """Compose two optics: focus through ``outer`` then ``inner``."""
         return _compose_optic(self, inner)
@@ -200,7 +200,7 @@ def recursive_carrier(name: str, functor: Functor) -> RecursiveCarrier:
         roll=Morphism(expr.Prim(raw_identity, layer, typ)),
         unroll=Morphism(expr.Prim(raw_identity, typ, layer)),
     )
-    
+
 
 def _compose_optic(outer: Optic, inner: Optic) -> Optic:
     """Compose two optics, threading focus through ``outer`` and then ``inner``.
@@ -213,7 +213,7 @@ def _compose_optic(outer: Optic, inner: Optic) -> Optic:
     fwd = outer.act_forward(inner.forward)
     bwd = outer.act_backward(inner.backward)
     return Optic(functor=composed_functor, forward=fwd, backward=bwd)
-    
+
 
 def _require_carrier(fp: Optic) -> Type:
     """Return ``fp.carrier``, raising ``MorphismError`` if it is not set."""
@@ -256,7 +256,7 @@ def algebra(fp: Optic, alg: Morphism, i: int) -> Morphism:
         monad=alg.monad,
         aux_primitives=alg.aux_primitives,
     )
-    
+
 
 def cata(fp: Optic, alg: Morphism) -> Morphism:
     """Catamorphism: fold the carrier type ``μF`` using algebra ``alg : F(B) → B``.

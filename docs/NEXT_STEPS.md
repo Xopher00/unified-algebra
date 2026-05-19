@@ -1,383 +1,201 @@
 # Next Steps
 
-## Done: Revise tests
+Tasks ordered by module. Each entry carries an **impact** (what it unblocks or improves) and **complexity** (files, design decisions, risk) rating.
 
-Tests revised. Current live suite: 240 passing, 6 skipped. No references to old
-API remain in live tests; legacy tests quarantined under
-`tests/regression/stale_old_api/`.
+---
 
-## Done: Functor cleanup
+## syntax/
 
-- `Functor.apply(space)` added as instance method (object action)
-- `Functor.compose(inner)` added as instance method (functor composition)
-- Three `functor_*` compatibility wrappers removed
-- `poly_fmap` signature changed to `(functor: Functor, h: Morphism)`, uses `functor.apply()` internally
-- `Functor.map(h)` added as a convenience method; `poly_fmap` remains the semantic free function in `semantics/functors.py` and returns a deferred `PolyFmap` node. Hydra-backed realization happens later in `structure/realize.py`.
+### `Exp` surface syntax — `Exp.base: Type → PolyExpr`
+**Impact: High** | **Complexity: Medium**
 
-## Done: Optics layer (unified polynomial optic)
+`Exp.base` is currently a Hydra `Type`, which cannot be produced from source text. Changing it to `PolyExpr` unblocks user-facing `Exp[base, body]` syntax and makes the base consistent with the rest of the `PolyExpr` tree.
 
-- Single `Optic(functor, forward, backward)` dataclass replaces former Lens/Prism/Traversal subclasses
-- `forward: S → F(A)` decomposes source; `backward: F(B) → T` reconstructs target
-- Uniform action: `compose(forward, poly_fmap(F, h), backward)` — implemented as `Optic.act()`
-- `focus`/`replacement` derived via strict `functor.unapply()` (Hydra unification plus validated inverse of `apply_poly`)
-- `Functor.unapply(fa)` builds `F(A)` with a Hydra type variable, asks `hydra.unification.unify_types` to solve `F(A) = fa`, then performs round-trip validation
-- Lens = `Prod(Id, Const(residue))`, Prism = `Sum(Id, Const(residue))`, Traversal = arbitrary polynomial
-- For simple lenses/prisms where S = F(A), forward and backward are identity morphisms
-- Convenience constructors: `fst_lens(a, b)`, `snd_lens(a, b)`, `left_prism(a, b)`, `right_prism(a, b)`
-- Height-2 optics need no structural change — just deeper polynomial bodies
-- Unified Hypothesis property tests cover type laws and rejection laws
-- No Hydra term construction in `optics.py`; action methods return semantic morphisms and realization stays in `structure/realize.py`
+Five sites across three files:
 
-## Next: tensor operations (revised 2026-05-17)
+| Site | File | Change |
+|------|------|--------|
+| `apply_poly` | `semantics/functors.py:216` | `ExpType(base, ...)` → `ExpType(apply_poly(base, TypeUnit()), apply_poly(b, space))` |
+| `_collect_consts` | `semantics/functors.py:253` | recurse into `node.base` instead of treating it as a `Type` |
+| alpha-rename | `tensors/fusion.py:98` | replace `substitute_type_variables(subst, s.base)` with a PolyExpr walk substituting in `Const` nodes |
+| `_labels_from_base` | `tensors/fusion.py:51, 283` | decode `Const`/`PolyRef` instead of `TypeVariable`/`TypePair` — simpler |
+| pretty printer | `syntax/expressions.py:497` | `show_type(expr.base)` → `pretty(expr.base)` |
 
-### What was tried and why it failed
+After these five sites: add `Exp[base, body]` case to `_functor_nud` in `syntax/_grammar.py`, matching the `List[body]`/`Maybe[body]` pattern. The tensor domain construction in `tensors/semantics.py` (`_index_product`) would wrap its base in `Const(...)`.
 
-Three distinct attempts all broke down in the same ways:
+### Complexity: `_morphism_nud` — E (32)
+**Impact: Medium** | **Complexity: Medium**
 
-1. **Parallel expression language** — each attempt invented `TensorExpr`, `TensorVar`, `ContractExpr`, or `TensorSemiring` as a new syntax tree running beside `MorphismExpr`. This duplicates the semantic layer.
-2. **Python-native evaluator** — each attempt ended with a `_RUNTIME` dict (op name → numpy function) that bypasses Hydra entirely. This defeats the purpose of the backend/Hydra machinery.
-3. **`ContractSpec` embedded in `Prim`** — the most mature attempt (notebook cells 66–89) correctly used `Morphism` as the carrier but then stuffed semantic metadata into `Prim(raw, dom, cod)`, which takes a raw Hydra `Term`, not a dataclass.
+`syntax/_grammar.py:83`. Large match dispatch over morphism token kinds (identity, copy, delete, fst, snd, inl, inr, absurd, assoc, swap, ref, app, recursion, carrier boundary, monadic lift, parenthesized). Same extraction pattern as the `signature` refactor: group into `_nud_structural` (identity/copy/delete/fst/snd/inl/inr/absurd/assoc/swap), `_nud_special` (ref/app/recursion/carrier/lift), keep the main function as a dispatcher. Target: all sub-functions ≤ B.
 
-### What the Hydra API survey ruled out (2026-05-13)
+### Complexity: `_pretty_morphism` — D (28)
+**Impact: Low** | **Complexity: Low**
 
-- Hydra has **no built-in einsum/tensor operations**. `hydra.lib.math` is scalar-only.
-- `hydra.reduction.contract_term` is beta-reduction cleanup — unrelated to tensor contraction despite the name.
-- `hydra.parsers` is a Hydra-internal parser combinator library — not a surface syntax parser for user expressions.
-- Creating new `MorphismExpr` subclasses needs stronger justification: Hydra's `TermPrimitive` + correctly named `BackendPrimitive` registration may be sufficient representation.
+`syntax/expressions.py:282`. Match dispatch over all MorphismExpr variants for pretty-printing. Extract `_pretty_leaf` for structural primitives (Identity through Absurd) and `_pretty_contextual` for binary nodes. Mechanical — no semantic changes.
 
-### Hard constraints for any implementation
+### Complexity: `_pretty_poly` — C (14)
+**Impact: Low** | **Complexity: Low**
 
-- **No new expression language under `tensors/`** — new semantic files belong in `semantics/`, new structure files in `structure/`, following the existing layer split.
-- **No Python-native evaluator** — execution must go through `run()` → `structure/realize.py` → Hydra reduction.
-- **No new `MorphismExpr` subclass without clear justification** — exhaust `Prim` + named primitive first.
-- **Explore Hydra before adding** — use `pkgutils`/`importlib`/`inspect` to verify a capability does not already exist.
-- **`tensors/semirings.py`** and **`tensors/contractions.py`** are the current tensor-specific helper modules. Keep tensor-specific code there unless it needs to become general syntax/semantics/structure machinery.
-- Do not recreate old parallel tensor expression modules such as `tensorexpressions.py` or `equations.py`.
+`syntax/expressions.py:472`. Same pattern — match dispatch over PolyExpr variants. Can be addressed together with `_pretty_morphism`.
 
-### Correct layer mapping (to validate before implementing)
+### Complexity: `parse_program` — C (17)
+**Impact: Medium** | **Complexity: Medium**
 
-| Concern | Layer | Correct file | Status |
-|---------|-------|--------------|--------|
-| Subscript parsing (`"ij,jk->ik"`) | Syntax | `syntax/expressions.py` or keep as `str` | Unclear — may not need a node |
-| Semiring dataclass | Tensor semantics | `tensors/semirings.py` | Exists ✓ |
-| `from_backend` factory + `op_env` | Semantics | `tensors/semirings.py` | Missing |
-| Tensor type `ExpType(I, A)` | Semantics | `semantics/morphisms.py` (helper) | Missing |
-| `contract_morphism(sr, eq) → Morphism` | Tensor semantics | `tensors/contractions.py` | Exists/experimental |
-| Contract fusion rewrite | Structure | `structure/` | Missing (notebook only) |
-| Contraction kernel registration | Structure | `structure/` | Missing |
+`syntax/parse.py:66`. Main parser loop that classifies declaration kinds (morphism, functor, carrier, focus, domain extensions) and dispatches. Extract `_parse_declaration` helper for the per-kind logic. The loop body would become: classify → dispatch → accumulate.
 
-### Before writing any code
+---
 
-1. Do not recreate old parallel tensor expression modules.
-2. Keep tensor-specific helpers inside `tensors/` unless a helper becomes broadly useful enough to promote into syntax/semantics/structure.
-3. For each piece, ask: does Hydra already provide this? Check with `importlib`/`inspect` before implementing.
+## tensors/
 
+### Phase 7 — Custom semiring end-to-end
+**Impact: High** | **Complexity: Low**
 
-## Next: Clarify the core API flow
+Smooth-tropical semiring (from legacy example 05). Exercises the full pipeline — notation, semantics, primitives, fusion — with a non-standard semiring. Validates that no part of the pipeline is implicitly real-semiring-specific.
 
-The current code has a natural but partly scattered flow:
+### Semiring law checking
+**Impact: Medium** | **Complexity: Low**
 
-```text
-Expr node -> typed semantic wrapper -> type action -> structure realization -> main run
-```
+Add a `check_laws(samples)` method to `Semiring` in `tensors/semantics.py` (or the semiring dataclass). Verifies associativity, commutativity, identity, annihilation, and distributivity on scalar samples. Gate behind a flag (default off; on for development/research use). Useful for custom and research semirings.
 
-For morphisms, that flow is:
+### Fusion — pair nesting end-to-end test
+**Impact: Medium** | **Complexity: Low**
 
-- `MorphismExpr` in `expressions.py` — pure syntax tree
-- `Morphism` in `morphisms.py` — typed arrow handle
-- `signature` / `dom_of` / `cod_of` — type derivation
-- `realize` in `realize.py` — Hydra interpretation
-- `lower` / `run` — execution boundary
+`Pair(Pair(c1, id), c2)` — multi-level Pair trees. The `_par_to_optic` walk handles recursive Pair structurally (each Pair factors through Copy, inner Pairs recurse). Needs an end-to-end test to confirm label alignment and shape correctness for deeply nested cases.
 
-For polynomial functors, the parallel flow is currently less explicit:
+### Fusion — opaque leaf optimization metric
+**Impact: Low** | **Complexity: Low**
 
-- `PolyExpr` in `expressions.py` — pure syntax tree
-- `Functor` in `functors.py` — named descriptor with `apply(space)` object action method
-- `functors.apply_poly` — internal recursive implementation of F(A)
-- `Functor.unapply(fa)` — inverse object action, using Hydra unification to solve `F(A) = fa`
-- `poly_fmap(functor, h)` in `semantics/functors.py` — arrow action `h -> F(h)`, takes a `Functor` and returns a deferred node
+Add a test verifying that `compose(pre_map, fused_contract)` has fewer `BackendPrim` leaves than the unfused chain when the opaque leaf introduces a saving.
 
-Refactor direction:
+### Backend fast-paths — native einsum
+**Impact: Medium** | **Complexity: Medium**
 
-- Do **not** collapse `Morphism` and `Functor` into one universal class; morphisms are arrows, functors are object-and-arrow transformers.
-- Keep `MorphismExpr` and `PolyExpr` as pure ADT syntax.
-- Keep `Morphism` as the typed semantic handle for arrows.
-- `Functor` upgraded: `apply(space)` is now an instance method; `summands()`, `x_arity()`, `consts()` are methods.
-- `Functor.unapply(fa)` now uses Hydra type unification instead of a hand-written structural inverse walker.
-- `poly_fmap(functor, h)` in `semantics/functors.py` takes a `Functor`, uses `functor.apply()` internally, and stays as a free semantic function. `Functor.map(h)` delegates to it.
-- Import-order-sensitive monkey patches remain removed; no layer boundary violations.
+Route real-semiring fused contraction to native `numpy.einsum` (or backend equivalent) instead of the align/fold/reduce decomposition. Requires detecting the special case in `compile_contract_spec`. Keeps the generic decomposition for non-standard semirings.
 
-Current reader-facing shape:
+### Contraction order optimization
+**Impact: Low** | **Complexity: High** | **Deferred**
 
-```python
-Maybe = Functor("Maybe", Sum(One(), Id()))
+Cost-model-driven choice of which contractions to fuse and in what order. Current fusion is greedy (fixpoint iteration). Not needed until the pipeline is exercised with larger expressions.
 
-Maybe.apply(INT)              # object action: F(A)
-poly_fmap(Maybe, add1)        # arrow action: F(f), deferred until realization
-```
+### Transformer / attention ops
+**Impact: Medium** | **Complexity: Medium**
 
-## Next: Optics — remaining work
+Ops not yet in any backend JSON spec:
+- Axis-specialized softmax (axis=-1 baked into primitive)
+- ReLU / GELU
+- Layer normalization (axis-aware mean / variance / sqrt)
+- Attention masking (mask-aware softmax or pre-softmax addition)
 
-The unified `Optic` handles Lens, Prism, Traversal, and height-2 cases structurally. Remaining:
+Each requires adding the op to the backend JSON specs and wiring up the primitive registration. Routing carried parameters through larger composed blocks is a design question that should be resolved first.
 
-- **Runtime behavioral tests** — lens get/set, set/get, set/set laws; prism review/preview roundtrips (these require `realize`/`lower`/`run`)
+### Complexity: `_par_to_optic` — D (25)
+**Impact: Medium** | **Complexity: Medium**
 
-## Done: Recursion schemes over carrier optics
+`tensors/fusion.py:230`. Shape-driven recursive descent with three concerns mixed: binary node handling (Parallel/Pair), leaf dispatch (Identity/contract/opaque), and Pair factoring (Copy insertion). Extract `_optic_leaf` for the three leaf cases and `_optic_pair_wrap` for the Copy/validation logic. The binary recursion stays in `_par_to_optic`. Target: main function ≤ B.
 
-The old `recursion.py` (with `rec`, `Inductive`, `LIST_IND`, `MAYBE_IND`, `AlgebraError`)
-moved to `.bak`. The current API is generic over any carrier optic:
+### Complexity: `_try_fuse` — C (11)
+**Impact: Low** | **Complexity: Low**
 
-```python
-Optic(functor, forward, backward, carrier=mu)
-```
+`tensors/fusion.py:319`. Borderline — one guard clause extraction or early-return restructuring brings it to B. Low priority.
 
-The fixed-point boundary is supplied by the optic:
+### Complexity: `Equation.parse` — C (16), `parse_algebra` — C (14)
+**Impact: Medium** | **Complexity: Low**
 
-- `fp.forward = unroll : μF → F(μF)` (destructor — peel one layer)
-- `fp.backward = roll : F(μF) → μF` (constructor — wrap one layer)
-- `fp.carrier = μF`
-- No `FixedPoint` subclass — plain `Optic` is sufficient
+`tensors/notation.py:30` and `notation.py:204`. `Equation.parse` validates and splits einsum notation strings; `parse_algebra` parses semiring declaration blocks. Both are string-processing functions with many validation branches. Extract validation into `_validate_equation` and `_validate_algebra_fields` helpers.
 
-Built-in carrier helpers, if added, are adapters which produce this optic boundary. They are not core semantics.
+### Complexity: `_adjust_diagonal_axes` — C (11)
+**Impact: Low** | **Complexity: Low**
 
-`cata`, `ana`, and `hylo` are implemented for plain, para, lax, and lax-para `Morphism` algebras/coalgebras. Parameter context is shared by calling contextual combinators with `shared_context=True`; effects are sequenced with the existing monad `bind`.
+`tensors/primitives.py:101`. Borderline — iterative axis adjustment for diagonal extraction. Low priority.
 
-**`cata(fp, alg)`** — catamorphism / fold
 
-```
-cata(fp, alg) : P × μF → T(A)
-             = compose(act_forward(fp, self), alg, shared_context=True)
-             = compose(compose(fp.forward, poly_fmap(F, self)), alg, shared_context=True)
-```
+---
 
-`alg` may be plain (`F(A) → A`), para (`P × F(A) → A`), lax (`F(A) → T(A)`), or lax-para (`P × F(A) → T(A)`). `act_forward` performs `forward ∘ poly_fmap`; the recursive self-reference has the same `param` and `monad` as `alg`.
+## semantics/ + structure/
 
-For the list functor `F(X) = 1 + (E × X)`, `alg : F(A) → A` decomposes into:
-- nil branch: `alg(Left(())) : A` — the base value
-- cons branch: `(e: E, acc: A) → alg(Right(e, acc)) : A` — the step function
+### Optic runtime behavioral tests
+**Impact: Medium** | **Complexity: Low**
 
-**`ana(fp, coalg)`** — anamorphism / unfold
+Lens get/set, set/get, set/set laws; prism review/preview roundtrips. These require `realize` → `lower` → `run` and are blocked on nothing — just not yet written. Live in `tests/semantics/`.
 
-```
-ana(fp, coalg) : P × A → T(μF)
-              = compose(coalg, act_backward(fp, self), shared_context=True)
-              = compose(coalg, compose(poly_fmap(F, self), fp.backward), shared_context=True)
-```
+### Non-list carrier adapters (Maybe, Tree)
+**Impact: Medium** | **Complexity: Medium**
 
-`coalg` may be plain (`A → F(A)`), para (`P × A → F(A)`), lax (`A → T(F(A))`), or lax-para (`P × A → T(F(A))`). `act_backward` performs `poly_fmap ∘ backward`; the recursive self-reference has the same `param` and `monad` as `coalg`.
+`maybe_carrier` and `tree_carrier` convenience constructors analogous to `list_carrier`. Design notes:
+- `Maybe(A) = 1 + A` is a constant polynomial with no `Id`; current `Optic` validation expects a functor position it can `unapply`. The adapter may need a `Just` wrapper that carries the `Id` position explicitly.
+- Tree carrier needs an agreed recursive shape (`1 + X × X`) and Hydra encoding of `roll`/`unroll` before implementing. `Tree[x]` is now parseable as `Sum(One(), Prod(Id(), Id()))`, which gives the functor shape for free.
+- Do not weaken core recursion semantics. Add only adapter support that produces the existing carrier optic boundary cleanly.
+- A full `CarrierExpr` DSL was considered and dropped — the adapter pattern (`list_carrier`, `maybe_carrier`, `tree_carrier`) is sufficient. Revisit only if a concrete case emerges that adapters cannot handle.
 
-**`hylo(fp, coalg, alg)`** — hylomorphism
+### AlgebraHom — typed maps between algebras
+**Impact: High** | **Complexity: High** | **Deferred — blocked on carrier adapters + Phase 7**
 
-```
-hylo(fp, coalg, alg) = compose(ana(fp, coalg), cata(fp, alg), shared_context=True)
-```
+Typed maps between algebras that commute with the algebra structure. Needed for relating model components (encoder/decoder adjointness, residual connections as natural transformations). `AlgebraHom(f: Morphism, src, tgt)` where `f` is the carrier map.
 
-The shared-context composition is what keeps a lax-para hylo at `P × A → T(B)` instead of expanding into `P × P × A → T(B)`.
+Blocked on: non-list carrier adapters (Maybe, Tree) and tensor Phase 7 end-to-end — the design questions need concrete use cases to resolve, and those come from exercising the pipeline with real compositions.
 
-## Done: Runtime recursion smoke tests
-
-Runtime tests now prove that the recursive primitive wiring reduces.
-
-The smoke carrier uses `F(X) = Unit + X` and takes the terminating `Unit` branch. This keeps the functor valid for `Optic` validation while avoiding an infinite self-call:
-
-- `cata(fp, alg)(value) == expected`
-- `ana(fp, coalg)(seed) == expected`
-- `hylo(fp, coalg, alg)(seed) == expected`
-
-The lax-para runtime cases verify that the shared parameter is supplied once:
-
-```text
-P × A -> T(B)
-```
-
-not:
-
-```text
-P × P × A -> T(B)
-```
-
-This also caught and fixed a runtime bug: recursive primitives must register their actual raw function type as their Hydra `TypeScheme`; a dummy `Unit` scheme makes Hydra treat plain recursive primitives as nullary.
-
-## Done: List carrier adapter
-
-`list_carrier(element)` is implemented as a convenience constructor:
-
-```python
-Optic(functor=F, forward=unroll, backward=roll, carrier=mu)
-```
-
-It represents Hydra lists as:
-
-```text
-μX. 1 + (A × X)
-```
-
-Runtime coverage verifies:
-
-- carrier boundary type laws
-- `cata(list_carrier(INT), sum_alg)` sums a concrete Hydra list
-- `ana(list_carrier(INT), countdown_coalg)` builds a concrete Hydra list
-- `hylo(list_carrier(INT), countdown_coalg, sum_alg)` unfolds and folds in one pass
-
-This adapter did not change the core recursion semantics.
-
-## Next: Non-list carrier adapters
-
-Maybe/tree adapters should also be convenience constructors, but they need a little design care:
-
-- `Maybe(A)` is structurally `1 + A`, a constant polynomial with no `Id`; current `Optic` validation expects a functor position it can `unapply`.
-- Tree carriers need an agreed recursive shape and carrier encoding before writing roll/unroll.
-
-Do not weaken the core recursion semantics for these. Add only the adapter support needed to produce the same carrier optic boundary cleanly.
-
-## Next: Algebra structure above recursion
-
-`Morphism` remains the algebra/coalgebra representation; no separate `ParaAlgebra` wrapper is needed for this layer. The next algebraic layer is about named relationships between algebras.
-
-Typed maps between algebras that commute with the algebra structure. Needed for relating model components (encoder/decoder adjointness, residual connections as natural transformations). `AlgebraHom(f, src, tgt)` where `f: Morphism` is the carrier map.
-
-Design questions:
-- Does `AlgebraHom` live in `recursion.py` or a new `algebra.py`?
+Open design questions:
+- Does `AlgebraHom` live in `semantics/optics.py` or a new `semantics/algebra.py`?
 - How are coherence cells `ε_A`, `δ_A` represented for lax cases?
 - Does the optic structure make algebra/coalgebra typing constraints more explicit?
 
-## Next: Semiring tensor structure
+### Complexity: `construct` — E (37)
+**Impact: High** | **Complexity: High**
 
-For multi-headed and branching architectures. Tensor products of morphisms, bilinearity. See `docs/ALGEBRA.md` / `claude-mdtopics/ALGEBRA.md` for context.
+`semantics/construct.py:243`. The largest function in the codebase — a single closure-heavy function that resolves refs, applies parameterized morphisms, dispatches backend primitives, handles domain expressions, poly_fmap, recursion apps, carrier boundaries, and monadic lifts. Most of the inner functions are already extracted into `_construct_helpers.py` but the main match dispatch remains monolithic. Extract by node kind: `_construct_ref`, `_construct_app`, `_construct_domain`, `_construct_recursion` — each a standalone function taking `(node, env, ...)` instead of closing over the environment. This is the highest-value refactoring target in the project.
 
-## Watch: Residuals, posets, and quantale-enriched adjunctions
+### Complexity: `construct_program` — B (10) / ruff C901 (40)
+**Impact: Medium** | **Complexity: Medium**
 
-Legacy had an "adjoint" tensor mode: a semiring could declare a residual
-operation, and an einsum call-site flag selected the residual contraction form.
-That was not a general adjunction framework; it was an operational use of
-residuation inside semiring tensor contraction.
+`semantics/construct.py:59`. Radon scores B(10) but ruff McCabe flags it at 40 — the discrepancy comes from nested closures that radon counts separately but ruff counts against the enclosing function. Addressing `construct` (above) will resolve this automatically since the closures will become top-level functions.
 
-The abstract law behind it is order-theoretic:
+### Complexity: `realize` — E (31)
+**Impact: High** | **Complexity: Medium**
 
-```text
-a ⊗ b ≤ c  iff  b ≤ (a ⇒ c)
-```
+`structure/realize.py:190`. Match dispatch over all MorphismExpr variants to produce Hydra terms. Same extraction pattern as `signature`: split into `_realize_structural` (Identity/Copy/Delete/First/Second/Left/Right/Absurd), `_realize_recursive` (Compose/Parallel/Pair/Case/MonadicEmbed), and leave Prim/DomainPrim/BackendPrim/PolyFmap/SelfRef in the main function. Target: all sub-functions ≤ B.
 
-This is the right-residual/internal-hom law for an ordered monoidal structure
-and is related to posets, quantales, Galois connections, and enriched
-adjunctions. It is mathematically broader than tensors, but the only concrete
-use case currently present is tensor contraction.
+### Complexity: `poly_action_term` — C (12)
+**Impact: Low** | **Complexity: Low**
 
-Current guidance:
+`structure/realize.py:91`. Match dispatch over PolyExpr variants for functor action on Hydra terms. Borderline — can be addressed alongside the `realize` refactor.
 
-- Keep the implemented concept scoped as `Semiring.adjoint` / `Semiring.op_env(adjoint=True)` for tensor contraction.
-- Do not introduce a first-class `Quantale`, `Poset`, `EnrichedAdjunction`, or inequality DSL until there is a concrete non-tensor use case.
-- If residuals become useful outside tensors, promote the abstract structure into `semantics/` first, likely as a small ordered/quantale object with `carrier`, `leq`, `join`, `tensor`, `unit`, and optional `residual`.
-- Treat `Functor.category="poset"` as a placeholder only. It currently guards nontrivial poset functors rather than implementing enriched functor semantics.
+### Complexity: `morphism_refs` — C (12)
+**Impact: Low** | **Complexity: Low**
 
-## Watch: Strength and distributivity
+`semantics/_construct_helpers.py:19`. Recursive walk collecting Ref names from MorphismExpr trees. The nesting comes from the many isinstance checks. Low priority — works correctly, rarely modified.
 
-Lax para composition handles parameter threading with shared context plus `bind`/lambda capture. No explicit strength morphism is part of the current semantics.
+### Complexity: `apply_poly` — C (11)
+**Impact: Low** | **Complexity: Low**
 
-## Tensor contraction: open design questions (2026-05-17)
+`semantics/functors.py:198`. Match dispatch over PolyExpr variants for F(A) type computation. Borderline — one point above threshold. Will gain one more case when `Const` functor is added for `Exp.base` refactor. Worth splitting then, not now.
 
-These gaps must be resolved before any tensor contraction code is written.
-Ordered by how much they block forward progress.
 
-### 1. Index type encoding — DECISION REQUIRED (blocks everything)
+---
 
-`tensor_type(index, element)` and the dom/cod of
-`contract_morphism` in `tensors/contractions.py` both depend on what Hydra
-`Type` represents an index set.
+## runtime/
 
-Options:
-- **Nominal** — `Name("I")`, `Name("J")` as opaque phantom types.  Sufficient
-  for checking that `contract_morphism` output type matches a downstream
-  morphism's input type. Does not encode size.
-- **TypeVariable** — polymorphic; `contract_morphism` returns a scheme not a
-  monotype.  Clean but harder to instantiate in practice.
-- **Nat-indexed** — encodes concrete sizes statically.  Precise but requires
-  size arithmetic in the type system; more than is needed now.
+### Lexer comment robustness
+**Impact: Low** | **Complexity: Low**
 
-Nominal is the likely starting point.  Decide before touching `tensor_type()`
-  or any `contract_morphism` dom/cod.
+`RecursionError` on long comments. Isolated to `syntax/_lex.py`. Fix the comment tokenization to use iteration instead of recursion.
 
-### 2. Structural tensor ops not in backend specs — needs placement decision
+### Complexity: `load_spec` — C (11)
+**Impact: Low** | **Complexity: Low**
 
-Any future tensor-lowering helper will need `expand_dims` and `transpose` for the
-alignment step (unsqueeze + permute input tensors to `output_vars ++ reduced_vars`
-dim order).  These are **not** in `tensors/backends/*.json`, which only carries
-elementwise binary, unary, and reduce ops.
+`runtime/backend.py:227`. JSON backend spec loader with validation branches for each op kind (elementwise, reduce, structural). Borderline.
 
-Options:
-- Add them to the existing JSON specs under a `"structural"` kind.
-- Register them separately in the tensor helper outside the JSON
-  spec mechanism (direct `register_backend_primitive` calls).
-- Handle alignment at the Hydra term level using existing pair/list primitives
-  rather than delegating to the backend.
+### Complexity: `type_from_spec` — C (12), `term_value` — C (11)
+**Impact: Low** | **Complexity: Low**
 
-Decide before adding new tensor-lowering code.
+`runtime/codecs.py:116` and `codecs.py:66`. Match dispatches over Hydra type/term variants for encoding/decoding. Straightforward extraction if needed — low priority since these files are rarely modified.
 
-### 3. Batching via poly_fmap needs grounding
+---
 
-The claim is that `bij,bjk->bik` = `poly_fmap(BatchFunctor, contract_morphism(sr, "ij,jk->ik"))`.
-The existing functor machinery handles **polynomial** endofunctors (Prod, Sum,
-Const, Id, Comp).  A function-space functor `(B → -)` is exponential, not
-polynomial.
+## Historical reference — do not revisit
 
-For finite batch dimensions it collapses to `Prod(Id, Id, ..., Id)` — a
-product functor — which `poly_fmap` can handle.  But this requires:
-- The batch index type to be finite and explicitly encoded as a product.
-- A clear statement of what the `BatchFunctor` PolyExpr looks like.
-
-Decide whether batching is handled by poly_fmap over a product functor, or
-by a separate mechanism (e.g. explicit loop / vmap primitive), before
-implementing or broadening `tensors/contractions.py`.
-
-### 4. CompiledEquation has no layer home
-
-The equation parser (`compile_einsum` from `unified-algebra/algebra/contraction.py`)
-is pure data — no backend coupling.  It parses a string like `"ij,jk->ik"` into
-`input_vars`, `output_vars`, `reduced_vars` index structures.
-
-Candidate placements:
-- `syntax/` — it is string parsing, which is syntax-layer work.
-- Private helper inside `tensors/contractions.py` — keeps it close to its
-  only consumer.
-
-Decide before implementing `contract_morphism`.
-
-### 5. Post-contraction nonlinearity — hook needed
-
-The old `Equation` had an optional nonlinearity applied after contraction
-(`contract_and_apply`).  This is common in practice: sigmoid/relu/softmax after
-a semiring contraction.  In the new system, this is just morphism composition
-(`compose(contract_morphism(sr, eq), nl)`), but `contract_morphism` should note
-this as the intended pattern so users know not to bake it into the semiring.
-
-No implementation needed now — note the pattern in `tensors/contractions.py`.
-
-### 6. No Semiring law-checking equivalent
-
-The old `Semiring.check_laws` verified associativity, commutativity, identity,
-annihilation, and distributivity on scalar samples before the semiring was used.
-The new `Semiring` has no equivalent.  Useful for custom and research semirings.
-
-Add as a future method on `Semiring` in `tensors/semirings.py`, gated behind
-a flag (default off for performance, on for development/research use).
-
-### 7. Import linter boundary rules not updated
-
-Import-linter contracts now include the current `tensors/semirings.py` and
-`tensors/contractions.py` modules. If new tensor modules are added later, update
-the contracts before merging implementation code.
-
-## Deferred
-
-- Surface syntax / grammar (no timeline)
-- Backend expansion beyond current Hydra primitives
-- `CarrierExpr` — a syntax-layer expression type for declaratively describing carrier roll/unroll structure, so recursive carriers (List, Maybe, RoseTree, user-defined) do not require hand-written Hydra plumbing. Design is unsettled: the expression ADT must be general enough to not enumerate per-carrier primitives, and the derivation of `unroll`/`roll` from that description must stay clean. Do not implement until the design is clear.
-
-## Historical Reference
-
-`/home/scanbot/unified-algebra/src/unialg` is a prior, ad-hoc version of this project. It may be useful for understanding old experiments, but it is a **reference only**:
+`/home/scanbot/unified-algebra/src/unialg` is a prior, ad-hoc version. Reference only:
 
 - Do not copy code or port abstractions wholesale.
-- Do not resurrect `_RecordView`; it created invisible structural coupling by backing domain objects with Hydra record terms.
-- Do not reintroduce a manual `TypedMorphism.kind`-style tag; the current ADT structure is clearer.
-- Treat the old `algebra_hom` bridge as a cautionary example: it exposed a broad functor surface while only executing a narrow subset. Avoid shipping similarly incomplete abstractions as stable API.
+- Do not resurrect `_RecordView` — it coupled domain objects to Hydra record terms invisibly.
+- Do not reintroduce `TypedMorphism.kind`-style tags — the current ADT is clearer.
+- The old `algebra_hom` bridge exposed a broad functor surface while executing a narrow subset. Avoid similarly incomplete abstractions as stable API.

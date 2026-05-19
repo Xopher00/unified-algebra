@@ -115,25 +115,29 @@ class TestResolveSemiring:
 
 class TestContractMorphism:
     def test_matmul_types(self, real_semiring, numpy_backend):
+        from unialg.tensors.semantics import _strip_exp
         m = contract_morphism(real_semiring, "ij,jk->ik")
-        assert m.dom() == ProductType(BINARY, BINARY)
-        assert m.cod() == BINARY
+        assert _strip_exp(m.dom()) == ProductType(BINARY, BINARY)
+        assert _strip_exp(m.cod()) == BINARY
 
     def test_matvec_types(self, real_semiring, numpy_backend):
+        from unialg.tensors.semantics import _strip_exp
         m = contract_morphism(real_semiring, "ij,j->i")
-        assert m.dom() == ProductType(BINARY, BINARY)
-        assert m.cod() == BINARY
+        assert _strip_exp(m.dom()) == ProductType(BINARY, BINARY)
+        assert _strip_exp(m.cod()) == BINARY
 
     def test_single_input(self, real_semiring, numpy_backend):
+        from unialg.tensors.semantics import _strip_exp
         m = contract_morphism(real_semiring, "ij->i")
-        assert m.dom() == BINARY
-        assert m.cod() == BINARY
+        assert _strip_exp(m.dom()) == BINARY
+        assert _strip_exp(m.cod()) == BINARY
 
     def test_three_inputs(self, real_semiring, numpy_backend):
+        from unialg.tensors.semantics import _strip_exp
         m = contract_morphism(real_semiring, "ij,jk,kl->il")
         expected = ProductType(ProductType(BINARY, BINARY), BINARY)
-        assert m.dom() == expected
-        assert m.cod() == BINARY
+        assert _strip_exp(m.dom()) == expected
+        assert _strip_exp(m.cod()) == BINARY
 
     def test_node_is_domain_prim(self, real_semiring, numpy_backend):
         """contract_morphism is now lazy: returns a DomainPrim pending finalize."""
@@ -153,8 +157,9 @@ class TestContractMorphism:
         )
         sr = resolve_semiring(decl, numpy_env)
         m = contract_morphism(sr, "ij,jk->ik", adjoint=True)
-        assert m.dom() == ProductType(BINARY, BINARY)
-        assert m.cod() == BINARY
+        from unialg.tensors.semantics import _strip_exp
+        assert _strip_exp(m.dom()) == ProductType(BINARY, BINARY)
+        assert _strip_exp(m.cod()) == BINARY
 
     def test_aux_primitives_collected(self, real_semiring, numpy_backend):
         m = contract_morphism(real_semiring, "ij,jk->ik")
@@ -181,9 +186,10 @@ class TestConstructProtocol:
         env = dict(numpy_env)
         env["_domain_data"] = {"tensors": domain_data}
         env["_domain_context"] = numpy_backend
+        from unialg.tensors.semantics import _strip_exp
         m = construct_expr(node, env)
-        assert m.dom() == ProductType(BINARY, BINARY)
-        assert m.cod() == BINARY
+        assert _strip_exp(m.dom()) == ProductType(BINARY, BINARY)
+        assert _strip_exp(m.cod()) == BINARY
 
     def test_construct_expr_unknown_semiring(self, numpy_env):
         domain_data = construct([], numpy_env)

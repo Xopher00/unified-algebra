@@ -17,26 +17,10 @@ from __future__ import annotations
 from typing import Callable
 
 from hydra.core import (
-    EitherType,
-    LiteralBinary,
-    LiteralBoolean,
-    LiteralString,
-    LiteralType,
-    PairType,
-    Term,
-    TermEither,
-    TermList,
-    TermLiteral,
-    TermMaybe,
-    TermPair,
-    TermUnit,
-    Type,
-    TypeEither,
-    TypeList,
-    TypeLiteral,
-    TypeMaybe,
-    TypePair,
-    TypeUnit,
+    EitherType, PairType, LiteralType,
+    LiteralBinary, LiteralBoolean, LiteralString, 
+    Term, TermEither, TermList, TermLiteral, TermMaybe, TermPair, TermUnit,
+    Type, TypeEither, TypeList, TypeLiteral, TypeMaybe, TypePair, TypeUnit,
 )
 from hydra.dsl.python import Just, Left, Nothing, Right
 from hydra.graph import TermCoder
@@ -108,8 +92,7 @@ def term_value(term: Term, context: str = "term_value"):
     raise TypeError(f"{context}: expected value term, got {_show_term(term)}")
 
 
-def _mk_term_coder(
-    typ: Type,
+def _mk_term_coder(typ: Type, 
     decode_term: Callable[[Term], object],
     encode_value: Callable[[object], Term],
 ) -> TermCoder:

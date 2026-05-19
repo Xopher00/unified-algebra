@@ -22,7 +22,7 @@ from unialg.objects import (
     ProductType, SumType, VoidType, show_type,
 )
 
-        
+
 class MorphismError(TypeError):
     @classmethod
     def check(cls, graph, a: Type, b: Type, label: str) -> None:
@@ -64,15 +64,11 @@ def raw_signature(param: Type, monad: Monad | None, dom: Type, cod: Type) -> tup
     raw_dom = dom if param == TypeUnit() else ProductType(param, dom)
     raw_cod = cod if monad is None else monad.wrap(cod)
     return raw_dom, raw_cod
-    
+
 
 def _contextual_binary(
-    cls,
-    f: Morphism,
-    g: Morphism,
-    dom: Type,
-    cod: Type,
-    *,
+    cls, f: Morphism, g: Morphism,
+    dom: Type, cod: Type, *,
     shared_context: bool = False,
     graph=None,
     allow_unification: bool = False,
@@ -86,8 +82,7 @@ def _contextual_binary(
     monad = _resolve_monad(f, g)
     param = (
         _share_param(
-            f.param,
-            g.param,
+            f.param, g.param,
             graph=graph,
             allow_unification=allow_unification,
         )
@@ -195,17 +190,15 @@ def _is_symmetry(dom: Type, cod: Type, cls: type) -> bool:
 # Type derivation
 # ---------------------------------------------------------------------------
 
-def signature(
-    node: expr.MorphismExpr,
-    param_names: frozenset[str] = frozenset(),
-) -> tuple[Type, Type]:
-    """Derive the object-level arrow signature for a morphism expression.
+# Nodes whose dom/cod are stored directly in fields — no child recursion needed.
+_SELF_DESCRIBING = (
+    expr.ContextualBinary, expr.Prim, expr.DomainPrim,
+    expr.BackendPrim, expr.PolyFmap, expr.SelfRef, expr.AlgExpr,
+)
 
-    Contextual nodes and primitives are self-describing because their type
-    checks occurred at construction time.  Placeholder-typed nodes (from the
-    parser) derive types from children.  Ref nodes for declared parameters
-    become type variables.
-    """
+
+def _signature_leaf(node: expr.MorphismExpr) -> tuple[Type, Type] | None:
+    """Return the signature for leaf (non-recursive) primitive expressions."""
     match node:
         case expr.Identity(space):
             return space, space
@@ -223,6 +216,12 @@ def signature(
             return ab.value.right, ab
         case expr.Absurd(cod):
             return VoidType(), cod
+    return None
+
+
+def _signature_validated(node: expr.MorphismExpr) -> tuple[Type, Type] | None:
+    """Return the signature for Assoc/Symmetry after validating their shape."""
+    match node:
         case expr.Assoc(dom=dom, cod=cod):
             if not (_is_assoc(dom, cod, TypePair) or _is_assoc(dom, cod, TypeEither)):
                 raise MorphismError("Assoc expects (A⋆B)⋆C -> A⋆(B⋆C)")
@@ -231,6 +230,15 @@ def signature(
             if not (_is_symmetry(dom, cod, TypePair) or _is_symmetry(dom, cod, TypeEither)):
                 raise MorphismError("Symmetry expects A⋆B -> B⋆A")
             return dom, cod
+    return None
+
+
+def _signature_recursive(
+    node: expr.MorphismExpr,
+    param_names: frozenset[str],
+) -> tuple[Type, Type] | None:
+    """Return the signature for nodes that recurse into children."""
+    match node:
         case expr.MonadicEmbed(f=f, monad=monad):
             return dom_of(f, param_names), monad.wrap(cod_of(f, param_names))
         case expr.Compose(f=f, g=g, dom=dom, cod=cod) if dom == TypeUnit() and cod == TypeUnit():
@@ -241,20 +249,32 @@ def signature(
             return dom_of(f, param_names), ProductType(cod_of(f, param_names), cod_of(g, param_names))
         case expr.Case(f=f, g=g, dom=dom, cod=cod) if dom == SumType(TypeUnit(), TypeUnit()) and cod == TypeUnit():
             return SumType(dom_of(f, param_names), dom_of(g, param_names)), cod_of(f, param_names)
-        case expr.ContextualBinary(dom=dom, cod=cod):
-            return dom, cod
-        case expr.Prim(_, dom, cod):
-            return dom, cod
-        case expr.DomainPrim(_, _, dom=dom, cod=cod):
-            return dom, cod
-        case expr.BackendPrim(_, _, dom, cod):
-            return dom, cod
-        case expr.PolyFmap(dom=dom, cod=cod):
-            return dom, cod
-        case expr.SelfRef(dom=dom, cod=cod):
-            return dom, cod
-        case expr.AlgExpr(dom=dom, cod=cod):
-            return dom, cod
+    return None
+
+
+def signature(
+    node: expr.MorphismExpr,
+    param_names: frozenset[str] = frozenset(),
+) -> tuple[Type, Type]:
+    """Derive the object-level arrow signature for a morphism expression.
+
+    Contextual nodes and primitives are self-describing because their type
+    checks occurred at construction time.  Placeholder-typed nodes (from the
+    parser) derive types from children.  Ref nodes for declared parameters
+    become type variables.
+    """
+    leaf = _signature_leaf(node)
+    if leaf is not None:
+        return leaf
+    if isinstance(node, _SELF_DESCRIBING):
+        return node.dom, node.cod
+    rec = _signature_recursive(node, param_names)
+    if rec is not None:
+        return rec
+    validated = _signature_validated(node)
+    if validated is not None:
+        return validated
+    match node:
         case expr.Ref(name=name):
             if name in param_names:
                 tv = TypeVariable(Name(name))
@@ -328,16 +348,16 @@ def _assoc(dom: TypePair | TypeEither) -> Morphism:
 
 def _symmetry(dom: TypePair | TypeEither) -> Morphism:
     """Swap ``A ⋆ B → B ⋆ A``, for product or sum."""
-    l, r = _lr(dom)
+    left, r = _lr(dom)
     make = ProductType if isinstance(dom, TypePair) else SumType
-    return Morphism(node=expr.Symmetry(dom, make(r, l)))
+    return Morphism(node=expr.Symmetry(dom, make(r, left)))
 
 
 # ---------------------------------------------------------------------------
 # Plain combinators
 # ---------------------------------------------------------------------------
 
-def compose(f: Morphism, g: Morphism, *, shared_context: bool = False, 
+def compose(f: Morphism, g: Morphism, *, shared_context: bool = False,
             graph=None, allow_unification: bool = False) -> Morphism:
     """Compose ``f`` then ``g`` in diagrammatic order.
 
@@ -358,11 +378,8 @@ def compose(f: Morphism, g: Morphism, *, shared_context: bool = False,
     except TypeError as e:
         raise MorphismError(str(e)) from e
     return _contextual_binary(
-        expr.Compose,
-        f,
-        g,
-        dom,
-        g.cod(),
+        expr.Compose, f, g,
+        dom, g.cod(),
         shared_context=shared_context,
         graph=graph,
         allow_unification=allow_unification,
@@ -397,11 +414,8 @@ def pair(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, 
     except TypeError as e:
         raise MorphismError(str(e)) from e
     return _contextual_binary(
-        expr.Pair,
-        f,
-        g,
-        f.dom(),
-        ProductType(f.cod(), g.cod()),
+        expr.Pair, f, g,
+        f.dom(), ProductType(f.cod(), g.cod()),
         shared_context=shared_context,
         graph=graph,
         allow_unification=allow_unification,
@@ -423,11 +437,8 @@ def case(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, 
         raise MorphismError(str(e)) from e
 
     return _contextual_binary(
-        expr.Case,
-        f,
-        g,
-        SumType(f.dom(), g.dom()),
-        f.cod(),
+        expr.Case, f, g,
+        SumType(f.dom(), g.dom()), f.cod(),
         shared_context=shared_context,
         graph=graph,
         allow_unification=allow_unification,

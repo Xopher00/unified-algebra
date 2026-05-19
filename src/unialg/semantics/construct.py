@@ -19,17 +19,11 @@ from . import morphisms as ops
 from . import typeops as Ty
 from ._construct_helpers import (
     construct_carrier_boundary,
-    construct_domain_expr,
-    construct_domain_extensions,
-    construct_monadic_lift,
-    construct_poly_fmap,
-    construct_recursion_app,
-    finalize_domain_morphisms,
-    focus_alias_candidate,
-    focus_expr_refs,
-    morphism_refs,
-    poly_refs,
-    resolve_poly_refs,
+    construct_domain_expr, construct_domain_extensions,
+    construct_monadic_lift, construct_poly_fmap,
+    construct_recursion_app, finalize_domain_morphisms, 
+    focus_alias_candidate, focus_expr_refs, 
+    morphism_refs, poly_refs, resolve_poly_refs,
 )
 from .morphisms import Morphism, MorphismError
 from .functors import Functor
@@ -62,11 +56,8 @@ def _topo_order(names, deps, kind):
     return result.value
 
 
-def construct_program(
-    program: Program,
-    env: dict[str, Morphism] | None = None,
-    domain_context: object | None = None,
-) -> ConstructedProgram:
+def construct_program(program: Program, env: dict[str, Morphism] | None = None,
+            domain_context: object | None = None) -> ConstructedProgram:
     """Resolve every parsed morphism in ``program`` into a typed ``Morphism``.
 
     ``parse_program`` deliberately leaves names as ``Ref`` nodes. This pass
@@ -249,9 +240,7 @@ def construct_program(
     )
 
 
-def construct(
-    node: expr.MorphismExpr,
-    env: dict[str, Morphism],
+def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
     functor_env: dict[str, expr.PolyExpr] | None = None,
     morphism_bodies: dict[str, expr.MorphismExpr] | None = None,
     morphism_params: dict[str, tuple[str, ...]] | None = None,

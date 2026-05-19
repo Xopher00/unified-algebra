@@ -251,6 +251,11 @@ def _functor_nud(p: PrattParser, tok: Token) -> PolyExpr:
             inner = p.parse(0)
             p.expect("RBRACKET", "]")
             return PolyMaybe(inner)  # type: ignore[arg-type]
+        if val == "Tree":
+            p.expect("LBRACKET", "[")
+            inner = p.parse(0)
+            p.expect("RBRACKET", "]")
+            return make_sum(One(), make_prod(inner, inner))
         return PolyRef(val)
 
     raise ParseError(f"unexpected token {kind!r} ({val!r}) in functor expression")

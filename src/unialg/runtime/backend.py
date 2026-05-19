@@ -147,13 +147,9 @@ def _curried_type(arg_type, result_type, arity: int):
 
 
 def register_backend_primitive(
-    canonical_name: str,
-    path: str | Callable,
-    arg_type: Type,
-    arity: int,
-    *,
-    arg_coder: TermCoder,
-    result_coder: TermCoder,
+    canonical_name: str, path: str | Callable,
+    arg_type: Type, arity: int, *,
+    arg_coder: TermCoder, result_coder: TermCoder,
     result_type: Type | None = None,
     binary_adapter=None,
     store: RuntimeStore | None = None,
@@ -184,17 +180,10 @@ def register_backend_primitive(
     store_args = store is not None and is_binary_type(arg_type)
     store_result = store is not None and is_binary_type(result_type)
 
-    def impl(
-        ctx: Context,
-        graph: Graph,
-        args,
-        *,
-        fn=fn,
-        arg_coder=arg_coder,
-        result_coder=result_coder,
+    def impl(ctx: Context, graph: Graph, args, *, fn=fn, 
+        arg_coder=arg_coder, result_coder=result_coder,
         canonical_name=canonical_name,
-        store=store,
-        store_args=store_args,
+        store=store, store_args=store_args, 
         store_result=store_result,
     ):
         """Decode Hydra arguments, call the backend function, and re-encode."""

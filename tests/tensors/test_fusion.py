@@ -117,13 +117,14 @@ class TestFusionStructural:
         assert _eq_str(fused.node) == "ij,jk,kl->il"
 
     def test_fused_dom_cod_preserved(self, real_semiring):
+        from unialg.tensors.semantics import _strip_exp
         m1 = contract_morphism(real_semiring, "ij,jk->ik")
         m2 = contract_morphism(real_semiring, "ik,kl->il")
         chained = _chain(m1, m2)
         fused = _fuse(chained)
 
-        assert fused.dom() == chained.dom()
-        assert fused.cod() == chained.cod()
+        assert _strip_exp(fused.dom()) == _strip_exp(chained.dom())
+        assert _strip_exp(fused.cod()) == _strip_exp(chained.cod())
 
     def test_three_level_chain_fuses_to_one(self, real_semiring):
         m1 = contract_morphism(real_semiring, "ij,jk->ik")
@@ -190,15 +191,15 @@ class TestFusionStructural:
 
     def test_alpha_rename_uses_hydra_fresh_labels(self, real_semiring):
         """Reduced-label collisions are not capped at ascii_lowercase."""
-        from unialg.tensors.fusion import _rename_reduced_labels
+        from unialg.tensors.fusion import _rename_shape_labels, _extract_labels
 
         spec = contract_morphism(real_semiring, "az,z->a").node.raw
         avoid = {chr(c) for c in range(ord("a"), ord("z") + 1)}
 
-        renamed = _rename_reduced_labels(spec, avoid)
+        renamed_shape = _rename_shape_labels(spec.shape, spec.equation.output, avoid)
+        renamed_labels = _extract_labels(renamed_shape)
 
-        assert renamed.equation.inputs == (("a", "z'"), ("z'",))
-        assert renamed.equation.reduced == ("z'",)
+        assert renamed_labels == (("a", "z'"), ("z'",))
 
 
 # ---------------------------------------------------------------------------
@@ -336,12 +337,14 @@ class TestFusionOptimization:
         eq = fused.node.raw.equation
         assert len(eq.inputs) == 3
         assert _eq_str(fused.node) == "ij,jk,kl->il"
-        assert fused.dom() == composed.dom(), "Fused dom must match original dom"
+        from unialg.tensors.semantics import _strip_exp
+        assert _strip_exp(fused.dom()) == _strip_exp(composed.dom()), "Fused dom must match original dom"
 
     def test_non_left_nested_shape_preserves_nesting(self, real_semiring, numpy_backend):
         """Fused shape reflects original par-tree nesting, not always left-nested."""
-        from unialg.syntax.expressions import Prod, Id
+        from unialg.syntax.expressions import Prod, Exp
         from unialg.semantics.functors import apply_poly
+        from unialg.tensors.semantics import _strip_exp
 
         c1 = contract_morphism(real_semiring, "jk,kl->jl")
         inner_par = ops.par(ops.identity(BINARY), c1)
@@ -352,9 +355,11 @@ class TestFusionOptimization:
         spec = fused.node.raw
 
         assert isinstance(spec.shape, Prod)
-        assert isinstance(spec.shape.left, Id)
+        # Left slot carries labels from the identity (adopted from outer's Exp shape)
+        assert isinstance(spec.shape.left, Exp)
+        # Right slot carries inner contract's Prod-of-Exp shape
         assert isinstance(spec.shape.right, Prod)
-        assert apply_poly(spec.shape, BINARY) == composed.dom()
+        assert _strip_exp(apply_poly(spec.shape, BINARY)) == _strip_exp(composed.dom())
 
     def test_non_left_nested_numerical(self):
         """Right-nested fused contraction gives correct numerical result."""
@@ -451,9 +456,10 @@ class TestOpaqueFusion:
         # pre_map should be par(tanh, identity(...))
         assert isinstance(pre_map_node, expr.Parallel)
 
+        from unialg.tensors.semantics import _strip_exp
         decomposed = _decompose_all(fused, numpy_backend)
-        assert decomposed.dom() == composed.dom()
-        assert decomposed.cod() == composed.cod()
+        assert _strip_exp(decomposed.dom()) == _strip_exp(composed.dom())
+        assert _strip_exp(decomposed.cod()) == _strip_exp(composed.cod())
 
     def test_opaque_only_blocks_fusion(self, real_semiring, numpy_env):
         """par(tanh, sigmoid) with no absorbed contracts: fusion blocked."""
@@ -518,8 +524,9 @@ class TestPairFusion:
         assert isinstance(fused.node, expr.Compose), "Should be compose(Copy, fused_contract)"
         assert isinstance(fused.node.f, expr.Copy), "First part should be Copy"
         assert _is_tensor_prim(fused.node.g), "Second part should be fused DomainPrim"
-        assert fused.dom() == composed.dom()
-        assert fused.cod() == composed.cod()
+        from unialg.tensors.semantics import _strip_exp
+        assert _strip_exp(fused.dom()) == _strip_exp(composed.dom())
+        assert _strip_exp(fused.cod()) == _strip_exp(composed.cod())
 
     def test_pair_c1_right_single_input_fuses(self, real_semiring):
         """pair(id, c1_single) >> outer fuses (identity on left)."""
@@ -576,24 +583,23 @@ class TestPairFusion:
         assert apply_poly(fused_spec.shape, BINARY) == fused_spec.dom
 
     def test_pair_dom_cod_preserved(self, real_semiring):
-        """Fused result preserves original compose's dom and cod."""
+        """Fused result preserves original compose's dom and cod (up to Exp wrapping)."""
+        from unialg.tensors.semantics import _strip_exp
         c1 = contract_morphism(real_semiring, "ij->i")
         id_b = ops.identity(BINARY)
         pair_m = ops.pair(c1, id_b)
         outer = contract_morphism(real_semiring, "i,ij->j")
         composed = ops.compose(pair_m, outer)
         fused = _fuse(composed)
-        assert fused.dom() == composed.dom()
-        assert fused.cod() == composed.cod()
+        assert _strip_exp(fused.dom()) == _strip_exp(composed.dom())
+        assert _strip_exp(fused.cod()) == _strip_exp(composed.cod())
 
     def test_pair_no_rename_when_no_collision(self, real_semiring):
         """If inner has no reduced labels, no rename needed."""
-        from unialg.tensors.fusion import _rename_reduced_labels
-        # A spec with no reduced labels (output = all input labels)
+        from unialg.tensors.fusion import _rename_shape_labels
         spec = contract_morphism(real_semiring, "ij->ij").node.raw
-        renamed = _rename_reduced_labels(spec, avoid={"i", "j", "k"})
-        # No reduced labels → no collision → spec returned unchanged
-        assert renamed is spec
+        renamed_shape = _rename_shape_labels(spec.shape, spec.equation.output, avoid={"i", "j", "k"})
+        assert renamed_shape is spec.shape
 
     def test_pair_both_contract_fuses(self, real_semiring):
         """pair(c1, c2) — both branches are contracts, fuses via Copy."""
@@ -619,21 +625,22 @@ class TestPairFusion:
         assert isinstance(fused.node, expr.Compose)
         assert not isinstance(fused.node.f, expr.Copy)
 
-    def test_rename_reduced_labels_unit(self, real_semiring):
-        """Direct test of _rename_reduced_labels helper."""
-        from unialg.tensors.fusion import _rename_reduced_labels
+    def test_rename_shape_labels_unit(self, real_semiring):
+        """Direct test of _rename_shape_labels helper."""
+        from unialg.tensors.fusion import _rename_shape_labels, _extract_labels
 
         spec = contract_morphism(real_semiring, "ij,jk->ik").node.raw
-        renamed = _rename_reduced_labels(spec, avoid={"j", "i", "k"})
-        # j collides with avoid set, should be renamed
-        assert "j" not in set(renamed.equation.reduced)
-        # Output labels preserved
-        assert renamed.equation.output == spec.equation.output
+        renamed_shape = _rename_shape_labels(spec.shape, spec.equation.output, avoid={"j", "i", "k"})
+        renamed_labels = _extract_labels(renamed_shape)
+        all_renamed = {l for inp in renamed_labels for l in inp}
+        assert "j" not in all_renamed
 
     def test_rename_preserves_output_labels(self, real_semiring):
-        """Renaming never changes output labels."""
-        from unialg.tensors.fusion import _rename_reduced_labels
+        """Renaming never changes output (non-reduced) labels in the shape."""
+        from unialg.tensors.fusion import _rename_shape_labels, _extract_labels
 
         spec = contract_morphism(real_semiring, "ij,jk->ik").node.raw
-        renamed = _rename_reduced_labels(spec, avoid={"j"})
-        assert renamed.equation.output == ("i", "k")
+        renamed_shape = _rename_shape_labels(spec.shape, spec.equation.output, avoid={"j"})
+        renamed_labels = _extract_labels(renamed_shape)
+        all_renamed = {l for inp in renamed_labels for l in inp}
+        assert "i" in all_renamed and "k" in all_renamed

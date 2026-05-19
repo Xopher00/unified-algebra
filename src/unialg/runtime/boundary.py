@@ -9,13 +9,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from hydra.core import (
-    LiteralType,
-    Type,
-    TypeEither,
-    TypeList,
-    TypeMaybe,
-    TypePair,
-    TypeLiteral,
+    LiteralType, 
+    Type, TypeEither, TypeList,
+    TypeMaybe, TypePair, TypeLiteral,
 )
 from hydra.dsl.python import Left, Right
 

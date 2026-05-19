@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import hydra.names as HydraNames
-from hydra.core import Name, TypeVariable, TypePair, PairType, TypeUnit
+from hydra.core import Name, TypeVariable, TypePair, TypeUnit
 from hydra.dsl.python import FrozenDict
 from hydra.variables import substitute_type_variables
 
@@ -24,104 +24,84 @@ from unialg.syntax import expressions as expr
 
 from .notation import Equation
 from .primitives import compile_contract_spec
-from .semantics import ContractSpec, _collect_semiring_aux, _left_nested_shape
+from .semantics import ContractSpec, _collect_semiring_aux
 
 
 # ---------------------------------------------------------------------------
-# Hydra-based label encoding for alpha-renaming
+# Shape-based label extraction and renaming
 # ---------------------------------------------------------------------------
 
-def _labels_to_type(labels: tuple[str, ...]):
-    """Encode label tuple as a Hydra Type tree of TypeVariables."""
-    if len(labels) == 0:
-        return TypeUnit()
-    if len(labels) == 1:
-        return TypeVariable(Name(labels[0]))
-    result = TypeVariable(Name(labels[0]))
-    for lab in labels[1:]:
-        result = TypePair(PairType(result, TypeVariable(Name(lab))))
-    return result
-
-
-def _type_to_labels(typ) -> tuple[str, ...]:
-    """Decode a Hydra Type tree back to a label tuple."""
-    if isinstance(typ, TypeUnit):
+def _labels_from_base(t) -> tuple[str, ...]:
+    """Decode a Hydra TypeVariable/TypePair tree (Exp base) to label strings."""
+    if isinstance(t, TypeVariable):
+        inner = t.value
+        if isinstance(inner, TypeVariable):
+            inner = inner.value
+        return (inner.value.removeprefix("idx."),)
+    if isinstance(t, TypePair):
+        return _labels_from_base(t.value.first) + _labels_from_base(t.value.second)
+    if isinstance(t, TypeUnit):
         return ()
-    if isinstance(typ, TypeVariable):
-        return (typ.value.value,)
-    if isinstance(typ, TypePair):
-        return _type_to_labels(typ.value.first) + _type_to_labels(typ.value.second)
-    raise ValueError(f"unexpected type in label decode: {type(typ)}")
+    return ()
 
 
-def _labels_in_order(inputs: tuple[tuple[str, ...], ...]) -> tuple[str, ...]:
-    """Return input labels in first-seen order."""
-    seen: list[str] = []
-    seen_set: set[str] = set()
+def _extract_labels(shape) -> tuple[tuple[str, ...], ...]:
+    """Walk a PolyExpr and extract label tuples from Exp bases."""
+    if isinstance(shape, expr.Exp):
+        return (_labels_from_base(shape.base),)
+    if isinstance(shape, expr.Prod):
+        return _extract_labels(shape.left) + _extract_labels(shape.right)
+    if isinstance(shape, expr.Id):
+        return ((),)
+    return ()
+
+
+def _equation_from_shape(shape, output: tuple[str, ...]) -> Equation:
+    """Build Equation from a composite Exp shape + output labels."""
+    inputs = _extract_labels(shape)
+    all_labels: list[str] = []
+    seen: set[str] = set()
     for inp in inputs:
-        for label in inp:
-            if label not in seen_set:
-                seen.append(label)
-                seen_set.add(label)
-    return tuple(seen)
-
-
-def _reduced_labels(
-    inputs: tuple[tuple[str, ...], ...],
-    output: tuple[str, ...],
-) -> tuple[str, ...]:
-    """Derive reduced labels from inputs and output labels."""
+        for l in inp:
+            if l not in seen:
+                all_labels.append(l)
+                seen.add(l)
     output_set = set(output)
-    return tuple(label for label in _labels_in_order(inputs) if label not in output_set)
+    reduced = tuple(l for l in all_labels if l not in output_set)
+    return Equation(inputs=inputs, output=output, reduced=reduced)
 
 
-def _equation_from_inputs(
-    inputs: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
-    output: tuple[str, ...],
-) -> Equation:
-    """Build an Equation with reduced labels derived consistently."""
-    merged = tuple(inputs)
-    return Equation(inputs=merged, output=output, reduced=_reduced_labels(merged, output))
+def _rename_shape_labels(shape, output_labels: tuple[str, ...], avoid: set[str]):
+    """Alpha-rename reduced labels in shape's Exp bases that collide with avoid.
 
-
-def _rename_reduced_labels(spec: ContractSpec, avoid: set[str]) -> ContractSpec:
-    """Alpha-rename spec's reduced labels that collide with avoid set.
-
-    Uses Hydra's substitute_type_variables for the renaming.
+    Only renames labels that are NOT in output_labels (i.e., the "reduced" set).
+    Non-reduced labels are shared with the outer contract and must not be renamed.
     """
-    collisions = set(spec.equation.reduced) & avoid
+    labels = _extract_labels(shape)
+    all_labels = {l for inp in labels for l in inp}
+    reduced = all_labels - set(output_labels)
+    collisions = reduced & avoid
     if not collisions:
-        return spec
+        return shape
 
-    all_used: set[str] = set()
-    for inp in spec.equation.inputs:
-        all_used.update(inp)
-    all_used.update(spec.equation.output)
-    all_used |= avoid
-
+    all_used = all_labels | avoid
     rename_map: dict[str, str] = {}
     for label in sorted(collisions):
         fresh = HydraNames.unique_label(frozenset(all_used), label)
         rename_map[label] = fresh
         all_used.add(fresh)
 
-    subst = FrozenDict({Name(old): Name(new) for old, new in rename_map.items()})
+    subst = FrozenDict({Name(f"idx.{old}"): Name(f"idx.{new}") for old, new in rename_map.items()})
 
-    renamed_inputs = tuple(
-        _type_to_labels(substitute_type_variables(subst, _labels_to_type(inp)))
-        for inp in spec.equation.inputs
-    )
-    renamed_output = (
-        _type_to_labels(substitute_type_variables(subst, _labels_to_type(spec.equation.output)))
-        if spec.equation.output else ()
-    )
+    def _sub_shape(s):
+        if isinstance(s, expr.Exp):
+            new_base = substitute_type_variables(subst, s.base)
+            return expr.Exp(new_base, s.body)
+        if isinstance(s, expr.Prod):
+            return expr.Prod(_sub_shape(s.left), _sub_shape(s.right))
+        return s
 
-    return ContractSpec(
-        semiring=spec.semiring,
-        equation=_equation_from_inputs(renamed_inputs, renamed_output),
-        adjoint=spec.adjoint,
-        shape=spec.shape,
-    )
+    return _sub_shape(shape)
 
 
 # ---------------------------------------------------------------------------
@@ -242,79 +222,98 @@ def _count_slots(space) -> int:
     return 1
 
 
-class _LeafData:
-    __slots__ = ("inputs", "has_opaque", "has_absorbed")
-
-    def __init__(self, inputs, has_opaque, has_absorbed):
-        self.inputs = inputs
-        self.has_opaque = has_opaque
-        self.has_absorbed = has_absorbed
-
 
 def _leaf_optic(body, fwd, carrier=BINARY):
     return _Optic(functor=_Functor(name="_", body=body), forward=fwd, backward=fwd, carrier=carrier)
 
 
-def _par_to_optic(par_node, outer_inputs, outer_spec, avoid):
-    """Reduce a Parallel/Pair/Identity/contract subtree to (Optic, _LeafData).
+def _par_to_optic(par_node, outer_shape, outer_spec, avoid):
+    """Shape-driven descent: outer_shape guides which Exp slot each leaf fills.
 
-    Polynomial-functor catamorphism whose algebra emits an Optic.
+    Reduces a Parallel/Pair/Identity/contract subtree to (Optic, has_opaque, has_absorbed).
     Returns None on structural mismatch.
     """
     from unialg.objects import TypeUnit as TU
+    from unialg.semantics.functors import apply_poly
 
-    # Binary nodes: Parallel combines directly; Pair factors through Copy.
+    # Binary nodes: Prod(L, R) in shape matches Parallel or Pair in term.
     if isinstance(par_node, (expr.Parallel, expr.Pair)):
+        if not isinstance(outer_shape, expr.Prod):
+            return None
         is_pair = isinstance(par_node, expr.Pair)
         if is_pair and (par_node.param != TU() or par_node.monad is not None):
             return None
-        left = _par_to_optic(par_node.f, outer_inputs, outer_spec, avoid)
+        left = _par_to_optic(par_node.f, outer_shape.left, outer_spec, avoid)
         if left is None:
             return None
-        l_optic, l_data = left
-        right = _par_to_optic(par_node.g, outer_inputs, outer_spec, avoid)
+        l_optic, l_opaque, l_absorbed = left
+        right = _par_to_optic(par_node.g, outer_shape.right, outer_spec, avoid)
         if right is None:
             return None
-        r_optic, r_data = right
+        r_optic, r_opaque, r_absorbed = right
         try:
             combined = l_optic.par(r_optic)
         except MorphismError:
             return None
         if is_pair:
-            copy_m = _copy(par_node.dom)
-            fwd = copy_m if _is_all_identity(combined.forward.node) else ops.compose(copy_m, combined.forward)
-            combined = _Optic(functor=combined.functor, forward=fwd, backward=combined.backward, carrier=BINARY)
-        return combined, _LeafData(
-            l_data.inputs + r_data.inputs,
-            l_data.has_opaque or r_data.has_opaque,
-            l_data.has_absorbed or r_data.has_absorbed,
-        )
+            # Use the optic-derived domain (ExpType) for Copy, not the possibly-
+            # BINARY par_node.dom from user construction.
+            shared_dom = l_optic.forward.dom()
+            copy_m = _copy(shared_dom)
+            if _is_all_identity(combined.forward.node):
+                fwd = copy_m
+            else:
+                fwd = ops.compose(copy_m, combined.forward)
+            try:
+                combined = _Optic(functor=combined.functor, forward=fwd, backward=combined.backward, carrier=BINARY)
+            except (MorphismError, AssertionError):
+                return None
+        return combined, l_opaque or r_opaque, l_absorbed or r_absorbed
+
+    # Leaf: outer_shape should be Exp(base, Id) or Id (scalar slot).
+    # Compute the slot type from the outer shape.
+    slot_type = apply_poly(outer_shape, BINARY)
 
     if isinstance(par_node, expr.Identity):
-        n = _count_slots(par_node.space)
-        consumed = tuple(next(outer_inputs) for _ in range(n))
-        avoid.update(l for slot in consumed for l in slot)
-        shape = _left_nested_shape(n) if n > 1 else expr.Id()
-        return _leaf_optic(shape, ops.identity(par_node.space)), _LeafData(consumed, False, False)
+        return _leaf_optic(outer_shape, ops.identity(slot_type)), False, False
 
     inner_spec = _tensor_spec(par_node)
     if inner_spec is not None:
-        expected = next(outer_inputs)
+        # Label match: inner output labels must equal outer slot labels.
+        expected_labels = _labels_from_base(outer_shape.base) if isinstance(outer_shape, expr.Exp) else ()
         if (inner_spec.semiring != outer_spec.semiring
                 or inner_spec.adjoint != outer_spec.adjoint
-                or inner_spec.equation.output != expected):
+                or inner_spec.equation.output != expected_labels):
             return None
-        renamed = _rename_reduced_labels(inner_spec, avoid)
-        avoid.update(l for inp in renamed.equation.inputs for l in inp)
-        avoid.update(renamed.equation.reduced)
-        shape = renamed.shape or _left_nested_shape(len(renamed.equation.inputs))
-        return _leaf_optic(shape, ops.identity(renamed.dom)), _LeafData(tuple(renamed.equation.inputs), False, True)
+        # Rename colliding reduced labels in the inner shape's Exp bases.
+        inner_shape = _rename_shape_labels(inner_spec.shape, inner_spec.equation.output, avoid)
+        new_labels = _extract_labels(inner_shape)
+        avoid.update(l for inp in new_labels for l in inp)
+        avoid.update(l for inp in new_labels for l in inp if l not in set(inner_spec.equation.output))
+        fwd = ops.identity(apply_poly(inner_shape, BINARY))
+        return _leaf_optic(inner_shape, fwd), False, True
 
-    # Opaque leaf
-    expected = next(outer_inputs)
+    # Opaque leaf — uses Id() body because the morphism operates on BINARY.
+    # Labels for this position are recovered from outer_shape in _fill_opaque_labels.
     fwd = Morphism(node=par_node, aux_primitives=())
     optic = _Optic(functor=_Functor(name="_", body=expr.Id()), forward=fwd, backward=ops.identity(BINARY), carrier=None)
-    return optic, _LeafData((expected,), True, False)
+    return optic, True, False
+
+
+def _fill_opaque_labels(composite, outer):
+    """Replace bare Id() in composite shape with matching Exp from outer shape.
+
+    Opaque leaves use Id() (BINARY types) but the fused equation needs the
+    outer slot's labels.  Walking both shapes in sync recovers them.
+    """
+    if isinstance(composite, expr.Prod) and isinstance(outer, expr.Prod):
+        return expr.Prod(
+            _fill_opaque_labels(composite.left, outer.left),
+            _fill_opaque_labels(composite.right, outer.right),
+        )
+    if isinstance(composite, expr.Id) and isinstance(outer, expr.Exp):
+        return outer
+    return composite
 
 
 def _try_fuse(m: Morphism) -> Morphism:
@@ -334,26 +333,23 @@ def _try_fuse(m: Morphism) -> Morphism:
         return m
 
     avoid = set(outer_spec.equation.output)
-    outer_inputs = iter(outer_spec.equation.inputs)
-    result = _par_to_optic(node.f, outer_inputs, outer_spec, avoid)
+    result = _par_to_optic(node.f, outer_spec.shape, outer_spec, avoid)
 
     if result is None:
         return m
 
-    if list(outer_inputs):
+    inner_optic, has_opaque, has_absorbed = result
+
+    if has_opaque and not has_absorbed:
         return m
 
-    inner_optic, leaf = result
-
-    if leaf.has_opaque and not leaf.has_absorbed:
-        return m
-
-    fused_eq = _equation_from_inputs(leaf.inputs, outer_spec.equation.output)
+    labeled_shape = _fill_opaque_labels(inner_optic.functor.body, outer_spec.shape)
+    fused_eq = _equation_from_shape(labeled_shape, outer_spec.equation.output)
     fused_spec = ContractSpec(
         semiring=outer_spec.semiring,
         equation=fused_eq,
         adjoint=outer_spec.adjoint,
-        shape=inner_optic.functor.body,
+        shape=labeled_shape,
     )
 
     fused_contract = _contract_morphism_from_spec(
@@ -362,10 +358,11 @@ def _try_fuse(m: Morphism) -> Morphism:
         monad=m.monad,
     )
 
+    from .semantics import _strip_exp
     pre = inner_optic.forward
-    if pre.dom() != m.dom() or pre.cod() != fused_contract.dom():
+    if _strip_exp(pre.dom()) != _strip_exp(m.dom()) or _strip_exp(pre.cod()) != _strip_exp(fused_contract.dom()):
         return m
-    if fused_spec.cod != m.cod():
+    if _strip_exp(fused_spec.cod) != _strip_exp(m.cod()):
         return m
 
     # Identity-tree forward (pure Parallel with no opaque/Copy routing) — skip wrap.
@@ -373,7 +370,7 @@ def _try_fuse(m: Morphism) -> Morphism:
         return fused_contract
     # Non-trivial routing (Copy from Pair, opaque pre-map). Only worth wrapping
     # if at least one inner contract was actually absorbed into the fused spec.
-    if not leaf.has_absorbed:
+    if not has_absorbed:
         return m
     return ops.compose(pre, fused_contract)
 
@@ -404,8 +401,9 @@ def _decompose_leaf(m: Morphism, ctx) -> Morphism:
         and isinstance(node.raw, ContractSpec)
     ):
         return m
+    from .semantics import _strip_exp
     result = compile_contract_spec(node.raw, ctx)
-    if result.dom() != m.dom() or result.cod() != m.cod():
+    if _strip_exp(result.dom()) != _strip_exp(m.dom()) or _strip_exp(result.cod()) != _strip_exp(m.cod()):
         raise MorphismError(
             f"DomainPrim decomposition produced wrong dom/cod for {node.raw.equation!r}"
         )

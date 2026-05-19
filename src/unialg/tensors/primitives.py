@@ -226,7 +226,7 @@ def fold_product(product: Morphism, n: int) -> Morphism:
 
 def _build_alignment_tree(alignments: list, shape) -> Morphism:
     """Build par-tree of alignments matching the polynomial shape."""
-    from unialg.syntax.expressions import Prod, Id
+    from unialg.syntax.expressions import Prod, Id, Exp
     it = iter(alignments)
 
     def _walk(s):
@@ -234,6 +234,8 @@ def _build_alignment_tree(alignments: list, shape) -> Morphism:
             left = _walk(s.left)
             right = _walk(s.right)
             return ops.par(left, right)
+        if isinstance(s, Exp):
+            return _walk(s.body)
         if isinstance(s, Id):
             return next(it)
         raise MorphismError(f"unexpected shape node in alignment tree: {type(s).__name__}")
@@ -249,9 +251,11 @@ def _build_alignment_tree(alignments: list, shape) -> Morphism:
 
 def _build_fold_tree(product: Morphism, shape) -> Morphism:
     """Build element-wise product fold matching the polynomial shape."""
-    from unialg.syntax.expressions import Prod, Id
+    from unialg.syntax.expressions import Prod, Id, Exp
     if isinstance(shape, Id):
         return ops.identity(BINARY)
+    if isinstance(shape, Exp):
+        return _build_fold_tree(product, shape.body)
     if isinstance(shape, Prod):
         left = _build_fold_tree(product, shape.left)
         right = _build_fold_tree(product, shape.right)

@@ -88,38 +88,65 @@ def _exponential_action(body_inner: expr.PolyExpr, h: TTerm) -> TTerm:
     return T.lam2("lp_g", "lp_s", lambda g, s: P.apply(fh, P.apply(g, s)))
 
 
-def poly_action_term(body: expr.PolyExpr, h: TTerm, monad: Monad | None = None) -> TTerm:
-    """Build the Hydra term for mapping or traversing a polynomial body."""
+_POLY_ACTION_LEAVES: dict = {
+    expr.Id:    lambda n, h, m: h,
+    expr.Zero:  lambda n, h, m: T.absurd(),
+    expr.One:   lambda n, h, m: T.pure_unit(m),
+    expr.Const: lambda n, h, m: T.pure_identity(m),
+}
+
+
+def _action_poly_compose(left: expr.PolyExpr, right: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
+    left_action = poly_action_term(left, h, monad)
+    return poly_action_term(right, left_action, monad)
+
+
+def _action_poly_prod(left: expr.PolyExpr, right: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
+    left_action = poly_action_term(left, h, monad)
+    right_action = poly_action_term(right, h, monad)
+    return T.product_action(monad, left_action, right_action)
+
+
+def _action_poly_sum(left: expr.PolyExpr, right: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
+    left_action = poly_action_term(left, h, monad)
+    right_action = poly_action_term(right, h, monad)
+    return T.case_effects(monad, left_action, right_action)
+
+
+def _poly_action_unary(body: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
     match body:
-        case expr.Id():
-            return h
-        case expr.Zero():
-            return T.absurd()
-        case expr.One():
-            return T.pure_unit(monad)
-        case expr.Const(_):
-            return T.pure_identity(monad)
-        case expr.Prod(left, right):
-            left_action = poly_action_term(left, h, monad)
-            right_action = poly_action_term(right, h, monad)
-            return T.product_action(monad, left_action, right_action)
-        case expr.Sum(left, right):
-            left_action = poly_action_term(left, h, monad)
-            right_action = poly_action_term(right, h, monad)
-            return T.case_effects(monad, left_action, right_action)
-        case expr.PolyCompose(left, right):
-            left_action = poly_action_term(left, h, monad)
-            return poly_action_term(right, left_action, monad)
-        case expr.Exp(_, body_inner):
-            if monad is not None:
-                raise TypeError("poly_action_term: Exp polynomials are not traversable for arbitrary monads")
-            return _exponential_action(body_inner, h)
         case expr.Maybe(body_inner):
             return T.maybe_effects(monad, poly_action_term(body_inner, h, monad))
         case expr.List(body_inner):
             return T.list_effects(monad, poly_action_term(body_inner, h, monad))
         case _:
             raise TypeError(f"poly_action_term: unknown PolyExpr {type(body).__name__!r}")
+
+
+def _poly_action_binary(body: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
+    match body:
+        case expr.Prod(left, right):
+            return _action_poly_prod(left, right, h, monad)
+        case expr.Sum(left, right):
+            return _action_poly_sum(left, right, h, monad)
+        case expr.PolyCompose(left, right):
+            return _action_poly_compose(left, right, h, monad)
+        case _:
+            raise TypeError(f"poly_action_term: unknown PolyExpr {type(body).__name__!r}")
+
+
+def poly_action_term(body: expr.PolyExpr, h: TTerm, monad: Monad | None = None) -> TTerm:
+    """Build the Hydra term for mapping or traversing a polynomial body."""
+    handler = _POLY_ACTION_LEAVES.get(type(body))
+    if handler is not None:
+        return handler(body, h, monad)
+    if isinstance(body, expr.Exp):
+        if monad is not None:
+            raise TypeError("poly_action_term: Exp polynomials are not traversable for arbitrary monads")
+        return _exponential_action(body.body, h)
+    if isinstance(body, (expr.Maybe, expr.List)):
+        return _poly_action_unary(body, h, monad)
+    return _poly_action_binary(body, h, monad)
 
 
 def _apply_parametric_poly_fmap(
@@ -187,6 +214,127 @@ def _contextual_term(node: expr.ContextualBinary, build, _prims=None) -> Term:
     return T.term_lambda("ctx_x", wrapped).value
 
 
+_SIMPLE_STRUCTURAL: dict = {
+    expr.Identity: lambda: P.identity().value,
+    expr.Copy:     lambda: T.term_lambda("x", lambda x: P.pair(x, x)).value,
+    expr.Delete:   lambda: P.constant(P.unit()).value,
+    expr.First:    lambda: T.pair_first().value,
+    expr.Second:   lambda: T.pair_second().value,
+    expr.Left:     lambda: T.left_injection().value,
+    expr.Right:    lambda: T.right_injection().value,
+    expr.Absurd:   lambda: T.absurd().value,
+}
+
+
+def _realize_symmetry(dom: Type, cod: Type) -> Term:
+    if isinstance(dom, TypePair) and isinstance(cod, TypePair):
+        return T.pair_swap().value
+    if isinstance(dom, TypeEither) and isinstance(cod, TypeEither):
+        return T.either_swap().value
+    raise TypeError(
+        "realize: Symmetry requires product or sum operands, "
+        f"got dom={type(dom).__name__!r}, cod={type(cod).__name__!r}"
+    )
+
+
+def _realize_structural(node: expr.MorphismExpr) -> Term:
+    fn = _SIMPLE_STRUCTURAL.get(type(node))
+    if fn is not None:
+        return fn()
+    if isinstance(node, expr.Assoc):
+        return T.term_lambda(
+            "p",
+            lambda p: P.pair(
+                P.first(P.first(p)),
+                P.pair(P.second(P.first(p)), P.second(p)),
+            ),
+        ).value
+    return _realize_symmetry(node.dom, node.cod)  # type: ignore[union-attr]
+
+
+def _realize_recursive(node: expr.MorphismExpr, _prims) -> Term:
+    if isinstance(node, expr.MonadicEmbed):
+        f_term = realize_term(node.f, _prims)
+        return T.term_lambda("x", lambda x: T.pure(node.monad, P.apply(f_term, x))).value
+    if isinstance(node, expr.Compose):
+        if node.monad is None:
+            return _contextual_term(
+                node,
+                lambda value, call_f, call_g: call_g(call_f(value)),
+                _prims,
+            )
+        return _contextual_term(
+            node,
+            lambda value, call_f, call_g: T.bind(node.monad, call_f(value), "ctx_b", call_g),
+            _prims,
+        )
+    if isinstance(node, expr.Parallel):
+        return _contextual_term(
+            node,
+            lambda value, call_f, call_g: T.pair_effects(
+                node.monad, call_f(P.first(value)), call_g(P.second(value))
+            ),
+            _prims,
+        )
+    if isinstance(node, expr.Pair):
+        return _contextual_term(
+            node,
+            lambda value, call_f, call_g: T.pair_effects(
+                node.monad, call_f(value), call_g(value)
+            ),
+            _prims,
+        )
+    return _contextual_term(
+        node,
+        lambda value, call_f, call_g: P.apply(
+            T.eithers_either(
+                T.term_lambda("ctx_left", lambda v: call_f(v)),
+                T.term_lambda("ctx_right", lambda v: call_g(v)),
+            ),
+            value,
+        ),
+        _prims,
+    )
+
+
+def _realize_poly_fmap(node: expr.PolyFmap, _prims) -> Term:
+    h_term = realize_term(node.f, _prims)
+    if node.param == TypeUnit():
+        return poly_action_term(node.body, h_term, node.monad).value
+    return T.term_lambda("ctx_x", lambda ctx_x: _apply_parametric_poly_fmap(node, h_term, ctx_x)).value
+
+
+def _realize_alg_expr(node: expr.AlgExpr, _prims) -> Term:
+    prim_name = Name(node.name)
+    raw_body_ref = [None]
+
+    def impl(ctx, graph, args):
+        term = Terms.apply(raw_body_ref[0].value, args[0])
+        result = R.reduce_term(ctx, graph, True, term)
+        if isinstance(result, Right):
+            return result
+        raise RuntimeError(f"{node.name} reduction failed: {ShowErrors.error(result.value)}")
+
+    prim = Primitive(
+        prim_name,
+        TypeScheme(variables=frozenset(), body=ExpType(node.dom, node.cod), constraints=None),
+        impl,
+    )
+    if _prims is not None:
+        _prims.append(prim)
+    raw_body_ref[0] = TTerm(realize(node.body, _prims))
+    return P.primitive(prim_name).value
+
+
+def _realize_backend_prim(node: expr.BackendPrim, _prims) -> Term:
+    if not node.args:
+        return T.primitive_wrapper_term(node.primitive.name, node.arity)
+    arg_terms = [realize_term(a, _prims) for a in node.args]
+    def _build_applied(x):
+        return T.apply_curried_primitive(node.primitive.name, [P.apply(at, x) for at in arg_terms])
+    return T.term_lambda("x", _build_applied).value
+
+
 def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
     """Translate a morphism expression into a raw Hydra term.
 
@@ -194,152 +342,23 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
     realizing ``AlgExpr``/``Cata``/``Ana`` nodes are appended to that list for
     the caller to add to the runtime graph.
     """
-    match node:
-        case expr.Identity():
-            return P.identity().value
-
-        case expr.Copy():
-            return T.term_lambda("x", lambda x: P.pair(x, x)).value
-
-        case expr.Delete():
-            return P.constant(P.unit()).value
-
-        case expr.First():
-            return T.pair_first().value
-
-        case expr.Second():
-            return T.pair_second().value
-
-        case expr.Left():
-            return T.left_injection().value
-
-        case expr.Right():
-            return T.right_injection().value
-
-        case expr.Absurd():
-            return T.absurd().value
-
-        case expr.Assoc():
-            return T.term_lambda(
-                "p",
-                lambda p: P.pair(
-                    P.first(P.first(p)),
-                    P.pair(P.second(P.first(p)), P.second(p)),
-                ),
-            ).value
-
-        case expr.Symmetry(dom=dom, cod=cod):
-            if isinstance(dom, TypePair) and isinstance(cod, TypePair):
-                return T.pair_swap().value
-            if isinstance(dom, TypeEither) and isinstance(cod, TypeEither):
-                return T.either_swap().value
-            raise TypeError(
-                "realize: Symmetry requires product or sum operands, "
-                f"got dom={type(dom).__name__!r}, cod={type(cod).__name__!r}"
-            )
-
-        case expr.MonadicEmbed():
-            f_term = realize_term(node.f, _prims)
-            return T.term_lambda("x", lambda x: T.pure(node.monad, P.apply(f_term, x))).value
-
-        case expr.Compose() if node.monad is None:
-            return _contextual_term(
-                node,
-                lambda value, call_f, call_g: call_g(call_f(value)),
-                _prims,
-            )
-
-        case expr.Compose():
-            return _contextual_term(
-                node,
-                lambda value, call_f, call_g: T.bind(node.monad, call_f(value), "ctx_b", call_g),
-                _prims,
-            )
-
-        case expr.Parallel():
-            return _contextual_term(
-                node,
-                lambda value, call_f, call_g: T.pair_effects(
-                    node.monad,
-                    call_f(P.first(value)),
-                    call_g(P.second(value)),
-                ),
-                _prims,
-            )
-
-        case expr.Pair():
-            return _contextual_term(
-                node,
-                lambda value, call_f, call_g: T.pair_effects(
-                    node.monad,
-                    call_f(value),
-                    call_g(value),
-                ),
-                _prims,
-            )
-
-        case expr.Case():
-            return _contextual_term(
-                node,
-                lambda value, call_f, call_g: P.apply(
-                    T.eithers_either(
-                        T.term_lambda("ctx_left", lambda v: call_f(v)),
-                        T.term_lambda("ctx_right", lambda v: call_g(v)),
-                    ),
-                    value,
-                ),
-                _prims,
-            )
-
-        case expr.PolyFmap():
-            h_term = realize_term(node.f, _prims)
-            if node.param == TypeUnit():
-                return poly_action_term(node.body, h_term, node.monad).value
-            return T.term_lambda("ctx_x", lambda ctx_x: _apply_parametric_poly_fmap(node, h_term, ctx_x)).value
-
-        case expr.SelfRef(name, _, _):
-            return P.primitive(Name(name)).value
-
-        case expr.AlgExpr(name, body, dom, cod):
-            prim_name = Name(name)
-            raw_body_ref = [None]
-
-            def impl(ctx, graph, args):
-                term = Terms.apply(raw_body_ref[0].value, args[0])
-                result = R.reduce_term(ctx, graph, True, term)
-                if isinstance(result, Right):
-                    return result
-                raise RuntimeError(f"{name} reduction failed: {ShowErrors.error(result.value)}")
-
-            prim = Primitive(
-                prim_name,
-                TypeScheme(variables=frozenset(), body=ExpType(dom, cod), constraints=None),
-                impl,
-            )
-            if _prims is not None:
-                _prims.append(prim)
-            raw_body_ref[0] = TTerm(realize(body, _prims))
-            return P.primitive(prim_name).value
-
-        case expr.DomainPrim(tag=tag):
-            raise NotImplementedError(
-                f"DomainPrim({tag!r}) must be rewritten before realize — "
-                f"ensure the domain's finalize hook ran"
-            )
-
-        case expr.Prim(raw=raw):
-            return raw
-
-        case expr.BackendPrim(primitive=primitive, arity=arity, args=()):
-            return T.primitive_wrapper_term(primitive.name, arity)
-
-        case expr.BackendPrim(primitive=primitive, args=args):
-            arg_terms = [realize_term(a, _prims) for a in args]
-            def _build_applied(x):
-                return T.apply_curried_primitive(
-                    primitive.name, [P.apply(at, x) for at in arg_terms]
-                )
-            return T.term_lambda("x", _build_applied).value
-
-        case _:
-            raise TypeError(f"realize: unknown MorphismExpr {type(node).__name__!r}")
+    if type(node) in _SIMPLE_STRUCTURAL or isinstance(node, (expr.Assoc, expr.Symmetry)):
+        return _realize_structural(node)
+    if isinstance(node, (expr.MonadicEmbed, expr.Compose, expr.Parallel, expr.Pair, expr.Case)):
+        return _realize_recursive(node, _prims)
+    if isinstance(node, expr.PolyFmap):
+        return _realize_poly_fmap(node, _prims)
+    if isinstance(node, expr.AlgExpr):
+        return _realize_alg_expr(node, _prims)
+    if isinstance(node, expr.DomainPrim):
+        raise NotImplementedError(
+            f"DomainPrim({node.tag!r}) must be rewritten before realize — "
+            f"ensure the domain's finalize hook ran"
+        )
+    if isinstance(node, expr.BackendPrim):
+        return _realize_backend_prim(node, _prims)
+    if isinstance(node, expr.SelfRef):
+        return P.primitive(Name(node.name)).value
+    if isinstance(node, expr.Prim):
+        return node.raw
+    raise TypeError(f"realize: unknown MorphismExpr {type(node).__name__!r}")

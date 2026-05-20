@@ -98,6 +98,23 @@ def align_morphism(plan: AlignmentPlan, ctx) -> Morphism:
     return _leaf_morphism("align", impl)
 
 
+def _update_axis_map(axis_map: list, a1_orig: int, a1_cur: int, a2_cur: int, current_ndim: int) -> int:
+    """Shift axis_map in-place after np.diagonal(axis1=a1_cur, axis2=a2_cur). Returns new ndim."""
+    new_ndim = current_ndim - 1
+    for i in range(len(axis_map)):
+        p = axis_map[i]
+        if p is None:
+            continue
+        if p == a1_cur or p == a2_cur:
+            axis_map[i] = None
+        elif p > a2_cur:
+            axis_map[i] = p - 2
+        elif p > a1_cur:
+            axis_map[i] = p - 1
+    axis_map[a1_orig] = new_ndim - 1
+    return new_ndim
+
+
 def _adjust_diagonal_axes(raw_pairs: list[tuple[int, int]], ndim: int) -> list[tuple[int, int]]:
     """Pre-compute adjusted axis pairs for iterative np.diagonal calls.
 
@@ -117,20 +134,7 @@ def _adjust_diagonal_axes(raw_pairs: list[tuple[int, int]], ndim: int) -> list[t
         if a1_cur > a2_cur:
             a1_cur, a2_cur = a2_cur, a1_cur
         adjusted.append((a1_cur, a2_cur))
-
-        new_ndim = current_ndim - 1
-        for i in range(len(axis_map)):
-            p = axis_map[i]
-            if p is None:
-                continue
-            if p == a1_cur or p == a2_cur:
-                axis_map[i] = None
-            elif p > a2_cur:
-                axis_map[i] = p - 2
-            elif p > a1_cur:
-                axis_map[i] = p - 1
-        axis_map[a1_orig] = new_ndim - 1
-        current_ndim = new_ndim
+        current_ndim = _update_axis_map(axis_map, a1_orig, a1_cur, a2_cur, current_ndim)
 
     return adjusted
 

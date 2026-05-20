@@ -80,6 +80,81 @@ def _parse_monadic_lift(p: PrattParser) -> MonadicLift:
 # Morphism grammar
 # ---------------------------------------------------------------------------
 
+_STRUCTURAL_NAME_MAP: dict[str, MorphismExpr] = {
+    "delete": Delete(_U), "drop": Delete(_U), "del": Delete(_U),
+    "copy": Copy(_U),
+    "id": Identity(_U), "identity": Identity(_U),
+    "absurd": Absurd(_U),
+    "assoc": Assoc(_U, _U),
+    "sym": Symmetry(_U, _U), "symmetry": Symmetry(_U, _U),
+}
+
+
+def _nud_lbracket(p: PrattParser) -> MorphismExpr:
+    _, index = p.expect("INT", "projection index")
+    p.expect("RBRACKET", "closing ]")
+    if index == 0:
+        return First(_PU)
+    if index == 1:
+        return Second(_PU)
+    raise ParseError("projection index must be 0 or 1")
+
+
+def _nud_int(val: int) -> MorphismExpr:
+    if val == 0:
+        return Absurd(_U)
+    if val == 1:
+        return Delete(_U)
+    raise ParseError(f"integer {val!r} is not valid in morphism context")
+
+
+def _nud_lookahead_forms(p: PrattParser, name: str) -> MorphismExpr | None:
+    if name == "pure" and p.peek()[0] == "LBRACKET":
+        return _parse_monadic_lift(p)
+    if name in ("cata", "ana", "hylo") and p.peek()[0] == "LBRACKET":
+        return _parse_recursion_app(p, name)
+    if name in ("roll", "unroll") and p.peek()[0] == "LBRACKET":
+        return _parse_carrier_boundary(p, name)
+    return None
+
+
+def _nud_name_token(p: PrattParser, name: str) -> MorphismExpr:
+    if name == "x":
+        if p.peek()[0] == "LBRACE":
+            p.advance()
+            f = p.parse(0)
+            p.expect("RBRACE", "closing }")
+            return PolyFmap(body=Id(), f=f,  # type: ignore[arg-type]
+                            param=_U, monad=None, dom=_U, cod=_U)
+        return Identity(_U)
+    structural = _STRUCTURAL_NAME_MAP.get(name)
+    if structural is not None:
+        return structural
+    if name == "dup":
+        p.expect("LPAREN", "(")
+        _, count = p.expect("INT", "dup count")
+        p.expect("RPAREN", "closing )")
+        return _copy_power(count)
+    lookahead = _nud_lookahead_forms(p, name)
+    if lookahead is not None:
+        return lookahead
+    if p.peek()[0] == "LBRACE":
+        p.advance()
+        f = p.parse(0)
+        p.expect("RBRACE", "closing }")
+        return PolyFmap(body=PolyRef(name), f=f,  # type: ignore[arg-type]
+                        param=_U, monad=None, dom=_U, cod=_U)
+    if p.peek()[0] == "LPAREN":
+        p.advance()
+        args = _parse_arg_list(p)
+        return MorphismApp(Ref(name), args)
+    from unialg.extensions import get_expr_handler
+    ext_handler = get_expr_handler(name)
+    if ext_handler is not None:
+        return ext_handler(p)
+    return Ref(name)
+
+
 def _morphism_nud(p: PrattParser, tok: Token) -> MorphismExpr:
     kind, val = tok
 
@@ -89,13 +164,7 @@ def _morphism_nud(p: PrattParser, tok: Token) -> MorphismExpr:
         return inner  # type: ignore[return-value]
 
     if kind == "LBRACKET":
-        _, index = p.expect("INT", "projection index")
-        p.expect("RBRACKET", "closing ]")
-        if index == 0:
-            return First(_PU)
-        if index == 1:
-            return Second(_PU)
-        raise ParseError("projection index must be 0 or 1")
+        return _nud_lbracket(p)
 
     if kind == "BANG":
         return Delete(_U)
@@ -113,75 +182,10 @@ def _morphism_nud(p: PrattParser, tok: Token) -> MorphismExpr:
         return _case_injection(index)
 
     if kind == "INT":
-        if val == 0:
-            return Absurd(_U)
-        if val == 1:
-            return Delete(_U)
-        raise ParseError(f"integer {val!r} is not valid in morphism context")
+        return _nud_int(val)
 
     if kind == "NAME":
-        name: str = val
-
-        if name == "x":
-            if p.peek()[0] == "LBRACE":
-                p.advance()
-                f = p.parse(0)
-                p.expect("RBRACE", "closing }")
-                return PolyFmap(body=Id(), f=f,  # type: ignore[arg-type]
-                                param=_U, monad=None, dom=_U, cod=_U)
-            return Identity(_U)
-
-        if name in ("delete", "drop", "del"):
-            return Delete(_U)
-        if name == "copy":
-            return Copy(_U)
-        if name == "dup":
-            p.expect("LPAREN", "(")
-            _, count = p.expect("INT", "dup count")
-            p.expect("RPAREN", "closing )")
-            return _copy_power(count)
-        if name in ("id", "identity"):
-            return Identity(_U)
-        if name == "absurd":
-            return Absurd(_U)
-        if name == "assoc":
-            return Assoc(_U, _U)
-        if name in ("sym", "symmetry"):
-            return Symmetry(_U, _U)
-
-        # pure[Maybe](f), pure[List](f)
-        if name == "pure" and p.peek()[0] == "LBRACKET":
-            return _parse_monadic_lift(p)
-
-        # cata[focus](alg), ana[focus](coalg), hylo[focus](coalg, alg)
-        if name in ("cata", "ana", "hylo") and p.peek()[0] == "LBRACKET":
-            return _parse_recursion_app(p, name)
-
-        # roll[focus], unroll[focus]
-        if name in ("roll", "unroll") and p.peek()[0] == "LBRACKET":
-            return _parse_carrier_boundary(p, name)
-
-        # name{f} — functor action
-        if p.peek()[0] == "LBRACE":
-            p.advance()
-            f = p.parse(0)
-            p.expect("RBRACE", "closing }")
-            return PolyFmap(body=PolyRef(name), f=f,  # type: ignore[arg-type]
-                            param=_U, monad=None, dom=_U, cod=_U)
-
-        # name(args) — parametric application
-        if p.peek()[0] == "LPAREN":
-            p.advance()
-            args = _parse_arg_list(p)
-            return MorphismApp(Ref(name), args)
-
-        # extension expression forms (e.g., contract[sr]("eq"))
-        from unialg.extensions import get_expr_handler
-        ext_handler = get_expr_handler(name)
-        if ext_handler is not None:
-            return ext_handler(p)
-
-        return Ref(name)
+        return _nud_name_token(p, val)
 
     raise ParseError(f"unexpected token {kind!r} ({val!r}) in morphism expression")
 

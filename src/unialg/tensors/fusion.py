@@ -215,16 +215,55 @@ def _is_all_identity(node) -> bool:
     return False
 
 
-def _count_slots(space) -> int:
-    """Count BINARY factors in a nested TypePair."""
-    if isinstance(space, TypePair):
-        return _count_slots(space.value.first) + _count_slots(space.value.second)
-    return 1
-
-
-
 def _leaf_optic(body, fwd, carrier=BINARY):
     return _Optic(functor=_Functor(name="_", body=body), forward=fwd, backward=fwd, carrier=carrier)
+
+
+def _spec_mismatches(inner_spec, outer_spec, expected_labels) -> bool:
+    return (inner_spec.semiring != outer_spec.semiring
+            or inner_spec.adjoint != outer_spec.adjoint
+            or inner_spec.equation.output != expected_labels)
+
+
+def _optic_pair_wrap(l_optic, combined):
+    """Apply Copy-based Pair wrapping to a combined optic. Returns new combined or None."""
+    shared_dom = l_optic.forward.dom()
+    copy_m = _copy(shared_dom)
+    fwd = copy_m if _is_all_identity(combined.forward.node) else ops.compose(copy_m, combined.forward)
+    try:
+        return _Optic(functor=combined.functor, forward=fwd, backward=combined.backward, carrier=BINARY)
+    except (MorphismError, AssertionError):
+        return None
+
+
+def _optic_leaf(par_node, outer_shape, outer_spec, avoid):
+    """Handle leaf positions: Identity, contract spec, or opaque morphism."""
+    from unialg.semantics.functors import apply_poly
+    slot_type = apply_poly(outer_shape, BINARY)
+
+    if isinstance(par_node, expr.Identity):
+        return _leaf_optic(outer_shape, ops.identity(slot_type)), False, False
+
+    inner_spec = _tensor_spec(par_node)
+    if inner_spec is not None:
+        expected_labels = _labels_from_base(outer_shape.base) if isinstance(outer_shape, expr.Exp) else ()
+        if _spec_mismatches(inner_spec, outer_spec, expected_labels):
+            return None
+        inner_shape = _rename_shape_labels(inner_spec.shape, inner_spec.equation.output, avoid)
+        new_labels = _extract_labels(inner_shape)
+        avoid.update(l for inp in new_labels for l in inp)
+        avoid.update(l for inp in new_labels for l in inp if l not in set(inner_spec.equation.output))
+        fwd = ops.identity(apply_poly(inner_shape, BINARY))
+        return _leaf_optic(inner_shape, fwd), False, True
+
+    fwd = Morphism(node=par_node, aux_primitives=())
+    optic = _Optic(functor=_Functor(name="_", body=expr.Id()), forward=fwd, backward=ops.identity(BINARY), carrier=None)
+    return optic, True, False
+
+
+def _pair_node_is_bare(par_node) -> bool:
+    from unialg.objects import TypeUnit as TU
+    return par_node.param == TU() and par_node.monad is None
 
 
 def _par_to_optic(par_node, outer_shape, outer_spec, avoid):
@@ -233,71 +272,30 @@ def _par_to_optic(par_node, outer_shape, outer_spec, avoid):
     Reduces a Parallel/Pair/Identity/contract subtree to (Optic, has_opaque, has_absorbed).
     Returns None on structural mismatch.
     """
-    from unialg.objects import TypeUnit as TU
-    from unialg.semantics.functors import apply_poly
-
-    # Binary nodes: Prod(L, R) in shape matches Parallel or Pair in term.
-    if isinstance(par_node, (expr.Parallel, expr.Pair)):
-        if not isinstance(outer_shape, expr.Prod):
+    if not isinstance(par_node, (expr.Parallel, expr.Pair)):
+        return _optic_leaf(par_node, outer_shape, outer_spec, avoid)
+    if not isinstance(outer_shape, expr.Prod):
+        return None
+    is_pair = isinstance(par_node, expr.Pair)
+    if is_pair and not _pair_node_is_bare(par_node):
+        return None
+    left = _par_to_optic(par_node.f, outer_shape.left, outer_spec, avoid)
+    if left is None:
+        return None
+    l_optic, l_opaque, l_absorbed = left
+    right = _par_to_optic(par_node.g, outer_shape.right, outer_spec, avoid)
+    if right is None:
+        return None
+    r_optic, r_opaque, r_absorbed = right
+    try:
+        combined = l_optic.par(r_optic)
+    except MorphismError:
+        return None
+    if is_pair:
+        combined = _optic_pair_wrap(l_optic, combined)
+        if combined is None:
             return None
-        is_pair = isinstance(par_node, expr.Pair)
-        if is_pair and (par_node.param != TU() or par_node.monad is not None):
-            return None
-        left = _par_to_optic(par_node.f, outer_shape.left, outer_spec, avoid)
-        if left is None:
-            return None
-        l_optic, l_opaque, l_absorbed = left
-        right = _par_to_optic(par_node.g, outer_shape.right, outer_spec, avoid)
-        if right is None:
-            return None
-        r_optic, r_opaque, r_absorbed = right
-        try:
-            combined = l_optic.par(r_optic)
-        except MorphismError:
-            return None
-        if is_pair:
-            # Use the optic-derived domain (ExpType) for Copy, not the possibly-
-            # BINARY par_node.dom from user construction.
-            shared_dom = l_optic.forward.dom()
-            copy_m = _copy(shared_dom)
-            if _is_all_identity(combined.forward.node):
-                fwd = copy_m
-            else:
-                fwd = ops.compose(copy_m, combined.forward)
-            try:
-                combined = _Optic(functor=combined.functor, forward=fwd, backward=combined.backward, carrier=BINARY)
-            except (MorphismError, AssertionError):
-                return None
-        return combined, l_opaque or r_opaque, l_absorbed or r_absorbed
-
-    # Leaf: outer_shape should be Exp(base, Id) or Id (scalar slot).
-    # Compute the slot type from the outer shape.
-    slot_type = apply_poly(outer_shape, BINARY)
-
-    if isinstance(par_node, expr.Identity):
-        return _leaf_optic(outer_shape, ops.identity(slot_type)), False, False
-
-    inner_spec = _tensor_spec(par_node)
-    if inner_spec is not None:
-        # Label match: inner output labels must equal outer slot labels.
-        expected_labels = _labels_from_base(outer_shape.base) if isinstance(outer_shape, expr.Exp) else ()
-        if (inner_spec.semiring != outer_spec.semiring
-                or inner_spec.adjoint != outer_spec.adjoint
-                or inner_spec.equation.output != expected_labels):
-            return None
-        # Rename colliding reduced labels in the inner shape's Exp bases.
-        inner_shape = _rename_shape_labels(inner_spec.shape, inner_spec.equation.output, avoid)
-        new_labels = _extract_labels(inner_shape)
-        avoid.update(l for inp in new_labels for l in inp)
-        avoid.update(l for inp in new_labels for l in inp if l not in set(inner_spec.equation.output))
-        fwd = ops.identity(apply_poly(inner_shape, BINARY))
-        return _leaf_optic(inner_shape, fwd), False, True
-
-    # Opaque leaf — uses Id() body because the morphism operates on BINARY.
-    # Labels for this position are recovered from outer_shape in _fill_opaque_labels.
-    fwd = Morphism(node=par_node, aux_primitives=())
-    optic = _Optic(functor=_Functor(name="_", body=expr.Id()), forward=fwd, backward=ops.identity(BINARY), carrier=None)
-    return optic, True, False
+    return combined, bool(l_opaque + r_opaque), bool(l_absorbed + r_absorbed)
 
 
 def _fill_opaque_labels(composite, outer):
@@ -314,6 +312,15 @@ def _fill_opaque_labels(composite, outer):
     if isinstance(composite, expr.Id) and isinstance(outer, expr.Exp):
         return outer
     return composite
+
+
+def _types_compatible(pre: Morphism, fused_contract: Morphism, m: Morphism, fused_spec) -> bool:
+    from .semantics import _strip_exp
+    return (
+        _strip_exp(pre.dom()) == _strip_exp(m.dom())
+        and _strip_exp(pre.cod()) == _strip_exp(fused_contract.dom())
+        and _strip_exp(fused_spec.cod) == _strip_exp(m.cod())
+    )
 
 
 def _try_fuse(m: Morphism) -> Morphism:
@@ -358,11 +365,8 @@ def _try_fuse(m: Morphism) -> Morphism:
         monad=m.monad,
     )
 
-    from .semantics import _strip_exp
     pre = inner_optic.forward
-    if _strip_exp(pre.dom()) != _strip_exp(m.dom()) or _strip_exp(pre.cod()) != _strip_exp(fused_contract.dom()):
-        return m
-    if _strip_exp(fused_spec.cod) != _strip_exp(m.cod()):
+    if not _types_compatible(pre, fused_contract, m, fused_spec):
         return m
 
     # Identity-tree forward (pure Parallel with no opaque/Copy routing) — skip wrap.

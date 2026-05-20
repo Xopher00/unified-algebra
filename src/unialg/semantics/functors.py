@@ -195,31 +195,46 @@ def compose_poly(outer: expr.PolyExpr, inner: expr.PolyExpr) -> expr.PolyExpr:
             raise TypeError(f"compose_poly: unknown PolyExpr {type(outer).__name__!r}")
 
 
-def apply_poly(body: expr.PolyExpr, space: Type) -> Type:
-    """Compute the object action ``F(space)`` for a polynomial functor body."""
+_POLY_LEAF = {
+    expr.Zero:  lambda _n, _s: VoidType(),
+    expr.One:   lambda _n, _s: TypeUnit(),
+    expr.Id:    lambda _n,  s: s,
+    expr.Const: lambda  n, _s: n.space,
+}
+
+
+def _apply_poly_unary(body: expr.PolyExpr, space: Type) -> Type:
     match body:
-        case expr.Id():
-            return space
-        case expr.One():
-            return TypeUnit()
-        case expr.Const(s):
-            return s
+        case expr.List(b):
+            return TypeList(apply_poly(b, space))
+        case expr.Maybe(b):
+            return TypeMaybe(apply_poly(b, space))
+        case expr.Exp(base, b):
+            return ExpType(base, apply_poly(b, space))
+        case _:
+            raise TypeError(f"apply_poly: unknown PolyExpr {type(body).__name__!r}")
+
+
+def _apply_poly_binary(body: expr.PolyExpr, space: Type) -> Type:
+    match body:
         case expr.Prod(left, right):
             return ProductType(apply_poly(left, space), apply_poly(right, space))
         case expr.Sum(left, right):
             return SumType(apply_poly(left, space), apply_poly(right, space))
         case expr.PolyCompose(left, right):
             return apply_poly(right, apply_poly(left, space))
-        case expr.Zero():
-            return VoidType()
-        case expr.Exp(base, b):
-            return ExpType(base, apply_poly(b, space))
-        case expr.List(b):
-            return TypeList(apply_poly(b, space))
-        case expr.Maybe(body):
-            return TypeMaybe(apply_poly(body, space))
         case _:
             raise TypeError(f"apply_poly: unknown PolyExpr {type(body).__name__!r}")
+
+
+def apply_poly(body: expr.PolyExpr, space: Type) -> Type:
+    """Compute the object action ``F(space)`` for a polynomial functor body."""
+    handler = _POLY_LEAF.get(type(body))
+    if handler is not None:
+        return handler(body, space)
+    if isinstance(body, (expr.List, expr.Maybe, expr.Exp)):
+        return _apply_poly_unary(body, space)
+    return _apply_poly_binary(body, space)
 
 
 def _flatten_sum(node: expr.PolyExpr) -> tuple[expr.PolyExpr, ...]:

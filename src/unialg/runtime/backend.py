@@ -224,6 +224,31 @@ def _resolve_structural(spec: dict) -> dict[str, Callable]:
     }
 
 
+def _resolve_binary_adapter(adapter_spec) -> object | None:
+    if adapter_spec is None:
+        return None
+    if isinstance(adapter_spec, str):
+        return importlib.import_module(adapter_spec)
+    if isinstance(adapter_spec, dict):
+        return BinaryAdapter(
+            dump_fn=resolve_function(adapter_spec["dump"]),
+            load_fn=resolve_function(adapter_spec["load"]),
+            dump_style=adapter_spec.get("dump_style", "file_first"),
+            load_kwargs=adapter_spec.get("load_kwargs") or {},
+        )
+    raise ValueError(f"binary_adapter must be a string or dict, got {type(adapter_spec)!r}")
+
+
+def _prepare_op(backend_name: str, op_name: str, entry: dict) -> tuple:
+    arg_type     = type_from_spec(entry["arg_type"])
+    result_type  = type_from_spec(entry.get("result_type", entry["arg_type"]))
+    arg_coder    = coder_for_type(arg_type)
+    result_coder = coder_for_type(result_type)
+    canonical    = f"{_CANONICAL_PREFIX}.{op_name}"
+    fn           = _resolve_operation_function(backend_name, op_name, entry["path"])
+    return (op_name, entry, arg_type, result_type, arg_coder, result_coder, canonical, fn)
+
+
 def load_spec(
     spec: dict | str | Path,
 ) -> tuple[dict[str, BackendPrimitive], object | None, RuntimeStore | None]:
@@ -244,45 +269,20 @@ def load_spec(
             spec = json.load(f)
 
     backend_name = spec.get("backend", "<unknown>")
-    adapter_spec = spec.get("binary_adapter")
-    if adapter_spec is None:
-        binary_adapter = None
-    elif isinstance(adapter_spec, str):
-        binary_adapter = importlib.import_module(adapter_spec)
-    elif isinstance(adapter_spec, dict):
-        binary_adapter = BinaryAdapter(
-            dump_fn=resolve_function(adapter_spec["dump"]),
-            load_fn=resolve_function(adapter_spec["load"]),
-            dump_style=adapter_spec.get("dump_style", "file_first"),
-            load_kwargs=adapter_spec.get("load_kwargs") or {},
-        )
-    else:
-        raise ValueError(f"binary_adapter must be a string or dict, got {type(adapter_spec)!r}")
-    prepared_ops = []
-    for op_name, entry in spec["operations"].items():
-        arg_type    = type_from_spec(entry["arg_type"])
-        result_type = type_from_spec(entry.get("result_type", entry["arg_type"]))
-        arg_coder   = coder_for_type(arg_type)
-        result_coder = coder_for_type(result_type)
-        canonical = f"{_CANONICAL_PREFIX}.{op_name}"
-        fn = _resolve_operation_function(backend_name, op_name, entry["path"])
-        prepared_ops.append((
-            op_name, entry, arg_type, result_type, arg_coder, result_coder, canonical, fn,
-        ))
+    binary_adapter = _resolve_binary_adapter(spec.get("binary_adapter"))
+    prepared = [_prepare_op(backend_name, op_name, entry)
+                for op_name, entry in spec["operations"].items()]
 
     needs_store = any(
         is_binary_type(arg_type) or is_binary_type(result_type)
-        for _, _, arg_type, result_type, _, _, _, _ in prepared_ops
+        for _, _, arg_type, result_type, *_ in prepared
     )
     store: RuntimeStore | None = RuntimeStore() if needs_store else None
 
     result: dict[str, BackendPrimitive] = {}
-    for op_name, entry, arg_type, result_type, arg_coder, result_coder, canonical, fn in prepared_ops:
+    for op_name, entry, arg_type, result_type, arg_coder, result_coder, canonical, fn in prepared:
         result[op_name] = register_backend_primitive(
-            canonical,
-            fn,
-            arg_type,
-            entry["arity"],
+            canonical, fn, arg_type, entry["arity"],
             arg_coder=arg_coder,
             result_coder=result_coder,
             result_type=result_type,

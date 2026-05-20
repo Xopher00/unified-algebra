@@ -63,6 +63,20 @@ def _literal_value(term: Term, context: str):
         raise TypeError(f"{context}: expected literal term, got {_show_term(term)}") from e
 
 
+def _term_value_maybe(m, context: str):
+    if isinstance(m, Nothing):
+        return None
+    return term_value(m.value, context)
+
+
+def _term_value_either(branch, context: str):
+    if isinstance(branch, Left):
+        return ("left", term_value(branch.value, context))
+    if isinstance(branch, Right):
+        return ("right", term_value(branch.value, context))
+    raise TypeError(f"{context}: unexpected Either branch {type(branch).__name__!r}")
+
+
 def term_value(term: Term, context: str = "term_value"):
     """Decode ordinary Hydra values into small Python structures.
 
@@ -81,14 +95,9 @@ def term_value(term: Term, context: str = "term_value"):
         case TermList(value=items):
             return [term_value(item, context) for item in items]
         case TermMaybe(value=m):
-            if isinstance(m, Nothing):
-                return None
-            return term_value(m.value, context)
+            return _term_value_maybe(m, context)
         case TermEither(value=branch):
-            if isinstance(branch, Left):
-                return ("left", term_value(branch.value, context))
-            if isinstance(branch, Right):
-                return ("right", term_value(branch.value, context))
+            return _term_value_either(branch, context)
     raise TypeError(f"{context}: expected value term, got {_show_term(term)}")
 
 
@@ -113,25 +122,17 @@ def _mk_term_coder(typ: Type,
 # Type-directed API
 # ---------------------------------------------------------------------------
 
-def type_from_spec(spec: str | dict) -> Type:
-    """Parse a JSON type declaration into a Hydra Type.
+_TYPE_SHORTHANDS: dict[str, Type] = {
+    "FLOAT":  TypeLiteral(LiteralType.FLOAT),
+    "INT":    TypeLiteral(LiteralType.INTEGER),
+    "STRING": TypeLiteral(LiteralType.STRING),
+    "BOOL":   TypeLiteral(LiteralType.BOOLEAN),
+    "BINARY": TypeLiteral(LiteralType.BINARY),
+    "UNIT":   TypeUnit(),
+}
 
-    Shorthands: ``"FLOAT"``, ``"INT"``, ``"STRING"``, ``"BOOL"``, ``"BINARY"``, ``"UNIT"``
-    Structured:
-      ``{"list": T}``
-      ``{"pair": [A, B]}``
-      ``{"either": [L, R]}``
-      ``{"maybe": T}``
-    """
-    if isinstance(spec, str):
-        match spec:
-            case "FLOAT":  return TypeLiteral(LiteralType.FLOAT)
-            case "INT":    return TypeLiteral(LiteralType.INTEGER)
-            case "STRING": return TypeLiteral(LiteralType.STRING)
-            case "BOOL":   return TypeLiteral(LiteralType.BOOLEAN)
-            case "BINARY": return TypeLiteral(LiteralType.BINARY)
-            case "UNIT":   return TypeUnit()
-            case _:        raise ValueError(f"type_from_spec: unknown shorthand {spec!r}")
+
+def _type_from_dict(spec: dict) -> Type:
     if "list" in spec:
         return TypeList(type_from_spec(spec["list"]))
     if "pair" in spec:
@@ -143,6 +144,24 @@ def type_from_spec(spec: str | dict) -> Type:
     if "maybe" in spec:
         return TypeMaybe(type_from_spec(spec["maybe"]))
     raise ValueError(f"type_from_spec: unknown spec {spec!r}")
+
+
+def type_from_spec(spec: str | dict) -> Type:
+    """Parse a JSON type declaration into a Hydra Type.
+
+    Shorthands: ``"FLOAT"``, ``"INT"``, ``"STRING"``, ``"BOOL"``, ``"BINARY"``, ``"UNIT"``
+    Structured:
+      ``{"list": T}``
+      ``{"pair": [A, B]}``
+      ``{"either": [L, R]}``
+      ``{"maybe": T}``
+    """
+    if isinstance(spec, str):
+        t = _TYPE_SHORTHANDS.get(spec)
+        if t is None:
+            raise ValueError(f"type_from_spec: unknown shorthand {spec!r}")
+        return t
+    return _type_from_dict(spec)
 
 
 def _list_coder(elem_coder: TermCoder) -> TermCoder:

@@ -9,6 +9,15 @@ from .morphisms import Morphism, MorphismError
 from .optics import Optic, ana, cata, hylo
 
 
+_MORPHISM_REF_EMPTY: frozenset[type] = frozenset({
+    expr.Identity, expr.Copy, expr.Delete, expr.First, expr.Second,
+    expr.Left, expr.Right, expr.Absurd, expr.Assoc, expr.Symmetry,
+    expr.Prim, expr.SelfRef, expr.CarrierBoundary,
+})
+
+_MORPHISM_REF_SINGLE = (expr.MonadicEmbed, expr.PolyFmap, expr.MonadicLift, expr.AlgExpr)
+
+
 def _many_morphism_refs(nodes) -> set[str]:
     refs = set()
     for node in nodes:
@@ -16,47 +25,37 @@ def _many_morphism_refs(nodes) -> set[str]:
     return refs
 
 
-def morphism_refs(node: expr.MorphismExpr) -> set[str]:
-    """Collect morphism references from a parsed morphism expression."""
+def _morphism_refs_single(node: expr.MorphismExpr) -> set[str]:
     match node:
-        case expr.Ref(name=name):
-            return {name}
-        case (
-            expr.Identity()
-            | expr.Copy()
-            | expr.Delete()
-            | expr.First()
-            | expr.Second()
-            | expr.Left()
-            | expr.Right()
-            | expr.Absurd()
-            | expr.Assoc()
-            | expr.Symmetry()
-            | expr.Prim()
-            | expr.SelfRef()
-            | expr.CarrierBoundary()
-        ):
-            return set()
-        case expr.BackendPrim(args=args):
-            return _many_morphism_refs(args)
-        case expr.MonadicEmbed(f=f):
+        case expr.MonadicEmbed(f=f) | expr.PolyFmap(f=f):
             return morphism_refs(f)
+        case expr.MonadicLift(body=body) | expr.AlgExpr(body=body):
+            return morphism_refs(body)
+        case _:
+            raise TypeError(f"morphism_refs: unexpected single-child node {type(node).__name__!r}")
+
+
+def _morphism_refs_multi(node: expr.MorphismExpr) -> set[str]:
+    match node:
+        case expr.BackendPrim(args=args) | expr.RecursionApp(args=args):
+            return _many_morphism_refs(args)
         case expr.ContextualBinary(f=f, g=g):
             return morphism_refs(f) | morphism_refs(g)
-        case expr.PolyFmap(f=f):
-            return morphism_refs(f)
         case expr.MorphismApp(fun=fun, args=args):
             return morphism_refs(fun) | _many_morphism_refs(args)
-        case expr.RecursionApp(args=args):
-            return _many_morphism_refs(args)
-        case expr.MonadicLift(body=body):
-            return morphism_refs(body)
-        case expr.AlgExpr(body=body):
-            return morphism_refs(body)
-        case _ if hasattr(node, '_domain_tag'):
-            return set()
         case _:
             raise TypeError(f"morphism_refs: unknown MorphismExpr {type(node).__name__!r}")
+
+
+def morphism_refs(node: expr.MorphismExpr) -> set[str]:
+    """Collect morphism references from a parsed morphism expression."""
+    if isinstance(node, expr.Ref):
+        return {node.name}
+    if type(node) in _MORPHISM_REF_EMPTY or hasattr(node, '_domain_tag'):
+        return set()
+    if isinstance(node, _MORPHISM_REF_SINGLE):
+        return _morphism_refs_single(node)
+    return _morphism_refs_multi(node)
 
 
 def resolve_poly_refs(

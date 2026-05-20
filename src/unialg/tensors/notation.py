@@ -19,6 +19,17 @@ class AlignmentPlan:
     perm: tuple[int, ...]
 
 
+def _shift_position(p: int | None, a1: int, a2: int) -> int | None:
+    """Adjust a position index after two elements at a1 < a2 were deleted."""
+    if p is None or p == a1 or p == a2:
+        return None
+    if p > a2:
+        return p - 2
+    if p > a1:
+        return p - 1
+    return p
+
+
 @dataclass(frozen=True)
 class Equation:
     """Parsed einsum equation — pure index structure."""
@@ -27,33 +38,27 @@ class Equation:
     reduced: tuple[str, ...]
 
     @staticmethod
-    def parse(s: str) -> Equation:
-        s = s.strip()
-        if "->" not in s:
-            raise ValueError(f"equation must contain '->': {s!r}")
+    def _parse_components(s: str) -> tuple[tuple[tuple[str, ...], ...], tuple[str, ...]]:
         lhs, rhs = s.split("->", 1)
-        input_strs = lhs.split(",")
-        inputs = tuple(tuple(c for c in inp.strip()) for inp in input_strs)
+        inputs = tuple(tuple(c for c in inp.strip()) for inp in lhs.split(","))
         output = tuple(c for c in rhs.strip())
+        return inputs, output
 
-        seen_output: set[str] = set()
-        duplicate_output: list[str] = []
+    @staticmethod
+    def _check_output_unique(output: tuple[str, ...]) -> None:
+        seen: set[str] = set()
+        duplicates: list[str] = []
         for label in output:
-            if label in seen_output and label not in duplicate_output:
-                duplicate_output.append(label)
-            seen_output.add(label)
-        if duplicate_output:
-            raise ValueError(f"output labels must be unique: {tuple(duplicate_output)}")
+            if label in seen and label not in duplicates:
+                duplicates.append(label)
+            seen.add(label)
+        if duplicates:
+            raise ValueError(f"output labels must be unique: {tuple(duplicates)}")
 
-        all_input_labels: set[str] = set()
-        for inp in inputs:
-            all_input_labels.update(inp)
-        output_set = set(output)
-
-        if not output_set.issubset(all_input_labels):
-            extra = output_set - all_input_labels
-            raise ValueError(f"output labels not in any input: {extra}")
-
+    @staticmethod
+    def _compute_reduced(
+        inputs: tuple[tuple[str, ...], ...], output_set: set[str]
+    ) -> tuple[str, ...]:
         seen: list[str] = []
         seen_set: set[str] = set()
         for inp in inputs:
@@ -61,8 +66,21 @@ class Equation:
                 if label not in seen_set:
                     seen.append(label)
                     seen_set.add(label)
-        reduced = tuple(l for l in seen if l not in output_set)
+        return tuple(l for l in seen if l not in output_set)
 
+    @staticmethod
+    def parse(s: str) -> Equation:
+        s = s.strip()
+        if "->" not in s:
+            raise ValueError(f"equation must contain '->': {s!r}")
+        inputs, output = Equation._parse_components(s)
+        Equation._check_output_unique(output)
+        output_set = set(output)
+        all_input_labels: set[str] = {label for inp in inputs for label in inp}
+        if not output_set.issubset(all_input_labels):
+            extra = output_set - all_input_labels
+            raise ValueError(f"output labels not in any input: {extra}")
+        reduced = Equation._compute_reduced(inputs, output_set)
         return Equation(inputs=inputs, output=output, reduced=reduced)
 
     def diagonal_axes(self, i: int) -> list[tuple[int, int]]:
@@ -101,17 +119,7 @@ class Equation:
             del labels[a2_cur]
             del labels[a1_cur]
             labels.append(diag_label)
-
-            for k in range(len(positions)):
-                p = positions[k]
-                if p is None:
-                    continue
-                if p == a1_cur or p == a2_cur:
-                    positions[k] = None
-                elif p > a2_cur:
-                    positions[k] = p - 2
-                elif p > a1_cur:
-                    positions[k] = p - 1
+            positions = [_shift_position(p, a1_cur, a2_cur) for p in positions]
             positions[a1_orig] = len(labels) - 1
 
         return tuple(labels)
@@ -201,10 +209,43 @@ def _require_str(fields, key) -> str:
     return v
 
 
+def _parse_value(cursor) -> str | float:
+    """Parse one field value token, handling optional leading minus sign."""
+    from unialg.syntax.parse import ParseError
+    val_tok = cursor.advance()
+    negate = val_tok[0] == "MINUS"
+    if negate:
+        val_tok = cursor.advance()
+    if val_tok[0] == "NAME":
+        if negate:
+            if val_tok[1] == "inf":
+                return float("-inf")
+            raise ParseError(f"cannot negate name {val_tok[1]!r}")
+        return val_tok[1]
+    if val_tok[0] == "FLOAT":
+        return -val_tok[1] if negate else val_tok[1]
+    if val_tok[0] == "INT":
+        return float(-val_tok[1]) if negate else float(val_tok[1])
+    raise ParseError(f"expected value, got {val_tok[0]!r}")
+
+
+def _validate_algebra_fields(name: str, fields: dict) -> dict[str, str]:
+    """Check required fields present and adjoint (if given) is a name, not a literal."""
+    from unialg.syntax.parse import ParseError
+    missing = {"plus", "times", "zero", "one"} - fields.keys()
+    if missing:
+        raise ParseError(f"algebra {name!r} missing fields: {missing}")
+    optional_str: dict[str, str] = {}
+    if "adjoint" in fields:
+        adj = fields["adjoint"]
+        if not isinstance(adj, str):
+            raise ParseError("adjoint must be an op name, not a literal")
+        optional_str["adjoint"] = adj
+    return optional_str
+
+
 def parse_algebra(cursor, prog):
     """Parse ``algebra name(plus=op, times=op, zero=val, one=val, ...)``."""
-    from unialg.syntax.parse import ParseError
-
     name_tok = cursor.expect("NAME", "semiring name")
     cursor.expect("LPAREN", "'('")
 
@@ -212,45 +253,12 @@ def parse_algebra(cursor, prog):
     while cursor.peek()[0] != "RPAREN":
         key_tok = cursor.expect("NAME", "field name")
         cursor.expect("EQ", "'='")
-
-        val_tok = cursor.advance()
-        negate = False
-        if val_tok[0] == "MINUS":
-            negate = True
-            val_tok = cursor.advance()
-
-        if val_tok[0] == "NAME":
-            val: str | float = val_tok[1]
-            if negate:
-                if val == "inf":
-                    val = float("-inf")
-                else:
-                    raise ParseError(f"cannot negate name {val!r}")
-        elif val_tok[0] == "FLOAT":
-            val = -val_tok[1] if negate else val_tok[1]
-        elif val_tok[0] == "INT":
-            val = float(-val_tok[1]) if negate else float(val_tok[1])
-        else:
-            raise ParseError(f"expected value, got {val_tok[0]!r}")
-
-        fields[key_tok[1]] = val
-
+        fields[key_tok[1]] = _parse_value(cursor)
         if cursor.peek()[0] == "COMMA":
             cursor.advance()
 
     cursor.expect("RPAREN", "')'")
-
-    required = {"plus", "times", "zero", "one"}
-    missing = required - fields.keys()
-    if missing:
-        raise ParseError(f"algebra {name_tok[1]!r} missing fields: {missing}")
-
-    optional_str = {}
-    if "adjoint" in fields:
-        adj = fields["adjoint"]
-        if not isinstance(adj, str):
-            raise ParseError("adjoint must be an op name, not a literal")
-        optional_str["adjoint"] = adj
+    optional_str = _validate_algebra_fields(name_tok[1], fields)
 
     decl = SemiringDecl(
         name=name_tok[1],
@@ -260,7 +268,6 @@ def parse_algebra(cursor, prog):
         one=fields["one"],
         **optional_str,
     )
-
     prog.extensions.setdefault("tensors", []).append(decl)
 
 

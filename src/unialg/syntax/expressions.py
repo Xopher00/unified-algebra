@@ -278,31 +278,25 @@ def pretty(expr) -> str:
     raise ValueError(f"pretty: unknown type {type(expr).__name__!r}")
 
 
-@pretty.register(MorphismExpr)
-def _pretty_morphism(expr: MorphismExpr) -> str:
+_MORPHISM_LEAVES: dict[type, str] = {
+    Identity: "id",
+    Copy: "copy",
+    Delete: "!",
+    First: "π₁",
+    Second: "π₂",
+    Left: "ι₁",
+    Right: "ι₂",
+    Absurd: "absurd",
+    Assoc: "assoc",
+    Symmetry: "sym",
+    Prim: "prim",
+}
+
+_MORPHISM_BINARY = (Compose, Parallel, Pair, Case)
+
+
+def _pretty_binary(expr: MorphismExpr) -> str:
     match expr:
-        case Identity():
-            return "id"
-        case Copy():
-            return "copy"
-        case Delete():
-            return "!"
-        case First():
-            return "π₁"
-        case Second():
-            return "π₂"
-        case Left():
-            return "ι₁"
-        case Right():
-            return "ι₂"
-        case Absurd():
-            return "absurd"
-        case Assoc():
-            return "assoc"
-        case Symmetry():
-            return "sym"
-        case MonadicEmbed(f=f):
-            return f"η({pretty(f)})"
         case Compose(f=f, g=g):
             return f"({pretty(f)} ; {pretty(g)})"
         case Parallel(f=f, g=g):
@@ -311,6 +305,14 @@ def _pretty_morphism(expr: MorphismExpr) -> str:
             return f"⟨{pretty(f)}, {pretty(g)}⟩"
         case Case(f=f, g=g):
             return f"[{pretty(f)}, {pretty(g)}]"
+        case _:
+            raise ValueError(f"pretty: unexpected binary {type(expr).__name__!r}")
+
+
+def _pretty_wrapped(expr: MorphismExpr) -> str | None:
+    match expr:
+        case MonadicEmbed(f=f):
+            return f"η({pretty(f)})"
         case PolyFmap(body=body):
             return f"F({pretty(body)})"
         case SelfRef(node=node):
@@ -319,20 +321,37 @@ def _pretty_morphism(expr: MorphismExpr) -> str:
             return f"cata({pretty(node.body)})"
         case Ana(node=node):
             return f"ana({pretty(node.body)})"
+        case MonadicLift(monad=monad, body=body):
+            return f"pure[{monad}]({pretty(body)})"
+        case _:
+            return None
+
+
+def _pretty_named(expr: MorphismExpr) -> str:
+    match expr:
+        case DomainPrim(tag=tag):
+            return f"domain_prim[{tag}]"
         case MorphismApp(fun=fun, args=args):
             return f"{pretty(fun)}({', '.join(pretty(a) for a in args)})"
         case RecursionApp(kind=kind, focus=focus, args=args):
             return f"{kind}[{focus}]({', '.join(pretty(a) for a in args)})"
         case CarrierBoundary(kind=kind, focus=focus):
             return f"{kind}[{focus}]"
-        case MonadicLift(monad=monad, body=body):
-            return f"pure[{monad}]({pretty(body)})"
-        case Prim():
-            return "prim"
-        case DomainPrim(tag=tag):
-            return f"domain_prim[{tag}]"
         case _:
             raise ValueError(f"pretty: unknown MorphismExpr {type(expr).__name__!r}")
+
+
+@pretty.register(MorphismExpr)
+def _pretty_morphism(expr: MorphismExpr) -> str:
+    token = _MORPHISM_LEAVES.get(type(expr))
+    if token is not None:
+        return token
+    if isinstance(expr, _MORPHISM_BINARY):
+        return _pretty_binary(expr)
+    result = _pretty_wrapped(expr)
+    if result is not None:
+        return result
+    return _pretty_named(expr)
 
 
 
@@ -468,35 +487,50 @@ class Ana(AlgExpr):
     """Deferred anamorphism node — realized by structure/realize.py."""
 
 
+def _pretty_poly_atom(expr: PolyExpr) -> str | None:
+    match expr:
+        case Zero():
+            return "0"
+        case One():
+            return "1"
+        case Id():
+            return "X"
+        case Const(space=space):
+            return show_type(space)
+        case _:
+            return None
+
+
+def _pretty_poly_compound(expr: PolyExpr) -> str:
+    match expr:
+        case Sum(left=left, right=right):
+            return f"{pretty(left)} + {pretty(right)}"
+        case Prod(left=left, right=right):
+            ls = pretty(left)
+            rs = pretty(right)
+            if isinstance(left, Sum):
+                ls = f"({ls})"
+            if isinstance(right, Sum):
+                rs = f"({rs})"
+            return f"{ls} * {rs}"
+        case PolyCompose(left=left, right=right):
+            return f"{pretty(left)} >> {pretty(right)}"
+        case Exp(base=base, body=body):
+            bs = pretty(body)
+            if isinstance(body, (Sum, Prod)):
+                bs = f"({bs})"
+            return f"{show_type(base)} -> {bs}"
+        case List(body=body):
+            return f"List[{pretty(body)}]"
+        case Maybe(body=body):
+            return f"Maybe[{pretty(body)}]"
+        case _:
+            raise ValueError(f"pretty: unknown PolyExpr {type(expr).__name__!r}")
+
+
 @pretty.register(PolyExpr)
 def _pretty_poly(expr: PolyExpr) -> str:
-    if isinstance(expr, Zero):
-        return "0"
-    if isinstance(expr, One):
-        return "1"
-    if isinstance(expr, Id):
-        return "X"
-    if isinstance(expr, Const):
-        return show_type(expr.space)
-    if isinstance(expr, Sum):
-        return f"{pretty(expr.left)} + {pretty(expr.right)}"
-    if isinstance(expr, Prod):
-        ls = pretty(expr.left)
-        rs = pretty(expr.right)
-        if isinstance(expr.left, Sum):
-            ls = f"({ls})"
-        if isinstance(expr.right, Sum):
-            rs = f"({rs})"
-        return f"{ls} * {rs}"
-    if isinstance(expr, PolyCompose):
-        return f"{pretty(expr.left)} >> {pretty(expr.right)}"
-    if isinstance(expr, Exp):
-        bs = pretty(expr.body)
-        if isinstance(expr.body, (Sum, Prod)):
-            bs = f"({bs})"
-        return f"{show_type(expr.base)} -> {bs}"
-    if isinstance(expr, List):
-        return f"List[{pretty(expr.body)}]"
-    if isinstance(expr, Maybe):
-        return f"Maybe[{pretty(expr.body)}]"
-    raise ValueError(f"pretty: unknown PolyExpr {type(expr).__name__!r}")
+    result = _pretty_poly_atom(expr)
+    if result is not None:
+        return result
+    return _pretty_poly_compound(expr)

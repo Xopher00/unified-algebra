@@ -12,7 +12,7 @@ Imports: hydra.parsers only. No unialg imports.
 from __future__ import annotations
 
 import hydra.parsers as P
-from hydra.parsing import ParseResultSuccess
+from hydra.parsing import ParseResultSuccess, ParseSuccess, Parser as _Parser
 
 Token = tuple[str, object]
 
@@ -25,15 +25,14 @@ def _ws_char():
     """Parse one whitespace character recognized by the surface language."""
     return P.satisfy(lambda c: chr(c) in " \t\n\r")
 
-def _not_nl():
-    """Parse one character that is not a line break."""
-    return P.satisfy(lambda c: chr(c) not in "\n\r")
-
 def _comment():
     """Parse a line comment beginning with ``#`` and discard its contents."""
-    return P.bind(P.char(ord("#")), lambda _:
-           P.bind(P.many(_not_nl()), lambda _:
-           P.pure(None)))
+    def _skip_to_eol(remaining: str):
+        i = 0
+        while i < len(remaining) and remaining[i] not in "\n\r":
+            i += 1
+        return ParseResultSuccess(ParseSuccess(None, remaining[i:]))
+    return P.bind(P.char(ord("#")), lambda _: _Parser(_skip_to_eol))
 
 def _skip():
     """Parse any amount of insignificant whitespace and comments."""

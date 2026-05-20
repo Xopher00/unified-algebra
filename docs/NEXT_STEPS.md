@@ -8,21 +8,6 @@ Strategic order: cheap vocabulary and safety work first so expensive architectur
 
 Low-complexity items that remove assumptions from everything above. Do these before anything in later tiers.
 
-### Lexer comment robustness
-**Impact: Low** | **Complexity: Low**
-
-`RecursionError` on long comments. Isolated to `syntax/_lex.py`. Fix comment tokenization to use iteration instead of recursion.
-
-### Semiring operation validation
-**Impact: High** | **Complexity: Low**
-
-Fail early when `plus`, `times`, `reduce`, or `adjoint` are missing, ill-typed, or carrier-incompatible. Hard validation gate at semiring declaration time, distinct from the optional law checking below. Without this, every subsequent tensor test runs on potentially invalid semirings.
-
-### Custom semiring end-to-end
-**Impact: High** | **Complexity: Low**
-
-Implement the smooth-tropical semiring. Exercises the full pipeline — notation, semantics, primitives, fusion — with a non-standard semiring. Validates that no part of the pipeline is implicitly real-semiring-specific. Required as a precondition for `AlgebraHom` (Tier 4 deferred) and as the counterfactual case for backend fast-path detection.
-
 ### Semiring law checking
 **Impact: Medium** | **Complexity: Low**
 
@@ -32,26 +17,6 @@ Add a `check_laws(samples)` method to `Semiring` in `tensors/semantics.py`. Veri
 **Impact: Medium** | **Complexity: Low**
 
 Document `finalize` as an official whole-morphism rewrite hook, not only a domain elaboration hook. Tensor fusion already uses this power; making it explicit prevents future extension conflicts and forces precision before `TensorPlan` (Tier 4) formalizes the pipeline stages.
-
-### `merge` / codiagonal
-**Impact: Medium** | **Complexity: Low**
-
-```
-merge : A + A → A
-```
-
-Derivable as `case(id, id)` but must exist as a named combinator. It is listed in the cross-layer combinator vocabulary (Tier 2). Adding it before the vocabulary audit means the audit becomes a verification pass rather than a discovery exercise.
-
-### Canonical distributivity combinators
-**Impact: High** | **Complexity: Low**
-
-Add named structural rewrites:
-```
-A × (B + C) ↔ (A × B) + (A × C)
-(A + B) × C ↔ (A × C) + (B × C)
-```
-
-Same rationale as `merge`: listed in the contract vocabulary; cheap to add; makes the cross-layer audit a check not a search. Should have morphism, functor, and optic interpretations where applicable.
 
 ### Combinator laws documentation
 **Impact: High** | **Complexity: Low**
@@ -99,7 +64,7 @@ Define a shared combinator vocabulary that applies consistently across morphisms
 identity, compose, parallel, pair, case, map, associate, swap, distribute, copy, delete, merge, focus, traverse
 ```
 
-With `merge` and `distributivity` already added (Tier 1), this becomes an audit rather than a design exercise: confirm every item is consistently present and named across `morphisms.py`, `optics.py`, `functors.py`. Prevents each layer from inventing its own wiring semantics. Directly informs what the `construct` elaboration phase (Tier 4) should produce.
+**Precondition met**: `merge` and `distl`/`distr` are now implemented in Tier 1, so this is an audit rather than a design exercise: confirm every item is consistently present and named across `morphisms.py`, `optics.py`, `functors.py`. Prevents each layer from inventing its own wiring semantics. Directly informs what the `construct` elaboration phase (Tier 4) should produce.
 
 ### `Exp.base: Type → PolyExpr`
 **Impact: High** | **Complexity: Medium**
@@ -124,6 +89,22 @@ Note: a pending plan (plan file `compiled-petting-acorn.md`) covers a related `C
 **Impact: High** | **Complexity: Medium**
 
 Tensor support currently activates on import. Add an explicit activation path — `load extension tensors` in the DSL or `enable("tensors")` in the Python API — so syntax availability is intentional and testable. Aligns with the existing extension registry model in `extensions.py`. Do this before writing further integration tests against the tensor extension so those tests exercise correct activation semantics.
+
+### Smooth-tropical semiring via composed morphisms
+**Impact: High** | **Complexity: Medium**
+
+The smooth-tropical semiring replaces `min` with `softmin(a, b) = -logaddexp(-a, -b)` — a differentiable relaxation that converges to `min` as temperature → 0. Unlike the tropical semiring, `softmin` is not a named backend primitive; it must be constructed by composing existing ones:
+
+```
+softmin   = neg ∘ logaddexp ∘ par(neg, neg)    # BINARY × BINARY → BINARY
+reduce.softmin = neg ∘ reduce.logaddexp ∘ neg   # BINARY → BINARY (neg applied elementwise then logsumexp then neg)
+```
+
+Both `logaddexp` and `reduce.logaddexp` (scipy logsumexp) exist in the numpy backend. The composed morphisms would be injected into `op_morphisms` under custom keys before calling `resolve_semiring`.
+
+This is the design question to resolve: **can composed morphisms (Compose/Parallel nodes, not BackendPrim leaves) serve as semiring operations and survive the full fusion → decompose → realize pipeline?** If so, this is the general mechanism for user-defined derived semiring operations. If not, the gap must be characterised (likely in the primitives lowering or aux_primitives collection).
+
+Do after the tropical end-to-end (Tier 1) confirms the basic non-real pipeline is sound. Precondition for AlgebraHom (Tier 4 deferred) and the backend fast-path counterfactual.
 
 ---
 

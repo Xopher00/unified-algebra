@@ -166,6 +166,57 @@ class TestContractMorphism:
         assert len(m.aux_primitives) > 0
 
 
+class TestTropicalSemiring:
+    """Tropical (min, +) semiring — resolve, types, op_env selection."""
+
+    @pytest.fixture
+    def tropical(self, numpy_env):
+        decl = SemiringDecl(
+            name="tropical",
+            plus="minimum",
+            times="add",
+            zero=float("inf"),
+            one=0.0,
+        )
+        return resolve_semiring(decl, numpy_env)
+
+    def test_identities(self, tropical):
+        assert tropical.zero == float("inf")
+        assert tropical.one == 0.0
+
+    def test_reduce_ops_derived(self, tropical):
+        assert tropical.plus_reduce is not None   # reduce.minimum
+        assert tropical.times_reduce is not None  # reduce.add
+
+    def test_plus_type(self, tropical):
+        assert tropical.plus.dom() == ProductType(BINARY, BINARY)
+        assert tropical.plus.cod() == BINARY
+
+    def test_times_type(self, tropical):
+        assert tropical.times.dom() == ProductType(BINARY, BINARY)
+        assert tropical.times.cod() == BINARY
+
+    def test_op_env_standard(self, tropical):
+        env = tropical.op_env()
+        assert env["product"] is tropical.times       # add
+        assert env["fold"] is tropical.plus_reduce    # reduce.minimum
+        assert env["seed"] == float("inf")
+
+    def test_contract_morphism_types(self, tropical):
+        from unialg.tensors.semantics import _strip_exp
+        m = contract_morphism(tropical, "ij,jk->ik")
+        assert _strip_exp(m.dom()) == ProductType(BINARY, BINARY)
+        assert _strip_exp(m.cod()) == BINARY
+
+    def test_missing_reduce_raises(self, numpy_env):
+        """Declaring a semiring whose plus has no reduce.X in the backend fails early."""
+        env_without_reduce = {k: v for k, v in numpy_env.items() if k != "reduce.minimum"}
+        decl = SemiringDecl(name="bad_trop", plus="minimum", times="add",
+                            zero=float("inf"), one=0.0)
+        with pytest.raises(Exception, match="unknown op 'reduce.minimum'"):
+            resolve_semiring(decl, env_without_reduce)
+
+
 class TestConstructProtocol:
     def test_construct_semirings(self, numpy_env):
         decls = [

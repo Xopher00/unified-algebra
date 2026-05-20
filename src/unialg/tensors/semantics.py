@@ -127,6 +127,15 @@ class ContractSpec:
 # Semiring resolution: SemiringDecl → Semiring
 # ---------------------------------------------------------------------------
 
+def _check_binary_op(m: Morphism, carrier, label: str) -> None:
+    """Raise MorphismError if m is not of type carrier × carrier → carrier."""
+    expected_dom = ProductType(carrier, carrier)
+    MorphismError.check(None, m.dom(), expected_dom,
+                        f"{label} domain must be carrier × carrier")
+    MorphismError.check(None, m.cod(), carrier,
+                        f"{label} codomain must be carrier")
+
+
 def resolve_semiring(decl: SemiringDecl, op_morphisms: dict[str, Morphism]) -> Semiring:
     """Resolve a parsed SemiringDecl into a typed Semiring.
 
@@ -142,13 +151,21 @@ def resolve_semiring(decl: SemiringDecl, op_morphisms: dict[str, Morphism]) -> S
 
     m_plus = _lookup(decl.plus, "plus")
     m_times = _lookup(decl.times, "times")
+    _check_binary_op(m_plus,  BINARY, f"algebra '{decl.name}': plus")
+    _check_binary_op(m_times, BINARY, f"algebra '{decl.name}': times")
 
     plus_reduce_name = f"reduce.{decl.plus}"
     times_reduce_name = f"reduce.{decl.times}"
-    m_plus_reduce = _lookup(plus_reduce_name, "plus_reduce") if plus_reduce_name in op_morphisms else None
-    m_times_reduce = _lookup(times_reduce_name, "times_reduce") if times_reduce_name in op_morphisms else None
+    m_plus_reduce = _lookup(plus_reduce_name, "plus_reduce")
+    m_times_reduce = (
+        _lookup(times_reduce_name, "times_reduce")
+        if decl.adjoint
+        else op_morphisms.get(times_reduce_name)
+    )
 
     m_adjoint = _lookup(decl.adjoint, "adjoint") if decl.adjoint else None
+    if m_adjoint is not None:
+        _check_binary_op(m_adjoint, BINARY, f"algebra '{decl.name}': adjoint")
 
     f_zero = _parse_identity_value(decl.zero)
     f_one = _parse_identity_value(decl.one)

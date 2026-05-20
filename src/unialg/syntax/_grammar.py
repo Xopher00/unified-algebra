@@ -10,7 +10,7 @@ from unialg.syntax.expressions import (
     MorphismExpr, PolyExpr, PolyFmap, MorphismApp, RecursionApp,
     CarrierBoundary, MonadicLift, FocusExpr, FocusRef, FocusCompose,
     Identity, Copy, Delete, First, Second, Left, Right,
-    Absurd, Assoc, Symmetry, Ref, PolyRef,
+    Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, Ref, PolyRef,
     Id, Zero, One, List as PolyList, Maybe as PolyMaybe,
 )
 from unialg.syntax._pratt import PrattParser, ParseError
@@ -87,6 +87,9 @@ _STRUCTURAL_NAME_MAP: dict[str, MorphismExpr] = {
     "absurd": Absurd(_U),
     "assoc": Assoc(_U, _U),
     "sym": Symmetry(_U, _U), "symmetry": Symmetry(_U, _U),
+    "merge": make_binary("CASE", Identity(_U), Identity(_U)),
+    "distl": DistributeLeft(_U, _U),
+    "distr": DistributeRight(_U, _U),
 }
 
 

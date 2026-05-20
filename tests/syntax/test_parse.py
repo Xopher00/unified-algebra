@@ -13,11 +13,11 @@ from unialg.syntax import expressions as expr
 
 valid_names = st.from_regex(r"[a-z][a-z0-9_.]*", fullmatch=True).filter(
     lambda n: n not in ("id", "identity", "copy", "dup", "delete", "drop", "del",
-                        "absurd", "assoc", "sym", "symmetry", "x",
+                        "absurd", "assoc", "sym", "symmetry", "distl", "distr", "merge", "x",
                         "let", "shape", "load", "fix", "by")
 )
 
-structural_keywords = st.sampled_from(["id", "identity", "copy", "absurd", "assoc", "sym"])
+structural_keywords = st.sampled_from(["id", "identity", "copy", "absurd", "assoc", "sym", "distl", "distr"])
 
 binary_ops = st.sampled_from([">>", "&", "||", "|"])
 
@@ -62,6 +62,12 @@ class TestMorphismAtoms:
     def test_symmetry(self):
         assert isinstance(parse_morphism("sym"), expr.Symmetry)
         assert isinstance(parse_morphism("symmetry"), expr.Symmetry)
+
+    def test_distl(self):
+        assert isinstance(parse_morphism("distl"), expr.DistributeLeft)
+
+    def test_distr(self):
+        assert isinstance(parse_morphism("distr"), expr.DistributeRight)
 
     def test_projection_prefix(self):
         assert isinstance(parse_morphism("[0]"), expr.First)

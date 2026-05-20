@@ -249,6 +249,30 @@ def _realize_structural(node: expr.MorphismExpr) -> Term:
                 P.pair(P.second(P.first(p)), P.second(p)),
             ),
         ).value
+    if isinstance(node, expr.DistributeLeft):
+        # A × (B+C) → (A×B)+(A×C)  via eithers.bimap pairing left component
+        return T.term_lambda(
+            "p",
+            lambda p: P.apply(
+                T.eithers_bimap(
+                    T.term_lambda("b", lambda b: P.pair(P.first(p), b)),
+                    T.term_lambda("c", lambda c: P.pair(P.first(p), c)),
+                ),
+                P.second(p),
+            ),
+        ).value
+    if isinstance(node, expr.DistributeRight):
+        # (A+B) × C → (A×C)+(B×C)  via eithers.bimap pairing right component
+        return T.term_lambda(
+            "p",
+            lambda p: P.apply(
+                T.eithers_bimap(
+                    T.term_lambda("a", lambda a: P.pair(a, P.second(p))),
+                    T.term_lambda("b", lambda b: P.pair(b, P.second(p))),
+                ),
+                P.first(p),
+            ),
+        ).value
     return _realize_symmetry(node.dom, node.cod)  # type: ignore[union-attr]
 
 
@@ -342,7 +366,7 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
     realizing ``AlgExpr``/``Cata``/``Ana`` nodes are appended to that list for
     the caller to add to the runtime graph.
     """
-    if type(node) in _SIMPLE_STRUCTURAL or isinstance(node, (expr.Assoc, expr.Symmetry)):
+    if type(node) in _SIMPLE_STRUCTURAL or isinstance(node, (expr.Assoc, expr.Symmetry, expr.DistributeLeft, expr.DistributeRight)):
         return _realize_structural(node)
     if isinstance(node, (expr.MonadicEmbed, expr.Compose, expr.Parallel, expr.Pair, expr.Case)):
         return _realize_recursive(node, _prims)

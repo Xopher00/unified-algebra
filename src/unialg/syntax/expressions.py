@@ -101,6 +101,20 @@ class Symmetry(MorphismExpr):
 
 
 @dataclass(frozen=True)
+class DistributeLeft(MorphismExpr):
+    """distl : A × (B + C) → (A × B) + (A × C)."""
+    dom: Type
+    cod: Type
+
+
+@dataclass(frozen=True)
+class DistributeRight(MorphismExpr):
+    """distr : (A + B) × C → (A × C) + (B × C)."""
+    dom: Type
+    cod: Type
+
+
+@dataclass(frozen=True)
 class MonadicEmbed(MorphismExpr):
     """pure ∘ f — lift a plain morphism into a monad."""
     f: MorphismExpr

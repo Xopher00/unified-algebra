@@ -38,3 +38,42 @@ def test_numpy_tropical_min_plus_matvec_contract():
     expected = np.min(matrix + vector[None, :], axis=1)
 
     assert np.allclose(result, expected)
+
+
+def test_numpy_tropical_matmul():
+    """Tropical matrix-matrix product: C[i,k] = min_j(A[i,j] + B[j,k])."""
+    prog = compile_program(
+        """
+        load numpy
+        algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
+        let tmatmul = contract[tropical]("ij,jk->ik")
+        """
+    )
+
+    A = np.array([[0.0, 3.0], [2.0, 1.0]])
+    B = np.array([[1.0, 4.0], [2.0, 0.0]])
+
+    result = prog.run(A, B)
+    # min_j(A[i,j] + B[j,k])
+    expected = np.min(A[:, :, None] + B[None, :, :], axis=1)
+
+    assert np.allclose(result, expected)
+
+
+def test_numpy_tropical_inner_product():
+    """Tropical inner product: min_i(a[i] + b[i])."""
+    prog = compile_program(
+        """
+        load numpy
+        algebra tropical(plus=minimum, times=add, zero=inf, one=0.0)
+        let dot = contract[tropical]("i,i->")
+        """
+    )
+
+    a = np.array([3.0, 1.0, 4.0, 1.0, 5.0])
+    b = np.array([2.0, 7.0, 1.0, 8.0, 2.0])
+
+    result = prog.run(a, b)
+    expected = np.min(a + b)
+
+    assert np.allclose(result, expected)

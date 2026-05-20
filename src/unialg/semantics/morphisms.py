@@ -186,6 +186,36 @@ def _is_symmetry(dom: Type, cod: Type, cls: type) -> bool:
     return dl == cr and dr == cl
 
 
+def _is_distribute_left(dom: Type, cod: Type) -> bool:
+    """Return True if (dom, cod) has the shape ``A × (B + C) → (A × B) + (A × C)``."""
+    if not (isinstance(dom, TypePair) and isinstance(cod, TypeEither)):
+        return False
+    a, bc = _lr(dom)
+    if not isinstance(bc, TypeEither):
+        return False
+    b, c = _lr(bc)
+    ab, ac = _lr(cod)
+    return (
+        isinstance(ab, TypePair) and isinstance(ac, TypePair)
+        and _lr(ab) == (a, b) and _lr(ac) == (a, c)
+    )
+
+
+def _is_distribute_right(dom: Type, cod: Type) -> bool:
+    """Return True if (dom, cod) has the shape ``(A + B) × C → (A × C) + (B × C)``."""
+    if not (isinstance(dom, TypePair) and isinstance(cod, TypeEither)):
+        return False
+    ab, c = _lr(dom)
+    if not isinstance(ab, TypeEither):
+        return False
+    a, b = _lr(ab)
+    ac, bc = _lr(cod)
+    return (
+        isinstance(ac, TypePair) and isinstance(bc, TypePair)
+        and _lr(ac) == (a, c) and _lr(bc) == (b, c)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Type derivation
 # ---------------------------------------------------------------------------
@@ -220,7 +250,7 @@ def _signature_leaf(node: expr.MorphismExpr) -> tuple[Type, Type] | None:
 
 
 def _signature_validated(node: expr.MorphismExpr) -> tuple[Type, Type] | None:
-    """Return the signature for Assoc/Symmetry after validating their shape."""
+    """Return the signature for structural nodes that carry explicit dom/cod."""
     match node:
         case expr.Assoc(dom=dom, cod=cod):
             if not (_is_assoc(dom, cod, TypePair) or _is_assoc(dom, cod, TypeEither)):
@@ -229,6 +259,14 @@ def _signature_validated(node: expr.MorphismExpr) -> tuple[Type, Type] | None:
         case expr.Symmetry(dom=dom, cod=cod):
             if not (_is_symmetry(dom, cod, TypePair) or _is_symmetry(dom, cod, TypeEither)):
                 raise MorphismError("Symmetry expects A⋆B -> B⋆A")
+            return dom, cod
+        case expr.DistributeLeft(dom=dom, cod=cod):
+            if not _is_distribute_left(dom, cod):
+                raise MorphismError("DistributeLeft expects A × (B + C) → (A × B) + (A × C)")
+            return dom, cod
+        case expr.DistributeRight(dom=dom, cod=cod):
+            if not _is_distribute_right(dom, cod):
+                raise MorphismError("DistributeRight expects (A + B) × C → (A × C) + (B × C)")
             return dom, cod
     return None
 
@@ -353,6 +391,34 @@ def _symmetry(dom: TypePair | TypeEither) -> Morphism:
     return Morphism(node=expr.Symmetry(dom, make(r, left)))
 
 
+def distribute_left(a: Type, b: Type, c: Type) -> Morphism:
+    """A × (B + C) → (A × B) + (A × C)."""
+    dom = ProductType(a, SumType(b, c))
+    cod = SumType(ProductType(a, b), ProductType(a, c))
+    return Morphism(node=expr.DistributeLeft(dom, cod))
+
+
+def distribute_right(a: Type, b: Type, c: Type) -> Morphism:
+    """(A + B) × C → (A × C) + (B × C)."""
+    dom = ProductType(SumType(a, b), c)
+    cod = SumType(ProductType(a, c), ProductType(b, c))
+    return Morphism(node=expr.DistributeRight(dom, cod))
+
+
+def _distribute_left(dom: TypePair) -> Morphism:
+    """distl from a product domain A × (B + C)."""
+    a, bc = _lr(dom)
+    b, c = _lr(bc)
+    return distribute_left(a, b, c)
+
+
+def _distribute_right(dom: TypePair) -> Morphism:
+    """distr from a product domain (A + B) × C."""
+    ab, c = _lr(dom)
+    a, b = _lr(ab)
+    return distribute_right(a, b, c)
+
+
 # ---------------------------------------------------------------------------
 # Plain combinators
 # ---------------------------------------------------------------------------
@@ -420,6 +486,11 @@ def pair(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, 
         graph=graph,
         allow_unification=allow_unification,
     )
+
+
+def merge(a: Type) -> Morphism:
+    """Codiagonal ``A + A → A``. Derivable as ``case(id, id)``."""
+    return case(identity(a), identity(a))
 
 
 def case(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, allow_unification: bool = False) -> Morphism:

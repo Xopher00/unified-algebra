@@ -145,6 +145,44 @@ def test_realize_assoc_law(ctx, graph, q, p, a):
 
 @settings(max_examples=40)
 @given(small_ints, small_ints, small_ints)
+def test_realize_distribute_left_law(ctx, graph, a, b, c):
+    sum_type = ops.SumType(INT, INT)
+    dom = ops.ProductType(INT, sum_type)
+    cod = ops.SumType(ops.ProductType(INT, INT), ops.ProductType(INT, INT))
+    node = expr.DistributeLeft(dom, cod)
+
+    # distl((a, Left(b))) = Left((a, b))
+    left_b = apply_realized(ctx, graph, expr.Left(sum_type), int_arg(b))
+    result_left = apply_realized(ctx, graph, node, P.pair(P.int32(a), TTerm(left_b)).value)
+    assert pair_value(result_left.value.value) == (a, b)
+
+    # distl((a, Right(c))) = Right((a, c))
+    right_c = apply_realized(ctx, graph, expr.Right(sum_type), int_arg(c))
+    result_right = apply_realized(ctx, graph, node, P.pair(P.int32(a), TTerm(right_c)).value)
+    assert pair_value(result_right.value.value) == (a, c)
+
+
+@settings(max_examples=40)
+@given(small_ints, small_ints, small_ints)
+def test_realize_distribute_right_law(ctx, graph, a, b, c):
+    sum_type = ops.SumType(INT, INT)
+    dom = ops.ProductType(sum_type, INT)
+    cod = ops.SumType(ops.ProductType(INT, INT), ops.ProductType(INT, INT))
+    node = expr.DistributeRight(dom, cod)
+
+    # distr((Left(a), c)) = Left((a, c))
+    left_a = apply_realized(ctx, graph, expr.Left(sum_type), int_arg(a))
+    result_left = apply_realized(ctx, graph, node, P.pair(TTerm(left_a), P.int32(c)).value)
+    assert pair_value(result_left.value.value) == (a, c)
+
+    # distr((Right(b), c)) = Right((b, c))
+    right_b = apply_realized(ctx, graph, expr.Right(sum_type), int_arg(b))
+    result_right = apply_realized(ctx, graph, node, P.pair(TTerm(right_b), P.int32(c)).value)
+    assert pair_value(result_right.value.value) == (b, c)
+
+
+@settings(max_examples=40)
+@given(small_ints, small_ints, small_ints)
 def test_realize_plain_contextual_laws(ctx, graph, value, add_amount, mul_amount):
     add = ops.Morphism(expr.Prim(add_const_raw(add_amount), INT, INT))
     mul = ops.Morphism(expr.Prim(mul_const_raw(mul_amount), INT, INT))

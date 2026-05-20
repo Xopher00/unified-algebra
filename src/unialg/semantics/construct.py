@@ -352,6 +352,12 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
         case expr.Symmetry(dom=dom):
             return ops._symmetry(dom)
 
+        case expr.DistributeLeft(dom=dom):
+            return ops._distribute_left(dom)
+
+        case expr.DistributeRight(dom=dom):
+            return ops._distribute_right(dom)
+
         case expr.SharedCompose(f=f, g=g):
             return ops.compose(
                 _recurse(f), _recurse(g),

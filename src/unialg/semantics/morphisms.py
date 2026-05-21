@@ -249,26 +249,30 @@ def _signature_leaf(node: expr.MorphismExpr) -> tuple[Type, Type] | None:
     return None
 
 
+_VALIDATED_STRUCTURAL: dict[type, tuple[object, str]] = {
+    expr.Assoc: (
+        lambda dom, cod: _is_assoc(dom, cod, TypePair) or _is_assoc(dom, cod, TypeEither),
+        "Assoc expects (A⋆B)⋆C -> A⋆(B⋆C)",
+    ),
+    expr.Symmetry: (
+        lambda dom, cod: _is_symmetry(dom, cod, TypePair) or _is_symmetry(dom, cod, TypeEither),
+        "Symmetry expects A⋆B -> B⋆A",
+    ),
+    expr.DistributeLeft: (_is_distribute_left, "DistributeLeft expects A × (B + C) → (A × B) + (A × C)"),
+    expr.DistributeRight: (_is_distribute_right, "DistributeRight expects (A + B) × C → (A × C) + (B × C)"),
+}
+
+
 def _signature_validated(node: expr.MorphismExpr) -> tuple[Type, Type] | None:
     """Return the signature for structural nodes that carry explicit dom/cod."""
-    match node:
-        case expr.Assoc(dom=dom, cod=cod):
-            if not (_is_assoc(dom, cod, TypePair) or _is_assoc(dom, cod, TypeEither)):
-                raise MorphismError("Assoc expects (A⋆B)⋆C -> A⋆(B⋆C)")
-            return dom, cod
-        case expr.Symmetry(dom=dom, cod=cod):
-            if not (_is_symmetry(dom, cod, TypePair) or _is_symmetry(dom, cod, TypeEither)):
-                raise MorphismError("Symmetry expects A⋆B -> B⋆A")
-            return dom, cod
-        case expr.DistributeLeft(dom=dom, cod=cod):
-            if not _is_distribute_left(dom, cod):
-                raise MorphismError("DistributeLeft expects A × (B + C) → (A × B) + (A × C)")
-            return dom, cod
-        case expr.DistributeRight(dom=dom, cod=cod):
-            if not _is_distribute_right(dom, cod):
-                raise MorphismError("DistributeRight expects (A + B) × C → (A × C) + (B × C)")
-            return dom, cod
-    return None
+    entry = _VALIDATED_STRUCTURAL.get(type(node))
+    if entry is None:
+        return None
+    predicate, message = entry
+    dom, cod = node.dom, node.cod  # type: ignore[attr-defined]
+    if not predicate(dom, cod):
+        raise MorphismError(message)
+    return dom, cod
 
 
 def _signature_recursive(

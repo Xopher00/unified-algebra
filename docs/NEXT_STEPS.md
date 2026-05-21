@@ -8,20 +8,11 @@ Strategic order: cheap vocabulary and safety work first so expensive architectur
 
 Low-complexity items that remove assumptions from everything above. Do these before anything in later tiers.
 
-### Semiring law checking
-**Impact: Medium** | **Complexity: Low**
+### ~~Finalizer contract documentation~~ ✓
+**Done.** `extensions.py` and finalize contract documented in `docs/ARCHITECTURE_CONTRACT.md` (invariants 17–18, `extensions.py` layer responsibilities section).
 
-Add a `check_laws(samples)` method to `Semiring` in `tensors/semantics.py`. Verifies associativity, commutativity, identity, annihilation, and distributivity on scalar samples. Gate behind a flag (default off; on for development/research use). Natural pairing with semiring validation — same file, same object.
-
-### Finalizer contract documentation
-**Impact: Medium** | **Complexity: Low**
-
-Document `finalize` as an official whole-morphism rewrite hook, not only a domain elaboration hook. Tensor fusion already uses this power; making it explicit prevents future extension conflicts and forces precision before `TensorPlan` (Tier 4) formalizes the pipeline stages.
-
-### Combinator laws documentation
-**Impact: High** | **Complexity: Low**
-
-Document expected laws for each combinator: identity, associativity, product/sum coherence, copy/delete laws, merge/case laws, map functor laws, optic composition laws, distributivity. Write this before implementing the structural normalization layer (Tier 4) — stating the laws first forces precision and gives future extensions a clear semantic target.
+### ~~Combinator laws documentation~~ ✓
+**Done.** `docs/COMBINATOR_LAWS.md` — laws first (identity, composition, product, coproduct, parallel, map, comonoid, codiagonal, distributivity, recursion), then cross-layer coverage table showing presence in `morphisms.py`, `functors.py`, `optics.py`.
 
 ### Unified arrow notation
 **Impact: High** | **Complexity: Low** (design decision; implementation follows in Tier 2)
@@ -33,17 +24,42 @@ The missing pieces are `><` and `<>`. Treating `>` and `<` as directed half-arro
 ```
 >      identity / pass-through (1 in, 1 out)
 >>     sequential composition  (chain)
-><     converge — two inputs consumed into one (monoidal tensor, times)
-<>     diverge — one input fanned to two outputs (copy, Δ)
+><     converge — two inputs consumed into one (merge, μ)
+<>     diverge — one input fanned to two outputs (copy, δ)
 >><    binary consume to one  (multiplication / contraction)
 <>>    one to binary produce   (comultiplication)
+!      counit / delete (1 → 0)
 ```
 
 The net count of `>` minus `<` determines arity. By the Frobenius laws, arrangement within a symbol is free — only the counts matter. This means the symbol itself is a complete description of the wiring rule, in the same spirit as Hehner's unified algebra where notation exposes rather than hides the algebra.
 
+#### Theoretical grounding
+
+Three independent sources converge on this design:
+
+**Hehner (Unified Algebra):** Symmetric symbols for commutative operators, asymmetric symbols for asymmetric ones, the visual reverse for the reverse operator. `><` and `<>` are visual duals — converge vs diverge — following the same symmetry principle as `≤`/`≥` or `∧`/`∨`. Notation should do work: "moving calculation to the level of visual processing." Consistent extension across domains: same symbol, same law, at every level.
+
+**Frobenius algebra:** Copy (`δ`, `<>`), merge (`μ`, `><`), delete (`ε`, `!`), and unit injection (`η`, `|0`) are the four generators of a Frobenius structure. The **spider theorem** states that any connected diagram built from these generators with *m* inputs and *n* outputs equals any other connected diagram with the same *m* and *n*. The arrow notation's net-arity rule is exactly the spider type signature. The **special Frobenius condition** `compose(copy, merge) ≅ id` and the **Frobenius equation** (copy and merge slide through each other) are the rewrite rules that make spider normalization work. See `docs/COMBINATOR_LAWS.md` §9.
+
+**Cross-layer correspondence:** The same symbol encodes the same wiring at every layer:
+
+| Symbol | Morphism | Functor | Tensor |
+|--------|----------|---------|--------|
+| `>>` | `compose(f, g)` | `F.compose(G)` | sequential contraction |
+| `<>` | `copy(A)` | diagonal into `Prod` | index duplication |
+| `><` | `merge(A)` | sum collapse | contraction/trace |
+| `\|` | `case(f, g)` / sum | `Sum(F, G)` | coproduct |
+| `&` | `pair(f, g)` / product | `Prod(F, G)` | product |
+
 The practical consequence: tensor contractions, structural combinators, functor actions, and user-defined semiring operations all become writable with the same primitive vocabulary. A user expressing a contraction writes `><`; a user expressing copy writes `<>`; the language does not require them to know which layer they are operating at.
 
-Design decision to make now: adopt this as the intended notation direction. The cross-layer combinator contract audit (Tier 2) should verify that the existing `>>`, `|`, `*` usage is consistent with it, and identify where `><` and `<>` need to be added. Implementation of `><` and `<>` in the grammar and semantics follows as part of that audit.
+#### Normalization consequence
+
+The spider theorem provides the canonical form for the Tier 4 structural normalization layer: reduce any composition of copy/merge/delete/swap over a single type to its spider normal form, determined entirely by (inputs, outputs). The Frobenius equation and special condition are the core rewrite rules. Distributivity (`distribute_left`, `distribute_right`) is the mixed interaction between product-side and sum-side Frobenius structures.
+
+#### Decision
+
+Adopt this as the intended notation direction. The cross-layer combinator contract audit (Tier 2) should verify that the existing `>>`, `|`, `*` usage is consistent with it, and identify where `><` and `<>` need to be added. Implementation of `><` and `<>` in the grammar and semantics follows as part of that audit.
 
 ---
 
@@ -51,10 +67,8 @@ Design decision to make now: adopt this as the intended notation direction. The 
 
 Establish test coverage and settle the shared combinator vocabulary before structural work modifies the layers they cover.
 
-### Optic runtime behavioral tests
-**Impact: Medium** | **Complexity: Low**
-
-Lens get/set, set/get, set/set laws; prism review/preview roundtrips. These require `realize` → `lower` → `run` and are blocked on nothing — just not yet written. Live in `tests/semantics/`. Write before combinator/optic work so regressions are caught immediately.
+### ~~Optic runtime behavioral tests~~ ✓
+**Done.** `tests/semantics/test_optics_behavioral.py` (14 tests) and `tests/semantics/test_optics_adversarial.py` (16 tests). Covers lens (fst/snd/swap), prism (left/right, matching/nonmatching), traversal (Maybe/List), composition, parallel, identity action, rejection, and edge cases — all through `main.run()`.
 
 ### Cross-layer structural combinator contract
 **Impact: High** | **Complexity: Medium**
@@ -229,6 +243,19 @@ First-class structural traversal for optics, functors, lists, maybe-types, and r
 ## Deferred
 
 Items that are explicitly blocked or premature. Revisit when blockers resolve.
+
+### Semiring law checking
+**Impact: Medium** | **Complexity: Low (once unblocked)** | **Blocked on structural normalization layer**
+
+Verify the semiring axioms (associativity, commutativity, identity, annihilation, distributivity) for any registered `Semiring`. Constraints set during planning:
+
+- Lives in `src/unialg/tensors/` (production code).
+- Uses the structural combinators (`Symmetry`, `Assoc`, `Pair`, `Par`, `Copy`, etc.) to state laws as `(lhs_morphism, rhs_morphism)` pairs over `sr.plus` and `sr.times`. Not hardcoded per semiring.
+- No live runner, no import from `structure/` or `runtime/`. Verification must be symbolic — compare canonicalized morphism trees, not scalar values.
+
+This is blocked on the **Structural normalization layer** (Tier 4): without `normalize(morphism) -> Morphism`, the only paths to law verification are numerical evaluation (requires a runner) or structural normalization (Tier 4 itself). Once normalization lands, `check_semiring_laws(sr)` becomes a thin wrapper: build LHS/RHS, normalize both, assert equality.
+
+Semiring operation validation (the type-level gate in `resolve_semiring`) is already implemented and is a separate concern.
 
 ### Contraction order + backend optimizer
 **Impact: Low** | **Complexity: High** | **Blocked on TensorPlan**

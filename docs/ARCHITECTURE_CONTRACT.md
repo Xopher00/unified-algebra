@@ -37,7 +37,7 @@ syntax, semantics, structure, or orchestration.
 - No Hydra term construction; no imports from other unialg modules
 
 ### `syntax/expressions.py` — expression syntax
-- `MorphismExpr` sealed ADT: Identity, Copy, Delete, First, Second, Left, Right, Absurd, Assoc, MonadicEmbed, ContextualBinary (Compose, Parallel, Pair, Case), PolyFmap, SelfRef, AlgExpr, Cata, Ana, Prim
+- `MorphismExpr` sealed ADT: Identity, Copy, Delete, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (Compose, SharedCompose, Parallel, Pair, Case), PolyFmap, SelfRef, AlgExpr, Cata, Ana, Prim, DomainPrim, BackendPrim
 - `PolyExpr` sealed ADT: Zero, One, Id, Const, Sum, Prod, Exp, List, Maybe
 - `pretty` display via singledispatch
 - Frozen dataclasses; no Hydra term imports
@@ -46,7 +46,7 @@ syntax, semantics, structure, or orchestration.
 - `Morphism(node, param, monad, aux_primitives)` — typed handle with plain/para/lax/lax-para modes
 - `dom_of` / `cod_of` / `signature` — type derivation from `MorphismExpr`
 - `MorphismError(TypeError)` with `check(a, b, msg)` — single error class
-- Combinators: `compose`, `par`, `pair`, `case` — via `_contextual_binary`
+- Combinators: `compose`, `par`, `pair`, `case` — via `_contextual_binary`; `distribute_left(a,b,c)`, `distribute_right(a,b,c)` — distributivity isos; `merge(a)` — codiagonal `A+A→A`
 - `shared_context=True` on contextual combinators — shares a matching non-unit param; recursion uses this to avoid `P × P` contexts
 - `_resolve_monad` — derives target monad; errors on conflict
 - `Morphism.to_lax(monad)` — universal coercion into lax context
@@ -94,6 +94,23 @@ syntax, semantics, structure, or orchestration.
 - `recursive_carrier(*, functor, carrier, unroll, roll)` — wraps Python callables as `Prim` morphisms and returns a carrier `Optic`
 - `fixed_point_optic` — lower-level shim for direct raw-term injection; retained for performance review
 
+### `extensions.py` — domain extension registry and finalize contract
+- `DomainProtocol(construct, construct_expr, refs, finalize)` — registration interface for domain modules
+- `register_keyword(keyword, handler)`, `register_expr_form(name, handler)`, `register_domain(tag, protocol)` — self-registration at import time
+- **Finalize contract:** `DomainProtocol.finalize` is a whole-morphism rewrite hook, not limited to domain-specific elaboration. It receives a fully constructed `Morphism` and an env dict; it returns a rewritten `Morphism`. It runs after all morphisms in a program are resolved and type-checked, before realization. It sees the complete morphism tree. Every registered domain's finalize hook is called on every morphism in the program, in registration order.
+- Finalize is called by `finalize_domain_morphisms()` in `semantics/_construct_helpers.py`
+- Current user: tensor fusion (`normalize_contracts` in `tensors/fusion.py`) — fuses adjacent contractions then decomposes all `DomainPrim` nodes into substrate morphisms
+- No Hydra term construction; no imports from `structure/`, `runtime/`, or `main.py`
+
+### `tensors/` — tensor extension (semiring-based contractions)
+- `tensors/notation.py` — surface notation: `Equation`, `AlignmentPlan`, `SemiringDecl`, `ContractExpr`
+- `tensors/semirings.py` — `Semiring` dataclass (carrier, plus/times/zero/one, adjoint, reduce fields); `op_env()` to select product/fold/seed ops
+- `tensors/semantics.py` — `ContractSpec`, `resolve_semiring(decl, op_morphisms) → Semiring`, `contract_morphism(...)` returning a lazy `DomainPrim`, `_strip_exp` to remove `ExpType` wrappers
+- `tensors/primitives.py` — `compile_contract_spec` lowers a `ContractSpec` into a substrate `Morphism` tree
+- `tensors/fusion.py` — `normalize_contracts`, `_par_to_optic`, shape-based fusion
+- Tensor extension registers itself via `tensors/__init__.py` finalize hook; `DomainPrim` nodes emitted here are rewritten before `realize`
+- Import rule: `tensors/` may depend on `semantics/` and `objects.py`; must not depend on `structure/`, `runtime/`, or `main.py`
+
 ### `runtime/` — native boundary and backend codecs
 - `runtime/backend.py` loads backend specs and registers Hydra primitives for native operations.
 - `runtime/codecs.py` owns type-directed Hydra term codecs; `runtime/boundary.py` owns Python value ↔ Hydra term boundary behavior and native handle storage.
@@ -126,6 +143,8 @@ syntax, semantics, structure, or orchestration.
 14. `hylo(fp, coalg, alg)` uses `compose(..., shared_context=True)`, so matching non-unit params are shared, not duplicated.
 15. `Cata`/`Ana` nodes are created by `semantics/optics.py` with no Hydra imports; `structure/realize.py` materializes them.
 16. The `_prims` list accumulator in `realize` is the mechanism for registering recursion-created `Primitive` objects; `main.run()` and `CompiledProgram.run()` augment the graph with collected primitives before reduction.
+17. `DomainProtocol.finalize` is a whole-morphism rewrite hook. It runs after all semantic construction is complete, before realization. Every registered domain's finalize hook is applied to every morphism in registration order. Finalize may restructure the morphism tree but must preserve dom/cod and param/monad invariants.
+18. Combinator laws (identity, associativity, product/coproduct universal properties, bifunctor, functorial action) hold at every layer that implements them. See `docs/COMBINATOR_LAWS.md`.
 
 ## Do not redo
 - Do not redo Hydra API exploration (already settled)
@@ -136,6 +155,4 @@ syntax, semantics, structure, or orchestration.
 - Do not move cata/ana/hylo back to structure/; they are pure semantic functions that return deferred nodes
 - Do not reintroduce SpaceT or parallel type hierarchies (eliminated)
 - Do not reintroduce `space.py`, `hydra_primitives.py`, or `actions.py`; their responsibilities now live in `objects.py`, `structure/terms.py`, `semantics/functors.py`, `semantics/optics.py`, and `structure/realize.py`.
-- Do not introduce tensor equations yet (not in scope)
-- Do not introduce surface syntax yet (deferred)
 - Do not expose copy, delete, or fanout yet (deliberate boundary)

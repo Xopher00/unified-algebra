@@ -1,6 +1,6 @@
-# Checkpoint — Current State (2026-05-19)
+# Checkpoint — Current State (2026-05-21)
 
-**Tests:** 402 passing, 4 skipped. All import-linter boundaries clean.
+**Tests:** 415 passing, 4 skipped. All import-linter boundaries clean.
 
 ---
 
@@ -16,7 +16,9 @@ Do not revisit or redesign the following.
 - `compose` and `case` auto-embed plain morphisms into lax context
 - dom/cod derived via `dom_of(node)` / `cod_of(node)` — NOT stored on Morphism
 - `MorphismError(TypeError)` — single error class with `check(a, b, msg)` classmethod
-- `MorphismExpr` ADT: Identity, Copy, Delete, First, Second, Left, Right, Absurd, Assoc, Symmetry, MonadicEmbed, ContextualBinary (base), Compose, Parallel, Pair, Case, Prim, DomainPrim, BackendPrim
+- `MorphismExpr` ADT: Identity, Copy, Delete, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (base), Compose, Parallel, Pair, Case, Prim, DomainPrim, BackendPrim
+- Distributivity: `distribute_left(a,b,c) : A×(B+C)→(A×B)+(A×C)`, `distribute_right(a,b,c) : (A+B)×C→(A×C)+(B×C)`; DSL keywords `distl`, `distr`
+- `merge(a) : A+A→A` — codiagonal; derivable as `case(id,id)` but named in the vocabulary; DSL keyword `merge`
 - `ContextualBinary` subclasses carry `f, g, f_param, g_param, param, monad, dom, cod` — dom/cod are stored and authoritative
 - `PolyExpr` ADT: Zero, One, Id, Const(space), Sum(l,r), Prod(l,r), Exp(base: Type, body), List(body), Maybe(body)
 - `Functor(name, body: PolyExpr)` — named polynomial endofunctor; `apply`, `unapply`, `compose`, `map` as instance methods
@@ -87,7 +89,8 @@ src/unialg/
 │   └── backends/             JSON backend specs (numpy, torch, jax, cupy)
 ├── tensors/
 │   ├── notation.py           Equation, AlignmentPlan, SemiringDecl, ContractExpr
-│   ├── semantics.py          resolve_semiring, contract_morphism, ContractSpec
+│   ├── semirings.py          Semiring dataclass (carrier, plus, times, zero, one, adjoint, reduce fields)
+│   ├── semantics.py          resolve_semiring, contract_morphism, ContractSpec, _strip_exp
 │   ├── primitives.py         compile_contract_spec, alignment/fold trees, diagonal extraction
 │   ├── fusion.py             normalize_contracts, _par_to_optic, shape-based fusion
 │   └── __init__.py           Self-registration with finalize hook

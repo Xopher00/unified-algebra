@@ -120,6 +120,9 @@ resolved by semantic construction, so most atoms start with placeholder types.
 | `absurd`, `0` | absurd morphism, `0 -> A` |
 | `assoc` | associativity isomorphism |
 | `sym`, `symmetry` | symmetry isomorphism |
+| `distl` | distributivity `A × (B + C) → (A × B) + (A × C)` |
+| `distr` | distributivity `(A + B) × C → (A × C) + (B × C)` |
+| `merge` | codiagonal `A + A → A` |
 | `[0]` | left projection |
 | `[1]` | right projection |
 | `|0` | left injection |
@@ -331,7 +334,7 @@ This is an informal grammar, intended to clarify the accepted surface forms.
 
 ```text
 program      ::= declaration*
-declaration  ::= load_decl | let_decl | shape_decl
+declaration  ::= load_decl | let_decl | shape_decl | algebra_decl
 
 load_decl    ::= "load" NAME
 
@@ -340,6 +343,10 @@ params       ::= "(" NAME ("," NAME)* ")"
 
 shape_decl   ::= "shape" NAME "=" shape_rhs
                | "shape" NAME ":" optic_annotation
+
+algebra_decl ::= "algebra" NAME "(" algebra_field ("," algebra_field)* ")"
+algebra_field ::= ("plus" | "times" | "zero" | "one") "=" NAME_OR_FLOAT
+                | "adjoint" "=" NAME
 
 shape_rhs    ::= "fix" functor
                | functor
@@ -369,6 +376,8 @@ atom     ::= NAME
            | "roll" "[" NAME "]"
            | "unroll" "[" NAME "]"
            | "pure" "[" NAME "]" "(" morphism ")"
+           | "contract" "[" NAME "]" "(" STRING ")"
+           | "contract" "[" NAME "," "adjoint" "]" "(" STRING ")"
            | "[" ("0" | "1") "]"
            | "|" ("0" | "1")
            | "!" | "0" | "1" | "* INT"

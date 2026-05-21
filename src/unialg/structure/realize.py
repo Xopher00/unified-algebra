@@ -27,6 +27,16 @@ from unialg.syntax import expressions as expr
 from unialg.objects import Name, Monad, Type, TypeUnit, TypePair, TypeEither, ExpType, TypeScheme
 
 
+from dataclasses import dataclass, field
+
+@dataclass(slots=True)
+class RealizeContext:
+    """Mutable state carried through realization."""
+    primitives: list[Primitive] = field(default_factory=list)
+    def add_primitive(self, primitive: Primitive) -> None:
+        self.primitives.append(primitive)
+
+
 def realize_term(node: expr.MorphismExpr, _prims=None) -> TTerm:
     """Translate a morphism expression into a typed Hydra term handle."""
     return TTerm(realize(node, _prims))
@@ -95,44 +105,15 @@ _POLY_ACTION_LEAVES: dict = {
     expr.Const: lambda n, h, m: T.pure_identity(m),
 }
 
+_POLY_ACTION_UNARY: dict = {
+    expr.Maybe: T.maybe_effects,
+    expr.List:  T.list_effects,
+}
 
-def _action_poly_compose(left: expr.PolyExpr, right: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
-    left_action = poly_action_term(left, h, monad)
-    return poly_action_term(right, left_action, monad)
-
-
-def _action_poly_prod(left: expr.PolyExpr, right: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
-    left_action = poly_action_term(left, h, monad)
-    right_action = poly_action_term(right, h, monad)
-    return T.product_action(monad, left_action, right_action)
-
-
-def _action_poly_sum(left: expr.PolyExpr, right: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
-    left_action = poly_action_term(left, h, monad)
-    right_action = poly_action_term(right, h, monad)
-    return T.case_effects(monad, left_action, right_action)
-
-
-def _poly_action_unary(body: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
-    match body:
-        case expr.Maybe(body_inner):
-            return T.maybe_effects(monad, poly_action_term(body_inner, h, monad))
-        case expr.List(body_inner):
-            return T.list_effects(monad, poly_action_term(body_inner, h, monad))
-        case _:
-            raise TypeError(f"poly_action_term: unknown PolyExpr {type(body).__name__!r}")
-
-
-def _poly_action_binary(body: expr.PolyExpr, h: TTerm, monad: Monad | None) -> TTerm:
-    match body:
-        case expr.Prod(left, right):
-            return _action_poly_prod(left, right, h, monad)
-        case expr.Sum(left, right):
-            return _action_poly_sum(left, right, h, monad)
-        case expr.PolyCompose(left, right):
-            return _action_poly_compose(left, right, h, monad)
-        case _:
-            raise TypeError(f"poly_action_term: unknown PolyExpr {type(body).__name__!r}")
+_POLY_ACTION_BINARY: dict = {
+    expr.Prod: T.product_action,
+    expr.Sum:  T.case_effects,
+}
 
 
 def poly_action_term(body: expr.PolyExpr, h: TTerm, monad: Monad | None = None) -> TTerm:
@@ -144,13 +125,18 @@ def poly_action_term(body: expr.PolyExpr, h: TTerm, monad: Monad | None = None) 
         if monad is not None:
             raise TypeError("poly_action_term: Exp polynomials are not traversable for arbitrary monads")
         return _exponential_action(body.body, h)
-    if isinstance(body, (expr.Maybe, expr.List)):
-        return _poly_action_unary(body, h, monad)
-    return _poly_action_binary(body, h, monad)
+    combinator = _POLY_ACTION_UNARY.get(type(body))
+    if combinator is not None:
+        return combinator(monad, poly_action_term(body.body, h, monad))  # type: ignore[union-attr]
+    combinator = _POLY_ACTION_BINARY.get(type(body))
+    if combinator is not None:
+        return combinator(monad, poly_action_term(body.left, h, monad), poly_action_term(body.right, h, monad))  # type: ignore[union-attr]
+    if isinstance(body, expr.PolyCompose):
+        return poly_action_term(body.right, poly_action_term(body.left, h, monad), monad)
+    raise TypeError(f"poly_action_term: unknown PolyExpr {type(body).__name__!r}")
 
 
-def _apply_parametric_poly_fmap(
-    node: expr.PolyFmap, h_term: TTerm, ctx_x: TTerm) -> TTerm:
+def _apply_parametric_poly_fmap(node: expr.PolyFmap, h_term: TTerm, ctx_x: TTerm) -> TTerm:
     """Realize a parametric ``PolyFmap`` node against a combined ``param × value`` input.
 
     Splits ``ctx_x`` into its parameter prefix and visible value, builds a
@@ -178,13 +164,8 @@ def _child_param(param_term: TTerm | None, param: Type, child_param: Type, side:
     return P.first(param_term) if side == "left" else P.second(param_term)
 
 
-def _mk_child_call(
-    child_term: TTerm,
-    child_param: Type,
-    side: str,
-    param: Type,
-    param_term: TTerm | None,
-) -> Callable[[TTerm], TTerm]:
+def _mk_child_call(child_term: TTerm, child_param: Type, side: str, param: Type, 
+                   param_term: TTerm | None) -> Callable[[TTerm], TTerm]:
     """Return a closure that calls ``child_term`` with the correct parameter fragment prepended.
 
     ``side`` selects whether to take the ``"left"`` or ``"right"`` fragment of

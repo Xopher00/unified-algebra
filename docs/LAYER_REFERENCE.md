@@ -77,6 +77,8 @@ Two frozen-dataclass hierarchies: `MorphismExpr` (arrow expressions) and `PolyEx
 | `Absurd(cod)` | `absurd : 0 → A` |
 | `Assoc(dom, cod)` | Associativity iso for `×` or `+` |
 | `Symmetry(dom, cod)` | Symmetry iso for `×` or `+` |
+| `DistributeLeft(dom, cod)` | `distl : A × (B + C) → (A × B) + (A × C)` |
+| `DistributeRight(dom, cod)` | `distr : (A + B) × C → (A × C) + (B × C)` |
 | `MonadicEmbed(f, monad)` | `η ∘ f` — lift a plain morphism into a monad |
 | `ContextualBinary` | Base for `Compose`, `Parallel`, `Pair`, `Case` |
 | `PolyFmap(body, f, ...)` | Deferred functor action `F(f)` |
@@ -116,10 +118,13 @@ prefix and monad wrapper from the raw type.
 **Combinators** all return a new `Morphism` with resolved `param` and `monad`:
 
 ```python
-compose(f, g)          # f ; g  — requires f.cod() == g.dom()
-par(f, g)              # f × g  — A×C → B×D
-pair(f, g)             # ⟨f,g⟩  — A → B×C, requires f.dom() == g.dom()
-case(f, g)             # [f,g]  — A+B → C, requires f.cod() == g.cod()
+compose(f, g)              # f ; g  — requires f.cod() == g.dom()
+par(f, g)                  # f × g  — A×C → B×D
+pair(f, g)                 # ⟨f,g⟩  — A → B×C, requires f.dom() == g.dom()
+case(f, g)                 # [f,g]  — A+B → C, requires f.cod() == g.cod()
+distribute_left(a, b, c)   # distl  — A×(B+C) → (A×B)+(A×C)
+distribute_right(a, b, c)  # distr  — (A+B)×C → (A×C)+(B×C)
+merge(a)                   # ∇     — A+A → A, codiagonal
 ```
 
 `shared_context=True` on any combinator shares a matching non-unit param between
@@ -191,6 +196,33 @@ hylo(fp, coalg, alg)    # Hylomorphism: compose ana then cata
 
 `cata` and `ana` return `Morphism` values wrapping `Cata`/`Ana` deferred nodes.
 No Hydra primitives are built here; realization is deferred to `structure/realize.py`.
+
+---
+
+---
+
+## `tensors/` — tensor extension
+
+### `tensors/notation.py` — surface notation types
+
+| Type | Role |
+|------|------|
+| `Equation(inputs, output)` | Einstein-like index equation; `inputs` is a list of index tuples, `output` is an index tuple |
+| `SemiringDecl(name, carrier, plus, times, zero, one, ...)` | Surface declaration of a semiring before resolution |
+| `AlignmentPlan` | Alignment metadata for contraction inputs |
+| `ContractExpr` | Parsed surface contraction expression |
+
+### `tensors/semirings.py` — resolved semiring
+
+`Semiring` dataclass: `name`, `carrier: Type`, `plus/times: Morphism`, `zero/one`, optional `adjoint`, `plus_reduce/times_reduce/adjoint_reduce`. `op_env(*, adjoint=False)` returns `{"product": ..., "fold": ..., "seed": ...}` selecting the correct operation mode.
+
+### `tensors/semantics.py` — semiring resolution and contract morphisms
+
+`resolve_semiring(decl: SemiringDecl, op_morphisms) → Semiring` validates binary op types and assembles a `Semiring`.
+
+`ContractSpec` — internal spec: `semiring`, `equation`, `adjoint`, `shape`, `_domain_tag`. `.dom` and `.cod` emit `ExpType`-wrapped types; `_strip_exp` helper removes `ExpType` wrappers for substrate compatibility.
+
+`contract_morphism(semiring, equation, ...)` — builds a lazy `DomainPrim` pending finalize; `construct_expr` resolves a `ContractExpr` into a composed substrate `Morphism`.
 
 ---
 

@@ -15,6 +15,7 @@ Use `LAW_CATALOG.md` as the checklist for semantic laws we intend to cover.
 - `negative/` — expected rejection paths: type mismatches, invalid params, incompatible monads, unsupported encodings.
 - `regression/` — bug reproductions and reviewed tests promoted after a real failure.
 - `unit/` — small substrate/helper checks. Hydra API probes live here because they validate local backend behavior, not unialg semantics.
+- `tensors/` — tests for the tensor extension: semiring resolution, `contract_morphism`, `ContractSpec` dom/cod types, tropical semiring, `construct_expr`, notation parsing, fusion, diagonal, and end-to-end contraction.
 - `support/` — reusable pytest fixtures, Hypothesis strategies, and test helpers. This is not a test collection target.
 
 Run the trusted suite:

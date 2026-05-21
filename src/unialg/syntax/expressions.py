@@ -303,6 +303,8 @@ _MORPHISM_LEAVES: dict[type, str] = {
     Absurd: "absurd",
     Assoc: "assoc",
     Symmetry: "sym",
+    DistributeLeft: "distl",
+    DistributeRight: "distr",
     Prim: "prim",
 }
 

@@ -67,6 +67,9 @@ implementation spec.
 - `inl(A + B) : A -> A + B`
 - `inr(A + B) : B -> A + B`
 - `absurd(A) : 0 -> A`
+- `distribute_left(A, B, C) : A×(B+C) -> (A×B)+(A×C)`
+- `distribute_right(A, B, C) : (A+B)×C -> (A×C)+(B×C)`
+- `merge(A) : A+A -> A`
 
 ### signature / dom_of / cod_of
 
@@ -176,6 +179,10 @@ primitive names or pass-through payloads.
 - `realize(Right(A + B))(b)` produces a right value containing `b`
 - `realize(Prim(raw, A, B)) is raw`
 - `realize(Assoc(...))(((q, p), a)) == (q, (p, a))`
+- `realize(DistributeLeft(A×(B+C), ...))(a, left(b)) == left((a, b))`
+- `realize(DistributeLeft(A×(B+C), ...))(a, right(c)) == right((a, c))`
+- `realize(DistributeRight((A+B)×C, ...))(left(a), c) == left((a, c))`
+- `realize(DistributeRight((A+B)×C, ...))(right(b), c) == right((b, c))`
 - Realizing an unknown/base `MorphismExpr` raises `TypeError`.
 
 ### Contextual Realization

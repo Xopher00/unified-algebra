@@ -23,4 +23,3 @@ def _register():
     ))
 
 
-_register()

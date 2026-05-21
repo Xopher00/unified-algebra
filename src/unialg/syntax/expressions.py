@@ -429,8 +429,8 @@ class PolyCompose(PolyExpr):
 
 @dataclass(frozen=True)
 class Exp(PolyExpr):
-    """F(X) = S → G(X) — exponential with constant base S."""
-    base: Type
+    """F(X) = S → G(X) — exponential functor; base is a PolyExpr."""
+    base: PolyExpr
     body: PolyExpr
 
 
@@ -535,7 +535,7 @@ def _pretty_poly_compound(expr: PolyExpr) -> str:
             bs = pretty(body)
             if isinstance(body, (Sum, Prod)):
                 bs = f"({bs})"
-            return f"{show_type(base)} -> {bs}"
+            return f"{pretty(base)} -> {bs}"
         case List(body=body):
             return f"List[{pretty(body)}]"
         case Maybe(body=body):

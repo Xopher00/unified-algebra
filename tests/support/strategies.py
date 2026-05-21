@@ -62,7 +62,7 @@ def poly_values(max_leaves: int = 6):
         lambda children: st.one_of(
             st.builds(expr.Sum, children, children),
             st.builds(expr.Prod, children, children),
-            st.builds(expr.Exp, type_values(), children),
+            st.builds(expr.Exp, children, children),
         ),
         max_leaves=max_leaves,
     )
@@ -191,5 +191,5 @@ def collect_consts(node: expr.PolyExpr):
     if isinstance(node, (expr.Sum, expr.Prod)):
         return collect_consts(node.left) + collect_consts(node.right)
     if isinstance(node, expr.Exp):
-        return [node.base] + collect_consts(node.body)
+        return collect_consts(node.base) + collect_consts(node.body)
     return []

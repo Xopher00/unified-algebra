@@ -153,7 +153,7 @@ def prod(f: expr.PolyExpr, g: expr.PolyExpr) -> expr.Prod:
     return expr.Prod(f, g)
 
 
-def exp(base: Type, body: expr.PolyExpr) -> expr.Exp:
+def exp(base: expr.PolyExpr, body: expr.PolyExpr) -> expr.Exp:
     """Constructor for the exponential polynomial ``base -> body``."""
     return expr.Exp(base, body)
 
@@ -168,73 +168,51 @@ def maybe(body: expr.PolyExpr) -> expr.Maybe:
     return expr.Maybe(body)
 
 
+_COMPOSE_POLY: dict = {
+    expr.Id:          lambda _n,  s: s,
+    expr.Zero:        lambda  n, _s: n,
+    expr.One:         lambda  n, _s: n,
+    expr.Const:       lambda  n, _s: n,
+    expr.Prod:        lambda  n,  s: expr.Prod(compose_poly(n.left, s), compose_poly(n.right, s)),
+    expr.Sum:         lambda  n,  s: expr.Sum(compose_poly(n.left, s), compose_poly(n.right, s)),
+    expr.PolyCompose: lambda  n,  s: expr.PolyCompose(compose_poly(n.left, s), compose_poly(n.right, s)),
+    expr.Exp:         lambda  n,  s: expr.Exp(n.base, compose_poly(n.body, s)),  # base is fixed exponent domain
+    expr.List:        lambda  n,  s: expr.List(compose_poly(n.body, s)),
+    expr.Maybe:       lambda  n,  s: expr.Maybe(compose_poly(n.body, s)),
+}
+
+_APPLY_POLY: dict = {
+    expr.Id:          lambda _n,  s: s,
+    expr.Zero:        lambda _n, _s: VoidType(),
+    expr.One:         lambda _n, _s: TypeUnit(),
+    expr.Const:       lambda  n, _s: n.space,
+    expr.Prod:        lambda  n,  s: ProductType(apply_poly(n.left, s), apply_poly(n.right, s)),
+    expr.Sum:         lambda  n,  s: SumType(apply_poly(n.left, s), apply_poly(n.right, s)),
+    expr.PolyCompose: lambda  n,  s: apply_poly(n.right, apply_poly(n.left, s)),
+    expr.Exp:         lambda  n,  s: ExpType(apply_poly(n.base, TypeUnit()), apply_poly(n.body, s)),
+    expr.List:        lambda  n,  s: TypeList(apply_poly(n.body, s)),
+    expr.Maybe:       lambda  n,  s: TypeMaybe(apply_poly(n.body, s)),
+}
+
+
 def compose_poly(outer: expr.PolyExpr, inner: expr.PolyExpr) -> expr.PolyExpr:
     """Functor composition: substitute ``inner`` for every ``Id`` in ``outer``.
 
     ``compose_poly(F, G)`` produces the body of F∘G, so that
     ``apply_poly(compose_poly(F, G), A) == apply_poly(F, apply_poly(G, A))``.
     """
-    match outer:
-        case expr.Id():
-            return inner
-        case expr.Zero() | expr.One() | expr.Const(_):
-            return outer
-        case expr.Prod(left, right):
-            return expr.Prod(compose_poly(left, inner), compose_poly(right, inner))
-        case expr.Sum(left, right):
-            return expr.Sum(compose_poly(left, inner), compose_poly(right, inner))
-        case expr.PolyCompose(left, right):
-            return expr.PolyCompose(compose_poly(left, inner), compose_poly(right, inner))
-        case expr.Exp(base, body):
-            return expr.Exp(base, compose_poly(body, inner))
-        case expr.List(body):
-            return expr.List(compose_poly(body, inner))
-        case expr.Maybe(body):
-            return expr.Maybe(compose_poly(body, inner))
-        case _:
-            raise TypeError(f"compose_poly: unknown PolyExpr {type(outer).__name__!r}")
-
-
-_POLY_LEAF = {
-    expr.Zero:  lambda _n, _s: VoidType(),
-    expr.One:   lambda _n, _s: TypeUnit(),
-    expr.Id:    lambda _n,  s: s,
-    expr.Const: lambda  n, _s: n.space,
-}
-
-
-def _apply_poly_unary(body: expr.PolyExpr, space: Type) -> Type:
-    match body:
-        case expr.List(b):
-            return TypeList(apply_poly(b, space))
-        case expr.Maybe(b):
-            return TypeMaybe(apply_poly(b, space))
-        case expr.Exp(base, b):
-            return ExpType(base, apply_poly(b, space))
-        case _:
-            raise TypeError(f"apply_poly: unknown PolyExpr {type(body).__name__!r}")
-
-
-def _apply_poly_binary(body: expr.PolyExpr, space: Type) -> Type:
-    match body:
-        case expr.Prod(left, right):
-            return ProductType(apply_poly(left, space), apply_poly(right, space))
-        case expr.Sum(left, right):
-            return SumType(apply_poly(left, space), apply_poly(right, space))
-        case expr.PolyCompose(left, right):
-            return apply_poly(right, apply_poly(left, space))
-        case _:
-            raise TypeError(f"apply_poly: unknown PolyExpr {type(body).__name__!r}")
+    handler = _COMPOSE_POLY.get(type(outer))
+    if handler is None:
+        raise TypeError(f"compose_poly: unknown PolyExpr {type(outer).__name__!r}")
+    return handler(outer, inner)
 
 
 def apply_poly(body: expr.PolyExpr, space: Type) -> Type:
     """Compute the object action ``F(space)`` for a polynomial functor body."""
-    handler = _POLY_LEAF.get(type(body))
-    if handler is not None:
-        return handler(body, space)
-    if isinstance(body, (expr.List, expr.Maybe, expr.Exp)):
-        return _apply_poly_unary(body, space)
-    return _apply_poly_binary(body, space)
+    handler = _APPLY_POLY.get(type(body))
+    if handler is None:
+        raise TypeError(f"apply_poly: unknown PolyExpr {type(body).__name__!r}")
+    return handler(body, space)
 
 
 def _flatten_sum(node: expr.PolyExpr) -> tuple[expr.PolyExpr, ...]:
@@ -265,7 +243,7 @@ def _collect_consts(node: expr.PolyExpr) -> list[Type]:
     if isinstance(node, (expr.Sum, expr.Prod)):
         return _collect_consts(node.left) + _collect_consts(node.right)
     if isinstance(node, expr.Exp):
-        return [node.base] + _collect_consts(node.body)
+        return _collect_consts(node.base) + _collect_consts(node.body)
     if isinstance(node, (expr.List, expr.Maybe)):
         return _collect_consts(node.body)
     raise ValueError(f"_collect_consts: unknown PolyExpr {type(node).__name__!r}")

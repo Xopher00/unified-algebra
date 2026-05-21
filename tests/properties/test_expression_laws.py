@@ -2,7 +2,6 @@ import pytest
 from hypothesis import given, settings
 
 from unialg.syntax import expressions as expr
-from unialg.objects import show_type
 from support.strategies import (
     primitive_morphism_nodes,
     poly_values,
@@ -75,11 +74,11 @@ def test_pretty_product_parenthesizes_sum_children(left, right):
 
 
 @settings(max_examples=60)
-@given(type_values(), poly_values())
+@given(poly_values(), poly_values())
 def test_pretty_exp_parenthesizes_sum_and_product_bodies(base, body):
     rendered = expr.pretty(expr.Exp(base, body))
     body_rendered = expr.pretty(body)
-    base_rendered = show_type(base)
+    base_rendered = expr.pretty(base)
 
     if isinstance(body, (expr.Sum, expr.Prod)):
         assert rendered == f"{base_rendered} -> ({body_rendered})"

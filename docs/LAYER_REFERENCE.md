@@ -89,7 +89,7 @@ Two frozen-dataclass hierarchies: `MorphismExpr` (arrow expressions) and `PolyEx
 | `Prim(raw, dom, cod)` | Escape hatch: pre-built Hydra term with explicit types |
 
 **`PolyExpr` nodes:** `Zero`, `One`, `Id`, `Const(space)`, `Sum(l, r)`, `Prod(l, r)`,
-`Exp(base, body)`, `List(body)`, `Maybe(body)`.
+`Exp(base: PolyExpr, body)`, `PolyCompose(l, r)`, `List(body)`, `Maybe(body)`.
 
 `pretty(expr)` renders any expression as a human-readable string.
 
@@ -155,7 +155,11 @@ Key methods:
 No Hydra terms are built here — `realize.py` handles that when the term is needed.
 
 Free-standing constructors (`zero()`, `one()`, `id_()`, `const(s)`, `sum_(f, g)`,
-`prod(f, g)`, `exp(base, body)`) return `PolyExpr` values for building functor bodies.
+`prod(f, g)`, `exp(base: PolyExpr, body)`) return `PolyExpr` values for building functor bodies.
+
+Dispatch dicts `_COMPOSE_POLY` and `_APPLY_POLY` encode the same 10 node types in
+the same order — composition at expression level, application at type level. This
+parallel structure is the functor algebra's combinator table.
 
 ---
 

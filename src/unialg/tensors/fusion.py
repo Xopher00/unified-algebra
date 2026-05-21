@@ -31,16 +31,27 @@ from .semantics import ContractSpec, _collect_semiring_aux
 # Shape-based label extraction and renaming
 # ---------------------------------------------------------------------------
 
-def _labels_from_base(t) -> tuple[str, ...]:
-    """Decode a Hydra TypeVariable/TypePair tree (Exp base) to label strings."""
+def _decode_hydra_labels(t) -> tuple[str, ...]:
+    """Decode a Hydra TypeVariable/TypePair tree to label strings."""
     if isinstance(t, TypeVariable):
         inner = t.value
         if isinstance(inner, TypeVariable):
             inner = inner.value
         return (inner.value.removeprefix("idx."),)
     if isinstance(t, TypePair):
-        return _labels_from_base(t.value.first) + _labels_from_base(t.value.second)
+        return _decode_hydra_labels(t.value.first) + _decode_hydra_labels(t.value.second)
     if isinstance(t, TypeUnit):
+        return ()
+    return ()
+
+
+def _labels_from_base(t: expr.PolyExpr) -> tuple[str, ...]:
+    """Extract label strings from a PolyExpr Exp base."""
+    if isinstance(t, expr.Const):
+        return _decode_hydra_labels(t.space)
+    if isinstance(t, expr.Prod):
+        return _labels_from_base(t.left) + _labels_from_base(t.right)
+    if isinstance(t, (expr.One, expr.Zero)):
         return ()
     return ()
 
@@ -93,10 +104,16 @@ def _rename_shape_labels(shape, output_labels: tuple[str, ...], avoid: set[str])
 
     subst = FrozenDict({Name(f"idx.{old}"): Name(f"idx.{new}") for old, new in rename_map.items()})
 
+    def _sub_poly_base(base: expr.PolyExpr) -> expr.PolyExpr:
+        if isinstance(base, expr.Const):
+            return expr.Const(substitute_type_variables(subst, base.space))
+        if isinstance(base, expr.Prod):
+            return expr.Prod(_sub_poly_base(base.left), _sub_poly_base(base.right))
+        return base
+
     def _sub_shape(s):
         if isinstance(s, expr.Exp):
-            new_base = substitute_type_variables(subst, s.base)
-            return expr.Exp(new_base, s.body)
+            return expr.Exp(_sub_poly_base(s.base), s.body)
         if isinstance(s, expr.Prod):
             return expr.Prod(_sub_shape(s.left), _sub_shape(s.right))
         return s

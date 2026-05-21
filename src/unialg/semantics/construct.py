@@ -353,10 +353,14 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
             return ops._symmetry(dom)
 
         case expr.DistributeLeft(dom=dom):
-            return ops._distribute_left(dom)
+            a, bc = ops._lr(dom)
+            b, c = ops._lr(bc)
+            return ops.distribute_left(a, b, c)
 
         case expr.DistributeRight(dom=dom):
-            return ops._distribute_right(dom)
+            ab, c = ops._lr(dom)
+            a, b = ops._lr(ab)
+            return ops.distribute_right(a, b, c)
 
         case expr.SharedCompose(f=f, g=g):
             return ops.compose(

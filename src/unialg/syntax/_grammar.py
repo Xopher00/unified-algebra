@@ -11,7 +11,7 @@ from unialg.syntax.expressions import (
     CarrierBoundary, MonadicLift, FocusExpr, FocusRef, FocusCompose,
     Identity, Copy, Delete, First, Second, Left, Right,
     Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, Ref, PolyRef,
-    Id, Zero, One, List as PolyList, Maybe as PolyMaybe,
+    Id, Zero, One, Exp as PolyExp, List as PolyList, Maybe as PolyMaybe,
 )
 from unialg.syntax._pratt import PrattParser, ParseError
 from unialg.syntax._ops import (
@@ -230,6 +230,34 @@ def make_morphism_grammar() -> tuple[Any, Any, dict]:
 # Functor grammar
 # ---------------------------------------------------------------------------
 
+def _functor_nud_name(p: PrattParser, val: str) -> PolyExpr:
+    if val in ("x", "id"):
+        return Id()
+    if val == "List":
+        p.expect("LBRACKET", "[")
+        inner = p.parse(0)
+        p.expect("RBRACKET", "]")
+        return PolyList(inner)  # type: ignore[arg-type]
+    if val == "Maybe":
+        p.expect("LBRACKET", "[")
+        inner = p.parse(0)
+        p.expect("RBRACKET", "]")
+        return PolyMaybe(inner)  # type: ignore[arg-type]
+    if val == "Exp":
+        p.expect("LBRACKET", "[")
+        base = p.parse(0)
+        p.expect("COMMA", ",")
+        body = p.parse(0)
+        p.expect("RBRACKET", "]")
+        return PolyExp(base, body)  # type: ignore[arg-type]
+    if val == "Tree":
+        p.expect("LBRACKET", "[")
+        inner = p.parse(0)
+        p.expect("RBRACKET", "]")
+        return make_sum(One(), make_prod(inner, inner))
+    return PolyRef(val)
+
+
 def _functor_nud(p: PrattParser, tok: Token) -> PolyExpr:
     kind, val = tok
 
@@ -246,24 +274,7 @@ def _functor_nud(p: PrattParser, tok: Token) -> PolyExpr:
         raise ParseError(f"unexpected integer {val!r} in functor expression")
 
     if kind == "NAME":
-        if val in ("x", "id"):
-            return Id()
-        if val == "List":
-            p.expect("LBRACKET", "[")
-            inner = p.parse(0)
-            p.expect("RBRACKET", "]")
-            return PolyList(inner)  # type: ignore[arg-type]
-        if val == "Maybe":
-            p.expect("LBRACKET", "[")
-            inner = p.parse(0)
-            p.expect("RBRACKET", "]")
-            return PolyMaybe(inner)  # type: ignore[arg-type]
-        if val == "Tree":
-            p.expect("LBRACKET", "[")
-            inner = p.parse(0)
-            p.expect("RBRACKET", "]")
-            return make_sum(One(), make_prod(inner, inner))
-        return PolyRef(val)
+        return _functor_nud_name(p, val)
 
     raise ParseError(f"unexpected token {kind!r} ({val!r}) in functor expression")
 

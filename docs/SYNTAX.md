@@ -254,6 +254,7 @@ Polynomial functor expressions describe one layer of structure.
 | `<name>` | named shape reference |
 | `List[F]` | list type constructor over `F` |
 | `Maybe[F]` | maybe type constructor over `F` |
+| `Exp[F, G]` | exponential functor `F → G` |
 
 ### Functor Operators
 
@@ -337,6 +338,7 @@ program      ::= declaration*
 declaration  ::= load_decl | let_decl | shape_decl | algebra_decl
 
 load_decl    ::= "load" NAME
+               | "load" "extension" NAME
 
 let_decl     ::= "let" NAME params? "=" morphism
 params       ::= "(" NAME ("," NAME)* ")"
@@ -395,6 +397,7 @@ functor ::= atom
 atom    ::= "x" | "id" | "0" | "1" | NAME
           | "List" "[" functor "]"
           | "Maybe" "[" functor "]"
+          | "Exp" "[" functor "," functor "]"
           | "(" functor ")"
 ```
 

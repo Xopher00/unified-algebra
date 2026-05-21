@@ -119,6 +119,12 @@ The recommended pattern is: your extension provides a function that takes a stri
 
 If your extension genuinely needs new top-level declaration keywords — beyond `let`, `shape`, and `load` — that requires a discussion about whether the substrate should support those keywords as a built-in extension point. Adding new declaration keywords ad hoc breaks the uniformity of the surface syntax. Most extensions do not need this; the few that do should be careful.
 
+**Activation:** Extensions must be explicitly enabled before their syntax is available.
+Use `extensions.enable("tensors")` in Python or `load extension tensors` in the DSL.
+Each extension module exposes a `_register()` function that registers its keyword
+handlers, expression handlers, and domain protocol. `is_enabled(name)` checks activation
+status. Auto-registration on import is not supported.
+
 ### Rule 10: Completion requires layered tests
 
 A complete extension has tests at each layer that has code. Specifically:

@@ -75,7 +75,7 @@ def resolve_poly_refs(
         case expr.PolyCompose(left=l, right=r):
             return expr.PolyCompose(resolve_poly_refs(l, functors), resolve_poly_refs(r, functors))
         case expr.Exp(base=base, body=body):
-            return expr.Exp(base, resolve_poly_refs(body, functors))
+            return expr.Exp(resolve_poly_refs(base, functors), resolve_poly_refs(body, functors))
         case expr.List(body=body):
             return expr.List(resolve_poly_refs(body, functors))
         case expr.Maybe(body=body):

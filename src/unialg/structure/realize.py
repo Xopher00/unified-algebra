@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from hydra.context import Context
 from hydra.core import Term
+from hydra.graph import Graph, Primitive
 from hydra.phantoms import TTerm
 import hydra.dsl.meta.phantoms as P
-from hydra.graph import Primitive
 from hydra.dsl.python import Right
 import hydra.dsl.terms as Terms
 import hydra.reduction as R
@@ -25,16 +26,6 @@ from . import terms as T
 from unialg.semantics.morphisms import Morphism
 from unialg.syntax import expressions as expr
 from unialg.objects import Name, Monad, Type, TypeUnit, TypePair, TypeEither, ExpType, TypeScheme
-
-
-from dataclasses import dataclass, field
-
-@dataclass(slots=True)
-class RealizeContext:
-    """Mutable state carried through realization."""
-    primitives: list[Primitive] = field(default_factory=list)
-    def add_primitive(self, primitive: Primitive) -> None:
-        self.primitives.append(primitive)
 
 
 def realize_term(node: expr.MorphismExpr, _prims=None) -> TTerm:
@@ -54,16 +45,11 @@ def realize_normalized(node: expr.MorphismExpr, graph=None, _prims: list | None 
 
 def analyze_realized_function(node: expr.MorphismExpr, _prims=None):
     """Analyze a realized Hydra function term."""
-    from hydra.context import Context
-    from hydra.graph import Graph
-
     term = realize(node, _prims)
     return Analysis.analyze_function_term(
-        Context(),
-        lambda g: g,
+        Context(), lambda g: g,
         lambda g, _env: g,
-        Graph(),
-        term,
+        Graph(), term,
     )
 
 
@@ -72,14 +58,59 @@ def realized_is_self_tail_recursive(name: Name, node: expr.MorphismExpr, _prims=
     return Analysis.is_self_tail_recursive(name, realize(node, _prims))
 
 
-def primitive_from_raw(raw: TTerm, dom: Type, cod: Type, like: Morphism, extra: tuple = ()) -> tuple[TTerm, Morphism]:
+def primitive_from_raw(
+    raw: TTerm, dom: Type, cod: Type, like: Morphism, extra: tuple = ()
+) -> tuple[TTerm, Morphism]:
     """Assemble a raw term as a context-preserving primitive morphism."""
     return raw, Morphism(
         node=expr.Prim(raw.value, dom, cod),
-        param=like.param,
-        monad=like.monad,
+        param=like.param, monad=like.monad,
         aux_primitives=extra + like.aux_primitives,
     )
+
+
+def _exp_action(body, h, monad):
+    if monad is not None:
+        raise TypeError(
+            "poly_action_term: Exp polynomials are not traversable for arbitrary monads"
+        )
+    fh = poly_action_term(body.body, h)  # type: ignore[union-attr]
+    return T.lam2("lp_g", "lp_s", lambda g, s: P.apply(fh, P.apply(g, s)))
+
+
+def _poly_compose_action(body, h, monad):
+    mapped = poly_action_term(body.left, h, monad)  # type: ignore[union-attr]
+    return poly_action_term(body.right, mapped, monad)  # type: ignore[union-attr]
+
+
+_POLY_ACTION_DISPATCH: dict = {
+    expr.Id:          lambda b, h, m: h,
+    expr.Zero:        lambda b, h, m: T.absurd(),
+    expr.One:         lambda b, h, m: T.pure_unit(m),
+    expr.Const:       lambda b, h, m: T.pure_identity(m),
+    expr.Exp:         _exp_action,
+    expr.PolyCompose: _poly_compose_action,
+    expr.Maybe: lambda b, h, m: T.maybe_effects(
+        m, poly_action_term(b.body, h, m),  # type: ignore[union-attr]
+    ),
+    expr.List: lambda b, h, m: T.list_effects(
+        m, poly_action_term(b.body, h, m),  # type: ignore[union-attr]
+    ),
+    expr.Prod: lambda b, h, m: T.product_action(
+        m, poly_action_term(b.left, h, m), poly_action_term(b.right, h, m),  # type: ignore[union-attr]
+    ),
+    expr.Sum: lambda b, h, m: T.case_effects(
+        m, poly_action_term(b.left, h, m), poly_action_term(b.right, h, m),  # type: ignore[union-attr]
+    ),
+}
+
+
+def poly_action_term(body: expr.PolyExpr, h: TTerm, monad: Monad | None = None) -> TTerm:
+    """Build the Hydra term for mapping or traversing a polynomial body."""
+    handler = _POLY_ACTION_DISPATCH.get(type(body))
+    if handler is not None:
+        return handler(body, h, monad)
+    raise TypeError(f"poly_action_term: unknown PolyExpr {type(body).__name__!r}")
 
 
 def split_input(x: TTerm, param: Type) -> tuple[TTerm | None, TTerm]:
@@ -89,55 +120,8 @@ def split_input(x: TTerm, param: Type) -> tuple[TTerm | None, TTerm]:
     return P.first(x), P.second(x)
 
 
-def _exponential_action(body_inner: expr.PolyExpr, h: TTerm) -> TTerm:
-    """Realize the functor action for an exponential position ``S → G(X)``.
-
-    Pre-composes ``h`` under the function: ``g ↦ λs. G(h)(g(s))``.
-    """
-    fh = poly_action_term(body_inner, h)
-    return T.lam2("lp_g", "lp_s", lambda g, s: P.apply(fh, P.apply(g, s)))
-
-
-_POLY_ACTION_LEAVES: dict = {
-    expr.Id:    lambda n, h, m: h,
-    expr.Zero:  lambda n, h, m: T.absurd(),
-    expr.One:   lambda n, h, m: T.pure_unit(m),
-    expr.Const: lambda n, h, m: T.pure_identity(m),
-}
-
-_POLY_ACTION_UNARY: dict = {
-    expr.Maybe: T.maybe_effects,
-    expr.List:  T.list_effects,
-}
-
-_POLY_ACTION_BINARY: dict = {
-    expr.Prod: T.product_action,
-    expr.Sum:  T.case_effects,
-}
-
-
-def poly_action_term(body: expr.PolyExpr, h: TTerm, monad: Monad | None = None) -> TTerm:
-    """Build the Hydra term for mapping or traversing a polynomial body."""
-    handler = _POLY_ACTION_LEAVES.get(type(body))
-    if handler is not None:
-        return handler(body, h, monad)
-    if isinstance(body, expr.Exp):
-        if monad is not None:
-            raise TypeError("poly_action_term: Exp polynomials are not traversable for arbitrary monads")
-        return _exponential_action(body.body, h)
-    combinator = _POLY_ACTION_UNARY.get(type(body))
-    if combinator is not None:
-        return combinator(monad, poly_action_term(body.body, h, monad))  # type: ignore[union-attr]
-    combinator = _POLY_ACTION_BINARY.get(type(body))
-    if combinator is not None:
-        return combinator(monad, poly_action_term(body.left, h, monad), poly_action_term(body.right, h, monad))  # type: ignore[union-attr]
-    if isinstance(body, expr.PolyCompose):
-        return poly_action_term(body.right, poly_action_term(body.left, h, monad), monad)
-    raise TypeError(f"poly_action_term: unknown PolyExpr {type(body).__name__!r}")
-
-
 def _apply_parametric_poly_fmap(node: expr.PolyFmap, h_term: TTerm, ctx_x: TTerm) -> TTerm:
-    """Realize a parametric ``PolyFmap`` node against a combined ``param × value`` input.
+    """Realize a parametric ``PolyFmap`` node against a combined ``param * value`` input.
 
     Splits ``ctx_x`` into its parameter prefix and visible value, builds a
     section that closes over the parameter, then applies the functor action.
@@ -148,66 +132,43 @@ def _apply_parametric_poly_fmap(node: expr.PolyFmap, h_term: TTerm, ctx_x: TTerm
         lambda a: P.apply(h_term, P.pair(param_term, a)),
     )
     lifted = poly_action_term(
-        node.body,
-        section,
-        node.monad,
+        node.body, section, node.monad,
     )
     return P.apply(lifted, visible_x)
 
 
-def _child_param(param_term: TTerm | None, param: Type, child_param: Type, side: str) -> TTerm | None:
-    """Select the parameter fragment required by a contextual child."""
+def _make_child_caller(child_term: TTerm, parent_param: Type, child_param: Type,
+    parent_param_term: TTerm | None, *, take_first: bool) -> Callable[[TTerm], TTerm]:
+    """Build a caller that prepends the child's parameter fragment when needed."""
     if child_param == TypeUnit():
-        return None
-    if param_term is None or child_param == param:
-        return param_term
-    return P.first(param_term) if side == "left" else P.second(param_term)
+        return lambda value: P.apply(child_term, value)
+    if parent_param_term is None or child_param == parent_param:
+        child_param_term = parent_param_term
+    else:
+        child_param_term = (
+            P.first(parent_param_term) if take_first else P.second(parent_param_term)
+        )
+    return lambda value: P.apply(child_term, P.pair(child_param_term, value))
 
 
-def _mk_child_call(child_term: TTerm, child_param: Type, side: str, param: Type, 
-                   param_term: TTerm | None) -> Callable[[TTerm], TTerm]:
-    """Return a closure that calls ``child_term`` with the correct parameter fragment prepended.
-
-    ``side`` selects whether to take the ``"left"`` or ``"right"`` fragment of
-    a combined ``g_param × f_param`` parameter when the child has a different param
-    than the parent.  If the child needs no parameter (``child_param == TypeUnit``),
-    the argument is passed through unchanged.
-    """
-    def call(v: TTerm) -> TTerm:
-        child_param_term = _child_param(param_term, param, child_param, side)
-        arg = v if child_param_term is None else P.pair(child_param_term, v)
-        return P.apply(child_term, arg)
-
-    return call
-
-
-def _contextual_term(node: expr.ContextualBinary, build, _prims=None) -> Term:
-    """Realize a contextual node by routing child calls and wrapping ``ctx_x``."""
+def _contextual_term(node: expr.ContextualBinary, _prims=None) -> Term:
     f_term = realize_term(node.f, _prims)
     g_term = realize_term(node.g, _prims)
-
+    op = _CONTEXTUAL_MORPHISMS[type(node)]
     def wrapped(x: TTerm) -> TTerm:
-        param_term, value = split_input(x, node.param)
-        call_f = _mk_child_call(f_term, node.f_param, "right", node.param, param_term)
-        call_g = _mk_child_call(g_term, node.g_param, "left", node.param, param_term)
-        return build(value, call_f, call_g)
-
+        parent_param_term, value = split_input(x, node.param)
+        call_f = _make_child_caller(
+            f_term, node.param, node.f_param, parent_param_term, take_first=False
+        )
+        call_g = _make_child_caller(
+            g_term, node.param, node.g_param, parent_param_term, take_first=True
+        )
+        return op(node, value, call_f, call_g)
     return T.term_lambda("ctx_x", wrapped).value
 
 
-_SIMPLE_STRUCTURAL: dict = {
-    expr.Identity: lambda: P.identity().value,
-    expr.Copy:     lambda: T.term_lambda("x", lambda x: P.pair(x, x)).value,
-    expr.Delete:   lambda: P.constant(P.unit()).value,
-    expr.First:    lambda: T.pair_first().value,
-    expr.Second:   lambda: T.pair_second().value,
-    expr.Left:     lambda: T.left_injection().value,
-    expr.Right:    lambda: T.right_injection().value,
-    expr.Absurd:   lambda: T.absurd().value,
-}
-
-
-def _realize_symmetry(dom: Type, cod: Type) -> Term:
+def _realize_symmetry(node: expr.Symmetry) -> Term:
+    dom, cod = node.dom, node.cod
     if isinstance(dom, TypePair) and isinstance(cod, TypePair):
         return T.pair_swap().value
     if isinstance(dom, TypeEither) and isinstance(cod, TypeEither):
@@ -218,103 +179,72 @@ def _realize_symmetry(dom: Type, cod: Type) -> Term:
     )
 
 
-def _realize_structural(node: expr.MorphismExpr) -> Term:
-    fn = _SIMPLE_STRUCTURAL.get(type(node))
-    if fn is not None:
-        return fn()
-    if isinstance(node, expr.Assoc):
-        return T.term_lambda(
-            "p",
-            lambda p: P.pair(
-                P.first(P.first(p)),
-                P.pair(P.second(P.first(p)), P.second(p)),
-            ),
-        ).value
-    if isinstance(node, expr.DistributeLeft):
-        # A × (B+C) → (A×B)+(A×C)  via eithers.bimap pairing left component
-        return T.term_lambda(
-            "p",
-            lambda p: P.apply(
-                T.eithers_bimap(
-                    T.term_lambda("b", lambda b: P.pair(P.first(p), b)),
-                    T.term_lambda("c", lambda c: P.pair(P.first(p), c)),
-                ),
-                P.second(p),
-            ),
-        ).value
-    if isinstance(node, expr.DistributeRight):
-        # (A+B) × C → (A×C)+(B×C)  via eithers.bimap pairing right component
-        return T.term_lambda(
-            "p",
-            lambda p: P.apply(
-                T.eithers_bimap(
-                    T.term_lambda("a", lambda a: P.pair(a, P.second(p))),
-                    T.term_lambda("b", lambda b: P.pair(b, P.second(p))),
-                ),
-                P.first(p),
-            ),
-        ).value
-    return _realize_symmetry(node.dom, node.cod)  # type: ignore[union-attr]
-
-
-def _realize_recursive(node: expr.MorphismExpr, _prims) -> Term:
-    if isinstance(node, expr.MonadicEmbed):
-        f_term = realize_term(node.f, _prims)
-        return T.term_lambda("x", lambda x: T.pure(node.monad, P.apply(f_term, x))).value
-    if isinstance(node, expr.Compose):
-        if node.monad is None:
-            return _contextual_term(
-                node,
-                lambda value, call_f, call_g: call_g(call_f(value)),
-                _prims,
-            )
-        return _contextual_term(
-            node,
-            lambda value, call_f, call_g: T.bind(node.monad, call_f(value), "ctx_b", call_g),
-            _prims,
-        )
-    if isinstance(node, expr.Parallel):
-        return _contextual_term(
-            node,
-            lambda value, call_f, call_g: T.pair_effects(
-                node.monad, call_f(P.first(value)), call_g(P.second(value))
-            ),
-            _prims,
-        )
-    if isinstance(node, expr.Pair):
-        return _contextual_term(
-            node,
-            lambda value, call_f, call_g: T.pair_effects(
-                node.monad, call_f(value), call_g(value)
-            ),
-            _prims,
-        )
-    return _contextual_term(
-        node,
-        lambda value, call_f, call_g: P.apply(
-            T.eithers_either(
-                T.term_lambda("ctx_left", lambda v: call_f(v)),
-                T.term_lambda("ctx_right", lambda v: call_g(v)),
-            ),
-            value,
+def _realize_assoc() -> Term:
+    return T.term_lambda(
+        "p",
+        lambda p: P.pair(
+            P.first(P.first(p)),
+            P.pair(P.second(P.first(p)), P.second(p)),
         ),
-        _prims,
-    )
+    ).value
+
+
+def _realize_distribute(fixed, sumpart, mk_pair) -> Term:
+    return T.term_lambda(
+        "p",
+        lambda p: P.apply(
+            T.eithers_bimap(
+                T.term_lambda("a", lambda a: mk_pair(fixed(p), a)),
+                T.term_lambda("b", lambda b: mk_pair(fixed(p), b)),
+            ),
+            sumpart(p),
+        ),
+    ).value
+
+
+def _realize_distribute_left() -> Term:
+    return _realize_distribute(P.first, P.second, P.pair)
+
+
+def _realize_distribute_right() -> Term:
+    return _realize_distribute(P.second, P.first, lambda fixed, x: P.pair(x, fixed))
+
+
+def _realize_monadic_embed(node: expr.MonadicEmbed, _prims) -> Term:
+    f_term = realize_term(node.f, _prims)
+    return T.term_lambda("x", lambda x: T.pure(node.monad, P.apply(f_term, x))).value
+
+
+def _compose_op(n, v, f, g):
+    if n.monad is None:
+        return g(f(v))
+    return T.bind(n.monad, f(v), "ctx_b", g)
+
+
+def _pair_effects_op(left_of, right_of):
+    return lambda n, v, f, g: T.pair_effects(n.monad, f(left_of(v)), g(right_of(v)))
+
+
+def _case_op(_n, v, f, g):
+    branches = T.eithers_either(T.term_lambda("ctx_left", f), T.term_lambda("ctx_right", g))
+    return P.apply(branches, v)
 
 
 def _realize_poly_fmap(node: expr.PolyFmap, _prims) -> Term:
     h_term = realize_term(node.f, _prims)
     if node.param == TypeUnit():
         return poly_action_term(node.body, h_term, node.monad).value
-    return T.term_lambda("ctx_x", lambda ctx_x: _apply_parametric_poly_fmap(node, h_term, ctx_x)).value
+    return T.term_lambda(
+        "ctx_x", lambda ctx_x: _apply_parametric_poly_fmap(node, h_term, ctx_x)
+    ).value
 
 
 def _realize_alg_expr(node: expr.AlgExpr, _prims) -> Term:
     prim_name = Name(node.name)
-    raw_body_ref = [None]
+    raw_body_term = None
 
     def impl(ctx, graph, args):
-        term = Terms.apply(raw_body_ref[0].value, args[0])
+        term = Terms.apply(raw_body_term.value, args[0])  # type: ignore[union-attr]
         result = R.reduce_term(ctx, graph, True, term)
         if isinstance(result, Right):
             return result
@@ -327,7 +257,7 @@ def _realize_alg_expr(node: expr.AlgExpr, _prims) -> Term:
     )
     if _prims is not None:
         _prims.append(prim)
-    raw_body_ref[0] = TTerm(realize(node.body, _prims))
+    raw_body_term = TTerm(realize(node.body, _prims))
     return P.primitive(prim_name).value
 
 
@@ -340,30 +270,49 @@ def _realize_backend_prim(node: expr.BackendPrim, _prims) -> Term:
     return T.term_lambda("x", _build_applied).value
 
 
-def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
-    """Translate a morphism expression into a raw Hydra term.
+_FIXED_MORPHISMS: dict = {
+    expr.Identity:       lambda n, _p: P.identity().value,
+    expr.Copy:           lambda n, _p: T.term_lambda("x", lambda x: P.pair(x, x)).value,
+    expr.Delete:         lambda n, _p: P.constant(P.unit()).value,
+    expr.First:          lambda n, _p: T.pair_first().value,
+    expr.Second:         lambda n, _p: T.pair_second().value,
+    expr.Left:           lambda n, _p: T.left_injection().value,
+    expr.Right:          lambda n, _p: T.right_injection().value,
+    expr.Absurd:         lambda n, _p: T.absurd().value,
+    expr.Symmetry:       lambda n, _p: _realize_symmetry(n),
+    expr.Assoc:          lambda _n, _p: _realize_assoc(),
+    expr.DistributeLeft: lambda _n, _p: _realize_distribute_left(),
+    expr.DistributeRight: lambda _n, _p: _realize_distribute_right(),
+}
 
-    When ``_prims`` is supplied, recursive scheme primitives created while
-    realizing ``AlgExpr``/``Cata``/``Ana`` nodes are appended to that list for
-    the caller to add to the runtime graph.
-    """
-    if type(node) in _SIMPLE_STRUCTURAL or isinstance(node, (expr.Assoc, expr.Symmetry, expr.DistributeLeft, expr.DistributeRight)):
-        return _realize_structural(node)
-    if isinstance(node, (expr.MonadicEmbed, expr.Compose, expr.Parallel, expr.Pair, expr.Case)):
-        return _realize_recursive(node, _prims)
-    if isinstance(node, expr.PolyFmap):
-        return _realize_poly_fmap(node, _prims)
-    if isinstance(node, expr.AlgExpr):
-        return _realize_alg_expr(node, _prims)
+_CONTEXTUAL_MORPHISMS: dict = {
+    expr.Compose:  _compose_op,
+    expr.Parallel: _pair_effects_op(P.first, P.second),
+    expr.Pair:     _pair_effects_op(lambda v: v, lambda v: v),
+    expr.Case:     _case_op,
+}
+
+_SPECIAL_MORPHISMS: dict = {
+    expr.MonadicEmbed: _realize_monadic_embed,
+    expr.PolyFmap:     _realize_poly_fmap,
+    expr.AlgExpr:      _realize_alg_expr,
+    expr.BackendPrim:  _realize_backend_prim,
+    expr.SelfRef:      lambda n, _p: P.primitive(Name(n.name)).value,
+    expr.Prim:         lambda n, _p: n.raw,
+}
+
+
+def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
+    """Translate a morphism expression into a raw Hydra term."""
+    for handlers in (_FIXED_MORPHISMS, _SPECIAL_MORPHISMS):
+        handler = handlers.get(type(node))
+        if handler is not None:
+            return handler(node, _prims)
+    if type(node) in _CONTEXTUAL_MORPHISMS:
+        return _contextual_term(node, _prims)
     if isinstance(node, expr.DomainPrim):
         raise NotImplementedError(
             f"DomainPrim({node.tag!r}) must be rewritten before realize — "
             f"ensure the domain's finalize hook ran"
         )
-    if isinstance(node, expr.BackendPrim):
-        return _realize_backend_prim(node, _prims)
-    if isinstance(node, expr.SelfRef):
-        return P.primitive(Name(node.name)).value
-    if isinstance(node, expr.Prim):
-        return node.raw
     raise TypeError(f"realize: unknown MorphismExpr {type(node).__name__!r}")

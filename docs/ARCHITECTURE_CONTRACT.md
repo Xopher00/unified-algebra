@@ -38,7 +38,7 @@ syntax, semantics, structure, or orchestration.
 
 ### `syntax/expressions.py` — expression syntax
 - `MorphismExpr` sealed ADT: Identity, Copy, Delete, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (Compose, SharedCompose, Parallel, Pair, Case), PolyFmap, SelfRef, AlgExpr, Cata, Ana, Prim, DomainPrim, BackendPrim
-- `PolyExpr` sealed ADT: Zero, One, Id, Const, Sum, Prod, Exp, List, Maybe
+- `PolyExpr` sealed ADT: Zero, One, Id, Const, Sum, Prod, Exp(base: PolyExpr, body), PolyCompose, List, Maybe
 - `pretty` display via singledispatch
 - Frozen dataclasses; no Hydra term imports
 

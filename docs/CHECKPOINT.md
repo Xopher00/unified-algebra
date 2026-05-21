@@ -1,6 +1,6 @@
-# Checkpoint — Current State (2026-05-21)
+# Checkpoint — Current State (2026-05-22)
 
-**Tests:** 415 passing, 4 skipped. All import-linter boundaries clean.
+**Tests:** 449 passing, 4 skipped. All import-linter boundaries clean.
 
 ---
 
@@ -20,7 +20,8 @@ Do not revisit or redesign the following.
 - Distributivity: `distribute_left(a,b,c) : A×(B+C)→(A×B)+(A×C)`, `distribute_right(a,b,c) : (A+B)×C→(A×C)+(B×C)`; DSL keywords `distl`, `distr`
 - `merge(a) : A+A→A` — codiagonal; derivable as `case(id,id)` but named in the vocabulary; DSL keyword `merge`
 - `ContextualBinary` subclasses carry `f, g, f_param, g_param, param, monad, dom, cod` — dom/cod are stored and authoritative
-- `PolyExpr` ADT: Zero, One, Id, Const(space), Sum(l,r), Prod(l,r), Exp(base: Type, body), List(body), Maybe(body)
+- `PolyExpr` ADT: Zero, One, Id, Const(space), Sum(l,r), Prod(l,r), Exp(base: PolyExpr, body), PolyCompose(l,r), List(body), Maybe(body)
+- Extension activation: `extensions.enable("tensors")` / `is_enabled("tensors")`; DSL `load extension tensors`; auto-registration removed from `tensors/__init__.py`
 - `Functor(name, body: PolyExpr)` — named polynomial endofunctor; `apply`, `unapply`, `compose`, `map` as instance methods
 - `apply_poly(body, space)` — pure type substitution F(space)
 - `realize(node: MorphismExpr)` → raw Hydra term; explicit call, no monkey-patch

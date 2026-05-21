@@ -3,10 +3,8 @@ from hypothesis import assume, given, settings
 
 from hydra.core import (
     EitherType,
-    FunctionType,
     PairType,
     TypeEither,
-    TypeFunction,
     TypeList,
     TypeMaybe,
     TypePair,
@@ -16,7 +14,7 @@ from unialg.syntax import expressions as expr
 from unialg.semantics import morphisms as ops
 from unialg.semantics import functors as sem
 from unialg.semantics import typeops as Ty
-from unialg.objects import LIST, MAYBE
+from unialg.objects import LIST, MAYBE, ExpType
 from support.strategies import (
     UNIT,
     VOID,
@@ -75,8 +73,9 @@ def test_apply_poly_matches_polynomial_structure(body, space):
             sem.apply_poly(body.right, space),
         )
     elif isinstance(body, expr.Exp):
-        assert result == TypeFunction(
-            FunctionType(body.base, sem.apply_poly(body.body, space))
+        assert result == ExpType(
+            sem.apply_poly(body.base, UNIT),
+            sem.apply_poly(body.body, space),
         )
     else:
         pytest.fail(f"unhandled body: {body!r}")
@@ -476,7 +475,7 @@ def test_polyexpr_constructor_functions_return_matching_nodes(space, left, right
     assert sem.const(space) == expr.Const(space)
     assert sem.sum_(left, right) == expr.Sum(left, right)
     assert sem.prod(left, right) == expr.Prod(left, right)
-    assert sem.exp(space, left) == expr.Exp(space, left)
+    assert sem.exp(expr.Const(space), left) == expr.Exp(expr.Const(space), left)
 
 
 @settings(max_examples=60)

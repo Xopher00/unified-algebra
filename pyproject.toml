@@ -45,6 +45,18 @@ dev = [
     "pynguin>=0.45.0",
 ]
 
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "C90", "PLW", "PLC", "RUF", "COM"]
+ignore = [
+    "ARG",    # dispatch dicts use uniform (n, _p) / (b, h, m) signatures
+    "TRY003", # long exception messages in raise
+    "EM",     # exception string style
+    "COM812", # trailing comma conflicts with formatter
+]
+
 [tool.importlinter]
 root_packages = ["unialg"]
 

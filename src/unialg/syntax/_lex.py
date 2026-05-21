@@ -184,6 +184,7 @@ def _functor_token():
         _lit(")",  "RPAREN"),
         _lit("[",  "LBRACKET"),
         _lit("]",  "RBRACKET"),
+        _lit(",",  "COMMA"),
         _lit("?",  "QUESTION"),
         P.bind(_raw_int(),   lambda n: P.pure(("INT",  n))),
         P.bind(_raw_ident(), lambda s: P.pure(("NAME", s))),

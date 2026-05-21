@@ -47,60 +47,6 @@ def _share_param(f_param: Type, g_param: Type, *, graph=None, allow_unification:
         raise MorphismError(str(e)) from e
 
 
-# ---------------------------------------------------------------------------
-# Monad resolution
-# ---------------------------------------------------------------------------
-
-def _resolve_monad(*morphisms: Morphism) -> Monad | None:
-    """Return the unique non-None monad among morphisms, or reject conflicts."""
-    monads = {m.monad for m in morphisms if m.monad is not None}
-    if len(monads) > 1:
-        raise MorphismError(f"conflicting monads: {monads!r}")
-    return monads.pop() if monads else None
-
-
-def raw_signature(param: Type, monad: Monad | None, dom: Type, cod: Type) -> tuple[Type, Type]:
-    """Return the raw term signature for a visible morphism signature."""
-    raw_dom = dom if param == TypeUnit() else ProductType(param, dom)
-    raw_cod = cod if monad is None else monad.wrap(cod)
-    return raw_dom, raw_cod
-
-
-def _contextual_binary(
-    cls, f: Morphism, g: Morphism,
-    dom: Type, cod: Type, *,
-    shared_context: bool = False,
-    graph=None,
-    allow_unification: bool = False,
-) -> Morphism:
-    """Construct a binary contextual morphism node, resolving monad and parameter context.
-
-    Wraps ``f`` and ``g`` into a ``cls`` node (one of ``Compose``, ``Parallel``,
-    ``Pair``, ``Case``) with the resolved combined domain and codomain.  Plain
-    morphisms are automatically embedded into a shared lax context.
-    """
-    monad = _resolve_monad(f, g)
-    param = (
-        _share_param(
-            f.param, g.param,
-            graph=graph,
-            allow_unification=allow_unification,
-        )
-        if shared_context else
-        Ty.combine_params(f.param, g.param)
-    )
-    raw_dom, raw_cod = raw_signature(param, monad, dom, cod)
-    return Morphism(
-        node=cls(
-            f.node_in(monad), g.node_in(monad),
-            f.param, g.param, param, monad, raw_dom, raw_cod,
-        ),
-        param=param,
-        monad=monad,
-        aux_primitives=_collect_aux_primitives(f, g),
-    )
-
-
 @dataclass(frozen=True)
 class Morphism:
     """Typed handle for a morphism expression.
@@ -164,166 +110,129 @@ def _lr(t: TypePair | TypeEither) -> tuple[Type, Type]:
     return (t.value.first, t.value.second) if isinstance(t, TypePair) else (t.value.left, t.value.right)
 
 
-def _is_assoc(dom: Type, cod: Type, cls: type) -> bool:
-    """Return True if (dom, cod) has the shape ``(A⋆B)⋆C → A⋆(B⋆C)`` for ``cls``."""
-    if not (isinstance(dom, cls) and isinstance(cod, cls)):
-        return False
-    dl, dr = _lr(dom)
-    cl, cr = _lr(cod)
-    if not (isinstance(dl, cls) and isinstance(cr, cls)):
-        return False
-    dll, dlr = _lr(dl)
-    crl, crr = _lr(cr)
-    return dll == cl and dlr == crl and dr == crr
+def _assoc_cod(dom: Type) -> Type | None:
+    """Build ``A⋆(B⋆C)`` from ``(A⋆B)⋆C``, or None if dom is wrong shape."""
+    if not isinstance(dom, (TypePair, TypeEither)):
+        return None
+    dl, c = _lr(dom)
+    if not isinstance(dl, type(dom)):
+        return None
+    a, b = _lr(dl)
+    make = ProductType if isinstance(dom, TypePair) else SumType
+    return make(a, make(b, c))
 
 
-def _is_symmetry(dom: Type, cod: Type, cls: type) -> bool:
-    """Return True if (dom, cod) has the shape ``A⋆B → B⋆A`` for ``cls``."""
-    if not (isinstance(dom, cls) and isinstance(cod, cls)):
-        return False
-    dl, dr = _lr(dom)
-    cl, cr = _lr(cod)
-    return dl == cr and dr == cl
+def _symmetry_cod(dom: Type) -> Type | None:
+    """Build ``B⋆A`` from ``A⋆B``, or None if dom is wrong shape."""
+    if not isinstance(dom, (TypePair, TypeEither)):
+        return None
+    l, r = _lr(dom)
+    make = ProductType if isinstance(dom, TypePair) else SumType
+    return make(r, l)
 
 
-def _is_distribute_left(dom: Type, cod: Type) -> bool:
-    """Return True if (dom, cod) has the shape ``A × (B + C) → (A × B) + (A × C)``."""
-    if not (isinstance(dom, TypePair) and isinstance(cod, TypeEither)):
-        return False
+def _distl_cod(dom: Type) -> Type | None:
+    """Build ``(A×B)+(A×C)`` from ``A×(B+C)``, or None if dom is wrong shape."""
+    if not isinstance(dom, TypePair):
+        return None
     a, bc = _lr(dom)
     if not isinstance(bc, TypeEither):
-        return False
+        return None
     b, c = _lr(bc)
-    ab, ac = _lr(cod)
-    return (
-        isinstance(ab, TypePair) and isinstance(ac, TypePair)
-        and _lr(ab) == (a, b) and _lr(ac) == (a, c)
-    )
+    return SumType(ProductType(a, b), ProductType(a, c))
 
 
-def _is_distribute_right(dom: Type, cod: Type) -> bool:
-    """Return True if (dom, cod) has the shape ``(A + B) × C → (A × C) + (B × C)``."""
-    if not (isinstance(dom, TypePair) and isinstance(cod, TypeEither)):
-        return False
+def _distr_cod(dom: Type) -> Type | None:
+    """Build ``(A×C)+(B×C)`` from ``(A+B)×C``, or None if dom is wrong shape."""
+    if not isinstance(dom, TypePair):
+        return None
     ab, c = _lr(dom)
     if not isinstance(ab, TypeEither):
-        return False
+        return None
     a, b = _lr(ab)
-    ac, bc = _lr(cod)
-    return (
-        isinstance(ac, TypePair) and isinstance(bc, TypePair)
-        and _lr(ac) == (a, c) and _lr(bc) == (b, c)
-    )
+    return SumType(ProductType(a, c), ProductType(b, c))
 
 
 # ---------------------------------------------------------------------------
 # Type derivation
 # ---------------------------------------------------------------------------
 
-# Nodes whose dom/cod are stored directly in fields — no child recursion needed.
+_U  = TypeUnit()
+_PU = ProductType(_U, _U)
+_SU = SumType(_U, _U)
+
 _SELF_DESCRIBING = (
     expr.ContextualBinary, expr.Prim, expr.DomainPrim,
     expr.BackendPrim, expr.PolyFmap, expr.SelfRef, expr.AlgExpr,
 )
 
+_SIG_LEAF: dict = {
+    expr.Identity:     lambda n, pn: (n.space, n.space),
+    expr.Copy:         lambda n, pn: (n.space, ProductType(n.space, n.space)),
+    expr.Delete:       lambda n, pn: (n.space, TypeUnit()),
+    expr.First:        lambda n, pn: (n.ab, n.ab.value.first),
+    expr.Second:       lambda n, pn: (n.ab, n.ab.value.second),
+    expr.Left:         lambda n, pn: (n.ab.value.left, n.ab),
+    expr.Right:        lambda n, pn: (n.ab.value.right, n.ab),
+    expr.Absurd:       lambda n, pn: (VoidType(), n.cod),
+    expr.MonadicEmbed: lambda n, pn: (dom_of(n.f, pn), n.monad.wrap(cod_of(n.f, pn))),
+}
 
-def _signature_leaf(node: expr.MorphismExpr) -> tuple[Type, Type] | None:
-    """Return the signature for leaf (non-recursive) primitive expressions."""
-    match node:
-        case expr.Identity(space):
-            return space, space
-        case expr.Copy(space):
-            return space, ProductType(space, space)
-        case expr.Delete(space):
-            return space, TypeUnit()
-        case expr.First(ab):
-            return ab, ab.value.first
-        case expr.Second(ab):
-            return ab, ab.value.second
-        case expr.Left(ab):
-            return ab.value.left, ab
-        case expr.Right(ab):
-            return ab.value.right, ab
-        case expr.Absurd(cod):
-            return VoidType(), cod
-    return None
+_SIG_BINARY: dict = {
+    expr.Compose:  (_U,  _U,  lambda n, pn: (dom_of(n.f, pn), cod_of(n.g, pn))),
+    expr.Parallel: (_PU, _PU, lambda n, pn: (ProductType(dom_of(n.f, pn), dom_of(n.g, pn)), ProductType(cod_of(n.f, pn), cod_of(n.g, pn)))),
+    expr.Pair:     (_U,  _PU, lambda n, pn: (dom_of(n.f, pn), ProductType(cod_of(n.f, pn), cod_of(n.g, pn)))),
+    expr.Case:     (_SU, _U,  lambda n, pn: (SumType(dom_of(n.f, pn), dom_of(n.g, pn)), cod_of(n.f, pn))),
+}
 
-
-_VALIDATED_STRUCTURAL: dict[type, tuple[object, str]] = {
-    expr.Assoc: (
-        lambda dom, cod: _is_assoc(dom, cod, TypePair) or _is_assoc(dom, cod, TypeEither),
-        "Assoc expects (A⋆B)⋆C -> A⋆(B⋆C)",
-    ),
-    expr.Symmetry: (
-        lambda dom, cod: _is_symmetry(dom, cod, TypePair) or _is_symmetry(dom, cod, TypeEither),
-        "Symmetry expects A⋆B -> B⋆A",
-    ),
-    expr.DistributeLeft: (_is_distribute_left, "DistributeLeft expects A × (B + C) → (A × B) + (A × C)"),
-    expr.DistributeRight: (_is_distribute_right, "DistributeRight expects (A + B) × C → (A × C) + (B × C)"),
+_SIG_VALIDATED: dict = {
+    expr.Assoc:            (_assoc_cod, "Assoc expects (A⋆B)⋆C -> A⋆(B⋆C)"),
+    expr.Symmetry:         (_symmetry_cod, "Symmetry expects A⋆B -> B⋆A"),
+    expr.DistributeLeft:   (_distl_cod, "DistributeLeft expects A×(B+C) → (A×B)+(A×C)"),
+    expr.DistributeRight:  (_distr_cod, "DistributeRight expects (A+B)×C → (A×C)+(B×C)"),
 }
 
 
-def _signature_validated(node: expr.MorphismExpr) -> tuple[Type, Type] | None:
-    """Return the signature for structural nodes that carry explicit dom/cod."""
-    entry = _VALIDATED_STRUCTURAL.get(type(node))
-    if entry is None:
-        return None
-    predicate, message = entry
-    dom, cod = node.dom, node.cod  # type: ignore[attr-defined]
-    if not predicate(dom, cod):
+def _resolve_binary(node, param_names, exp_dom, exp_cod, compute):
+    if node.dom == exp_dom and node.cod == exp_cod:
+        return compute(node, param_names)
+    return node.dom, node.cod
+
+
+def _resolve_validated(node, build_cod, message):
+    expected = build_cod(node.dom)
+    if expected is None or expected != node.cod:
         raise MorphismError(message)
-    return dom, cod
+    return node.dom, node.cod
 
 
-def _signature_recursive(
-    node: expr.MorphismExpr,
-    param_names: frozenset[str],
-) -> tuple[Type, Type] | None:
-    """Return the signature for nodes that recurse into children."""
-    match node:
-        case expr.MonadicEmbed(f=f, monad=monad):
-            return dom_of(f, param_names), monad.wrap(cod_of(f, param_names))
-        case expr.Compose(f=f, g=g, dom=dom, cod=cod) if dom == TypeUnit() and cod == TypeUnit():
-            return dom_of(f, param_names), cod_of(g, param_names)
-        case expr.Parallel(f=f, g=g, dom=dom, cod=cod) if dom == ProductType(TypeUnit(), TypeUnit()) and cod == ProductType(TypeUnit(), TypeUnit()):
-            return ProductType(dom_of(f, param_names), dom_of(g, param_names)), ProductType(cod_of(f, param_names), cod_of(g, param_names))
-        case expr.Pair(f=f, g=g, dom=dom, cod=cod) if dom == TypeUnit() and cod == ProductType(TypeUnit(), TypeUnit()):
-            return dom_of(f, param_names), ProductType(cod_of(f, param_names), cod_of(g, param_names))
-        case expr.Case(f=f, g=g, dom=dom, cod=cod) if dom == SumType(TypeUnit(), TypeUnit()) and cod == TypeUnit():
-            return SumType(dom_of(f, param_names), dom_of(g, param_names)), cod_of(f, param_names)
-    return None
+def _resolve_ref(node, param_names):
+    if node.name in param_names:
+        tv = TypeVariable(Name(node.name))
+        return tv, tv
+    raise MorphismError(f"signature: unresolved reference {node.name!r}")
 
 
 def signature(
     node: expr.MorphismExpr,
     param_names: frozenset[str] = frozenset(),
 ) -> tuple[Type, Type]:
-    """Derive the object-level arrow signature for a morphism expression.
-
-    Contextual nodes and primitives are self-describing because their type
-    checks occurred at construction time.  Placeholder-typed nodes (from the
-    parser) derive types from children.  Ref nodes for declared parameters
-    become type variables.
-    """
-    leaf = _signature_leaf(node)
+    """Derive the object-level arrow signature for a morphism expression."""
+    t = type(node)
+    leaf = _SIG_LEAF.get(t)
     if leaf is not None:
-        return leaf
+        return leaf(node, param_names)
+    binary = _SIG_BINARY.get(t)
+    if binary is not None:
+        return _resolve_binary(node, param_names, *binary)
     if isinstance(node, _SELF_DESCRIBING):
         return node.dom, node.cod
-    rec = _signature_recursive(node, param_names)
-    if rec is not None:
-        return rec
-    validated = _signature_validated(node)
+    validated = _SIG_VALIDATED.get(t)
     if validated is not None:
-        return validated
-    match node:
-        case expr.Ref(name=name):
-            if name in param_names:
-                tv = TypeVariable(Name(name))
-                return tv, tv
-            raise MorphismError(f"signature: unresolved reference {name!r}")
-        case _:
-            raise TypeError(f"signature: unknown MorphismExpr {type(node).__name__!r}")
+        return _resolve_validated(node, *validated)
+    if isinstance(node, expr.Ref):
+        return _resolve_ref(node, param_names)
+    raise TypeError(f"signature: unknown MorphismExpr {t.__name__!r}")
 
 
 def dom_of(node: expr.MorphismExpr, param_names: frozenset[str] = frozenset()) -> Type:
@@ -381,46 +290,83 @@ def absurd(cod: Type) -> Morphism:
 
 
 def _assoc(dom: TypePair | TypeEither) -> Morphism:
-    """Reassociation ``(A ⋆ B) ⋆ C → A ⋆ (B ⋆ C)``, for product or sum."""
-    dl, c = _lr(dom)
-    a, b = _lr(dl)
-    make = ProductType if isinstance(dom, TypePair) else SumType
-    return Morphism(node=expr.Assoc(dom, make(a, make(b, c))))
+    return Morphism(node=expr.Assoc(dom, _assoc_cod(dom)))
 
 
 def _symmetry(dom: TypePair | TypeEither) -> Morphism:
-    """Swap ``A ⋆ B → B ⋆ A``, for product or sum."""
-    left, r = _lr(dom)
-    make = ProductType if isinstance(dom, TypePair) else SumType
-    return Morphism(node=expr.Symmetry(dom, make(r, left)))
+    return Morphism(node=expr.Symmetry(dom, _symmetry_cod(dom)))
 
 
 def distribute_left(a: Type, b: Type, c: Type) -> Morphism:
     """A × (B + C) → (A × B) + (A × C)."""
     dom = ProductType(a, SumType(b, c))
-    cod = SumType(ProductType(a, b), ProductType(a, c))
-    return Morphism(node=expr.DistributeLeft(dom, cod))
+    return Morphism(node=expr.DistributeLeft(dom, _distl_cod(dom)))
 
 
 def distribute_right(a: Type, b: Type, c: Type) -> Morphism:
     """(A + B) × C → (A × C) + (B × C)."""
     dom = ProductType(SumType(a, b), c)
-    cod = SumType(ProductType(a, c), ProductType(b, c))
-    return Morphism(node=expr.DistributeRight(dom, cod))
+    return Morphism(node=expr.DistributeRight(dom, _distr_cod(dom)))
 
 
-def _distribute_left(dom: TypePair) -> Morphism:
-    """distl from a product domain A × (B + C)."""
-    a, bc = _lr(dom)
-    b, c = _lr(bc)
-    return distribute_left(a, b, c)
+
+# ---------------------------------------------------------------------------
+# Monad resolution
+# ---------------------------------------------------------------------------
+
+def _resolve_monad(*morphisms: Morphism) -> Monad | None:
+    """Return the unique non-None monad among morphisms, or reject conflicts."""
+    monads = {m.monad for m in morphisms if m.monad is not None}
+    if len(monads) > 1:
+        raise MorphismError(f"conflicting monads: {monads!r}")
+    return monads.pop() if monads else None
 
 
-def _distribute_right(dom: TypePair) -> Morphism:
-    """distr from a product domain (A + B) × C."""
-    ab, c = _lr(dom)
-    a, b = _lr(ab)
-    return distribute_right(a, b, c)
+def raw_signature(param: Type, monad: Monad | None, dom: Type, cod: Type) -> tuple[Type, Type]:
+    """Return the raw term signature for a visible morphism signature."""
+    raw_dom = dom if param == TypeUnit() else ProductType(param, dom)
+    raw_cod = cod if monad is None else monad.wrap(cod)
+    return raw_dom, raw_cod
+
+
+_BINARY_SIG: dict = {
+    expr.Compose:  lambda f, g: (f.dom(), g.cod()),
+    expr.Parallel: lambda f, g: (ProductType(f.dom(), g.dom()), ProductType(f.cod(), g.cod())),
+    expr.Pair:     lambda f, g: (f.dom(), ProductType(f.cod(), g.cod())),
+    expr.Case:     lambda f, g: (SumType(f.dom(), g.dom()), f.cod()),
+}
+
+
+def _contextual_binary(
+    cls, f: Morphism, g: Morphism, *,
+    dom_override: Type | None = None,
+    shared_context: bool = False,
+    graph=None,
+    allow_unification: bool = False,
+) -> Morphism:
+    dom, cod = _BINARY_SIG[cls](f, g)
+    if dom_override is not None:
+        dom = dom_override
+    monad = _resolve_monad(f, g)
+    param = (
+        _share_param(
+            f.param, g.param,
+            graph=graph,
+            allow_unification=allow_unification,
+        )
+        if shared_context else
+        Ty.combine_params(f.param, g.param)
+    )
+    raw_dom, raw_cod = raw_signature(param, monad, dom, cod)
+    return Morphism(
+        node=cls(
+            f.node_in(monad), g.node_in(monad),
+            f.param, g.param, param, monad, raw_dom, raw_cod,
+        ),
+        param=param,
+        monad=monad,
+        aux_primitives=_collect_aux_primitives(f, g),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -438,18 +384,18 @@ def compose(f: Morphism, g: Morphism, *, shared_context: bool = False,
     ``g.param × f.param``.  With ``shared_context=True``, matching non-unit
     params are shared instead; distinct non-unit params are rejected.
     """
-    dom = f.dom()
+    dom_override = None
     try:
         if allow_unification and f.cod() != g.dom():
             match = Ty.unify(f.cod(), g.dom(), "Cannot compose morphisms")
-            dom = Ty.apply_subst(match.substitution, dom)
+            dom_override = Ty.apply_subst(match.substitution, f.dom())
         else:
             Ty.require_equal(graph, f.cod(), g.dom(), "Cannot compose morphisms")
     except TypeError as e:
         raise MorphismError(str(e)) from e
     return _contextual_binary(
         expr.Compose, f, g,
-        dom, g.cod(),
+        dom_override=dom_override,
         shared_context=shared_context,
         graph=graph,
         allow_unification=allow_unification,
@@ -464,57 +410,28 @@ def par(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
     """
     return _contextual_binary(
         expr.Parallel, f, g,
-        ProductType(f.dom(), g.dom()),
-        ProductType(f.cod(), g.cod()),
         shared_context=shared_context,
     )
 
 
-def pair(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, allow_unification: bool = False) -> Morphism:
-    """Product introduction ``<f, g> : A -> B × C``.
-
-    Requires both morphisms to have the same visible domain.
-    """
+def _validated_binary(
+    cls, f: Morphism, g: Morphism,
+    left: Type, right: Type, message: str, **kw,
+) -> Morphism:
     try:
-        Ty.unify_or_equal(
-            graph, f.dom(), g.dom(),
-            "Cannot build pair",
-            allow_unification=allow_unification,
-        )
+        Ty.unify_or_equal(kw.get("graph"), left, right, message, allow_unification=kw.get("allow_unification", False))
     except TypeError as e:
         raise MorphismError(str(e)) from e
-    return _contextual_binary(
-        expr.Pair, f, g,
-        f.dom(), ProductType(f.cod(), g.cod()),
-        shared_context=shared_context,
-        graph=graph,
-        allow_unification=allow_unification,
-    )
+    return _contextual_binary(cls, f, g, **kw)
+
+
+def pair(f: Morphism, g: Morphism, **kw) -> Morphism:
+    return _validated_binary(expr.Pair, f, g, f.dom(), g.dom(), "Cannot build pair", **kw)
 
 
 def merge(a: Type) -> Morphism:
-    """Codiagonal ``A + A → A``. Derivable as ``case(id, id)``."""
     return case(identity(a), identity(a))
 
 
-def case(f: Morphism, g: Morphism, *, shared_context: bool = False, graph=None, allow_unification: bool = False) -> Morphism:
-    """Coproduct elimination ``[f, g] : A + B -> C``.
-
-    Requires both branches to have the same visible codomain.
-    """
-    try:
-        Ty.unify_or_equal(
-            graph, f.cod(), g.cod(),
-            "Cannot build case",
-            allow_unification=allow_unification,
-        )
-    except TypeError as e:
-        raise MorphismError(str(e)) from e
-
-    return _contextual_binary(
-        expr.Case, f, g,
-        SumType(f.dom(), g.dom()), f.cod(),
-        shared_context=shared_context,
-        graph=graph,
-        allow_unification=allow_unification,
-    )
+def case(f: Morphism, g: Morphism, **kw) -> Morphism:
+    return _validated_binary(expr.Case, f, g, f.cod(), g.cod(), "Cannot build case", **kw)

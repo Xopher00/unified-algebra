@@ -67,7 +67,7 @@ def _slot_shape(labels: tuple[str, ...]):
     """
     if not labels:
         return expr.Id()
-    return expr.Exp(_index_product(labels), expr.Id())
+    return expr.Exp(expr.Const(_index_product(labels)), expr.Id())
 
 
 def _exp_shape_from_equation(eq):

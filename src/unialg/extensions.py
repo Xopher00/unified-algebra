@@ -59,3 +59,19 @@ def registered_keywords() -> frozenset[str]:
 
 def registered_domains() -> frozenset[str]:
     return frozenset(_domain_protocols)
+
+
+_enabled: set[str] = set()
+
+
+def enable(name: str) -> None:
+    if name in _enabled:
+        return
+    import importlib
+    module = importlib.import_module(f"unialg.{name}")
+    module._register()
+    _enabled.add(name)
+
+
+def is_enabled(name: str) -> bool:
+    return name in _enabled

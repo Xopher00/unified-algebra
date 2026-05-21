@@ -157,7 +157,13 @@ def parse_program(src: str) -> Program:
     while cursor.peek()[0] != "EOF":
         kw_tok = cursor.advance()
         if kw_tok[0] == "LOAD":
-            loads.append(str(cursor.expect("NAME", "backend name")[1]))
+            qualifier = str(cursor.expect("NAME", "backend or extension")[1])
+            if qualifier == "extension":
+                ext_name = str(cursor.expect("NAME", "extension name")[1])
+                from unialg.extensions import enable as _enable_ext
+                _enable_ext(ext_name)
+            else:
+                loads.append(qualifier)
             continue
         if kw_tok[0] not in ("LET", "SHAPE"):
             _handle_extension(cursor, prog, kw_tok)

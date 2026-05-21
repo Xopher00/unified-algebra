@@ -80,8 +80,10 @@ identity, compose, parallel, pair, case, map, associate, swap, distribute, copy,
 
 **Precondition met**: `merge` and `distl`/`distr` are now implemented in Tier 1, so this is an audit rather than a design exercise: confirm every item is consistently present and named across `morphisms.py`, `optics.py`, `functors.py`. Prevents each layer from inventing its own wiring semantics. Directly informs what the `construct` elaboration phase (Tier 4) should produce.
 
-### `Exp.base: Type → PolyExpr`
-**Impact: High** | **Complexity: Medium**
+### ~~`Exp.base: Type → PolyExpr`~~ ✓
+**Done.** `Exp.base` changed from Hydra `Type` to `PolyExpr` across 8 files (expressions, functors, _construct_helpers, tensors/semantics, tensors/fusion, grammar, and two test files). `_index_product` now wraps in `Const(...)`; `_labels_from_base` rewritten to accept `PolyExpr`; `Exp[base, body]` syntax added to grammar. 445 tests pass.
+
+**Impact: High** | **Complexity: Medium** (archived for reference)
 
 `Exp.base` is currently a Hydra `Type`, which cannot be produced from source text. Changing it to `PolyExpr` unblocks user-facing `Exp[base, body]` syntax and makes the base consistent with the rest of the `PolyExpr` tree. Five targeted sites:
 
@@ -99,8 +101,10 @@ This change also makes `_labels_from_base` in `fusion.py` structurally simpler a
 
 Note: a pending plan (plan file `compiled-petting-acorn.md`) covers a related `ContractSpec.dom/cod` change to emit `ExpType`-wrapped types. Treat that plan as part of this work block.
 
-### Extension activation API
-**Impact: High** | **Complexity: Medium**
+### ~~Extension activation API~~ ✓
+**Done.** `extensions.enable("tensors")` and `is_enabled("tensors")` added to `extensions.py`. Auto-registration on import removed from `tensors/__init__.py` and `unialg/__init__.py`. DSL `load extension tensors` added to `parse.py` load branch. `tests/tensors/conftest.py` activates the extension for all tensor tests. 449 tests pass.
+
+**Impact: High** | **Complexity: Medium** (archived for reference)
 
 Tensor support currently activates on import. Add an explicit activation path — `load extension tensors` in the DSL or `enable("tensors")` in the Python API — so syntax availability is intentional and testable. Aligns with the existing extension registry model in `extensions.py`. Do this before writing further integration tests against the tensor extension so those tests exercise correct activation semantics.
 

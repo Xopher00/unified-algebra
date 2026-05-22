@@ -17,9 +17,9 @@ from hydra.variables import substitute_type_variables
 
 from unialg.objects import BINARY
 from unialg.semantics import morphisms as ops
-from unialg.semantics.functors import Functor as _Functor
+from unialg.semantics.functors import Functor as _Functor, id_ as _id_body
 from unialg.semantics.morphisms import Morphism, MorphismError, _copy
-from unialg.semantics.optics import Optic as _Optic
+from unialg.semantics.optics import Optic as _Optic, build_optic as _build_optic, identity_optic as _identity_optic
 from unialg.syntax import expressions as expr
 
 from .notation import Equation
@@ -232,8 +232,8 @@ def _is_all_identity(node) -> bool:
     return False
 
 
-def _leaf_optic(body, fwd, carrier=BINARY):
-    return _Optic(functor=_Functor(name="_", body=body), forward=fwd, backward=fwd, carrier=carrier)
+def _leaf_optic(body):
+    return _identity_optic(name="_", functor=_Functor(name="_", body=body), focus=BINARY)
 
 
 def _spec_mismatches(inner_spec, outer_spec, expected_labels) -> bool:
@@ -255,11 +255,8 @@ def _optic_pair_wrap(l_optic, combined):
 
 def _optic_leaf(par_node, outer_shape, outer_spec, avoid):
     """Handle leaf positions: Identity, contract spec, or opaque morphism."""
-    from unialg.semantics.functors import apply_poly
-    slot_type = apply_poly(outer_shape, BINARY)
-
     if isinstance(par_node, expr.Identity):
-        return _leaf_optic(outer_shape, ops.identity(slot_type)), False, False
+        return _leaf_optic(outer_shape), False, False
 
     inner_spec = _tensor_spec(par_node)
     if inner_spec is not None:
@@ -270,11 +267,10 @@ def _optic_leaf(par_node, outer_shape, outer_spec, avoid):
         new_labels = _extract_labels(inner_shape)
         avoid.update(l for inp in new_labels for l in inp)
         avoid.update(l for inp in new_labels for l in inp if l not in set(inner_spec.equation.output))
-        fwd = ops.identity(apply_poly(inner_shape, BINARY))
-        return _leaf_optic(inner_shape, fwd), False, True
+        return _leaf_optic(inner_shape), False, True
 
     fwd = Morphism(node=par_node, aux_primitives=())
-    optic = _Optic(functor=_Functor(name="_", body=expr.Id()), forward=fwd, backward=ops.identity(BINARY), carrier=None)
+    optic = _build_optic("_", "optic", _Functor(name="_", body=_id_body()), fwd, ops.identity(BINARY))
     return optic, True, False
 
 

@@ -12,6 +12,7 @@ from unialg.syntax.expressions import (
     Identity, Copy, Delete, First, Second, Left, Right,
     Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, Ref, PolyRef,
     Id, Zero, One, Exp as PolyExp, List as PolyList, Maybe as PolyMaybe,
+    Rose as PolyRose, Tree as PolyTree,
 )
 from unialg.syntax._pratt import PrattParser, ParseError
 from unialg.syntax._ops import (
@@ -250,11 +251,16 @@ def _functor_nud_name(p: PrattParser, val: str) -> PolyExpr:
         body = p.parse(0)
         p.expect("RBRACKET", "]")
         return PolyExp(base, body)  # type: ignore[arg-type]
+    if val == "Rose":
+        p.expect("LBRACKET", "[")
+        inner = p.parse(0)
+        p.expect("RBRACKET", "]")
+        return PolyRose(inner)  # type: ignore[arg-type]
     if val == "Tree":
         p.expect("LBRACKET", "[")
         inner = p.parse(0)
         p.expect("RBRACKET", "]")
-        return make_sum(One(), make_prod(inner, inner))
+        return PolyTree(inner)  # type: ignore[arg-type]
     return PolyRef(val)
 
 

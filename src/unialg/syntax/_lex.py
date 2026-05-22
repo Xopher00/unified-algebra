@@ -127,6 +127,10 @@ _KEYWORDS: dict[str, str] = {
     "load": "LOAD",
     "fix": "FIX",
     "by": "BY",
+    "lens": "LENS",
+    "prism": "PRISM",
+    "traversal": "TRAVERSAL",
+    "view": "VIEW",
 }
 
 

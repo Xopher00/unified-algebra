@@ -12,7 +12,7 @@ from .optics import Optic, ana, cata, hylo
 _MORPHISM_REF_EMPTY: frozenset[type] = frozenset({
     expr.Identity, expr.Copy, expr.Delete, expr.First, expr.Second,
     expr.Left, expr.Right, expr.Absurd, expr.Assoc, expr.Symmetry,
-    expr.Prim, expr.SelfRef, expr.CarrierBoundary,
+    expr.Prim, expr.SelfRef, expr.CarrierBoundary, expr.Coerce,
 })
 
 _MORPHISM_REF_SINGLE = (expr.MonadicEmbed, expr.PolyFmap, expr.MonadicLift, expr.AlgExpr)

@@ -131,6 +131,15 @@ def _parse_declaration(
     cursor: TokenCursor, prog: "Program", kw_tok: tuple,
     bp_m, nud_m, led_m, bp_f, nud_f, led_f,
 ) -> None:
+    if kw_tok[0] == "SHAPE" and cursor.peek()[0] in ("LENS", "PRISM", "TRAVERSAL"):
+        kind = cursor.advance()[0].lower()
+        name = str(cursor.expect("NAME", "definition name")[1])
+        cursor.expect("COLON", "':'")
+        if kind in ("lens", "prism"):
+            prog.focuses[name] = _parse_lens_or_prism_shape(cursor, name, kind, bp_m, nud_m, led_m)
+        else:
+            prog.focuses[name] = _parse_traversal_shape(cursor, name, bp_m, nud_m, led_m)
+        return
     name = str(cursor.expect("NAME", "definition name")[1])
     params = _parse_params(cursor)
     if kw_tok[0] == "SHAPE" and cursor.peek()[0] == "COLON":
@@ -228,6 +237,58 @@ def _parse_explicit_optic_shape(cursor: TokenCursor, name: str, bp_m, nud_m, led
 
     return FocusDecl(
         functor=functor,
+        forward=forward,  # type: ignore[arg-type]
+        backward=backward,  # type: ignore[arg-type]
+    )
+
+
+def _parse_fwd_bwd(cursor: TokenCursor, label: str, bp_m, nud_m, led_m):
+    """Parse ``by forward / backward`` boundary morphisms (shared by lens/prism/traversal)."""
+    f_start = cursor.pos
+    while cursor.peek()[0] not in ("SLASH", "EOF"):
+        cursor.advance()
+    forward_tokens = [*cursor._tokens[f_start:cursor.pos], ("EOF", None)]
+    cursor.expect("SLASH", "'/'")
+
+    b_start = cursor.pos
+    while not _is_decl_start(cursor.peek()):
+        cursor.advance()
+    backward_tokens = [*cursor._tokens[b_start:cursor.pos], ("EOF", None)]
+
+    forward = PrattParser(
+        forward_tokens, label=f"{label}.forward",
+        binding_powers=bp_m, nud=nud_m, led=led_m,
+    ).parse_all()
+    backward = PrattParser(
+        backward_tokens, label=f"{label}.backward",
+        binding_powers=bp_m, nud=nud_m, led=led_m,
+    ).parse_all()
+    return forward, backward
+
+
+def _parse_lens_or_prism_shape(
+    cursor: TokenCursor, name: str, kind: str, bp_m, nud_m, led_m
+) -> FocusDecl:
+    """Parse ``shape (lens|prism) name : A view R by forward / backward``."""
+    focus_type = str(cursor.expect("NAME", "focus type")[1])
+    cursor.expect("VIEW", "'view'")
+    residue = str(cursor.expect("NAME", "residue type")[1])
+    cursor.expect("BY", "'by'")
+    forward, backward = _parse_fwd_bwd(cursor, f"shape {kind} {name}", bp_m, nud_m, led_m)
+    return FocusDecl(
+        kind=kind, functor=focus_type, residue=residue,
+        forward=forward,  # type: ignore[arg-type]
+        backward=backward,  # type: ignore[arg-type]
+    )
+
+
+def _parse_traversal_shape(cursor: TokenCursor, name: str, bp_m, nud_m, led_m) -> FocusDecl:
+    """Parse ``shape traversal name : F by forward / backward``."""
+    functor = str(cursor.expect("NAME", "functor name")[1])
+    cursor.expect("BY", "'by'")
+    forward, backward = _parse_fwd_bwd(cursor, f"shape traversal {name}", bp_m, nud_m, led_m)
+    return FocusDecl(
+        kind="traversal", functor=functor,
         forward=forward,  # type: ignore[arg-type]
         backward=backward,  # type: ignore[arg-type]
     )

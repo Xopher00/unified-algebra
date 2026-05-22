@@ -24,6 +24,8 @@ import hydra.analysis as Analysis
 
 from . import terms as T
 from unialg.semantics.morphisms import Morphism
+from unialg.semantics.functors import Functor
+from unialg.semantics.optics import Optic
 from unialg.syntax import expressions as expr
 from unialg.objects import Name, Monad, Type, TypeUnit, TypePair, TypeEither, ExpType, TypeScheme
 
@@ -82,6 +84,29 @@ def _poly_compose_action(body, h, monad):
     mapped = poly_action_term(body.left, h, monad)  # type: ignore[union-attr]
     return poly_action_term(body.right, mapped, monad)  # type: ignore[union-attr]
 
+def _prod_action(b, h, m):
+    return T.product_effects(m, poly_action_term(b.left, h, m), poly_action_term(b.right, h, m))
+
+
+def _sum_action(b, h, m):
+    return T.case_effects(m, poly_action_term(b.left, h, m), poly_action_term(b.right, h, m))
+
+
+def _list_action(b, h, m):
+    return T.list_effects(m, poly_action_term(b.body, h, m))
+
+
+def _maybe_action(b, h, m):
+    return T.maybe_effects(m, poly_action_term(b.body, h, m))
+
+
+def _rose_action(b, h, m):
+    return T.product_effects(m, poly_action_term(b.body, h, m), T.list_effects(m, h))
+
+
+def _tree_action(b, h, m):
+    return T.maybe_effects(m, _rose_action(b, h, m))
+
 
 _POLY_ACTION_DISPATCH: dict = {
     expr.Id:          lambda b, h, m: h,
@@ -90,18 +115,12 @@ _POLY_ACTION_DISPATCH: dict = {
     expr.Const:       lambda b, h, m: T.pure_identity(m),
     expr.Exp:         _exp_action,
     expr.PolyCompose: _poly_compose_action,
-    expr.Maybe: lambda b, h, m: T.maybe_effects(
-        m, poly_action_term(b.body, h, m),  # type: ignore[union-attr]
-    ),
-    expr.List: lambda b, h, m: T.list_effects(
-        m, poly_action_term(b.body, h, m),  # type: ignore[union-attr]
-    ),
-    expr.Prod: lambda b, h, m: T.product_action(
-        m, poly_action_term(b.left, h, m), poly_action_term(b.right, h, m),  # type: ignore[union-attr]
-    ),
-    expr.Sum: lambda b, h, m: T.case_effects(
-        m, poly_action_term(b.left, h, m), poly_action_term(b.right, h, m),  # type: ignore[union-attr]
-    ),
+    expr.Prod:        _prod_action,
+    expr.Sum:         _sum_action,
+    expr.List:        _list_action,
+    expr.Maybe:       _maybe_action,
+    expr.Rose:        _rose_action,
+    expr.Tree:        _tree_action,
 }
 
 
@@ -283,6 +302,7 @@ _FIXED_MORPHISMS: dict = {
     expr.Assoc:          lambda _n, _p: _realize_assoc(),
     expr.DistributeLeft: lambda _n, _p: _realize_distribute_left(),
     expr.DistributeRight: lambda _n, _p: _realize_distribute_right(),
+    expr.Coerce:         lambda n, _p: P.identity().value,
 }
 
 _CONTEXTUAL_MORPHISMS: dict = {
@@ -316,3 +336,21 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
             f"ensure the domain's finalize hook ran"
         )
     raise TypeError(f"realize: unknown MorphismExpr {type(node).__name__!r}")
+
+
+def recursive_carrier(*, functor: Functor, carrier: Type, unroll, roll) -> Optic:
+    """Build a carrier ``Optic`` from Python unroll/roll callables.
+
+    ``unroll`` and ``roll`` are called with a single ``TTerm`` argument and must
+    return a ``TTerm``.  They are wrapped as ``Prim`` morphisms and assembled
+    into an ``Optic`` directly.
+    """
+    layer = functor.apply(carrier)
+    unroll_term = T.normalize_term(T.term_lambda("x", unroll)).value
+    roll_term = T.normalize_term(T.term_lambda("layer", roll)).value
+    return Optic(
+        functor=functor,
+        forward=Morphism(expr.Prim(unroll_term, carrier, layer)),
+        backward=Morphism(expr.Prim(roll_term, layer, carrier)),
+        carrier=carrier,
+    )

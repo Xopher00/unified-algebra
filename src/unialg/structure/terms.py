@@ -324,7 +324,7 @@ def pure_identity(monad: MonadDescriptor | None) -> TTerm:
     return P.identity() if monad is None else term_lambda("const_x", lambda x: pure(monad, x))
 
 
-def product_action(monad: MonadDescriptor | None, left_action: TTerm, right_action: TTerm) -> TTerm:
+def product_effects(monad: MonadDescriptor | None, left_action: TTerm, right_action: TTerm) -> TTerm:
     """Parallel product morphism ``A×B → C×D`` by applying ``left_action`` and ``right_action`` component-wise.
 
     Without a monad, delegates to ``pairs_bimap``.  With a monad, assembles

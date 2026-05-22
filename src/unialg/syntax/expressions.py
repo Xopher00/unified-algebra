@@ -45,6 +45,13 @@ class Identity(MorphismExpr):
 
 
 @dataclass(frozen=True)
+class Coerce(MorphismExpr):
+    """coerce : A → B — identity function between structurally equivalent types."""
+    dom: Type
+    cod: Type
+
+
+@dataclass(frozen=True)
 class Copy(MorphismExpr):
     """Δ_A : A → A × A — diagonal / comonoid copy."""
     space: Type
@@ -255,6 +262,8 @@ class FocusDecl:
     forward: MorphismExpr | None = None
     backward: MorphismExpr | None = None
     expr: FocusExpr | None = None
+    kind: str = "optic"
+    residue: str | None = None
 
 
 @dataclass(frozen=True)
@@ -306,6 +315,7 @@ _MORPHISM_LEAVES: dict[type, str] = {
     DistributeLeft: "distl",
     DistributeRight: "distr",
     Prim: "prim",
+    Coerce: "coerce",
 }
 
 _MORPHISM_BINARY = (Compose, Parallel, Pair, Case)
@@ -447,6 +457,18 @@ class Maybe(PolyExpr):
 
 
 @dataclass(frozen=True)
+class Rose(PolyExpr):
+    """F(Y) = body(Y) × List[Y] — rose tree functor (payload paired with list of children)."""
+    body: PolyExpr
+
+
+@dataclass(frozen=True)
+class Tree(PolyExpr):
+    """F(Y) = 1 + Rose(body)(Y) — n-ary tree functor (explicit leaf + internal rose node)."""
+    body: PolyExpr
+
+
+@dataclass(frozen=True)
 class PolyRef(PolyExpr):
     """Unresolved functor name. Resolved by the semantic construction pass."""
     name: str
@@ -540,6 +562,10 @@ def _pretty_poly_compound(expr: PolyExpr) -> str:
             return f"List[{pretty(body)}]"
         case Maybe(body=body):
             return f"Maybe[{pretty(body)}]"
+        case Rose(body=body):
+            return f"Rose[{pretty(body)}]"
+        case Tree(body=body):
+            return f"Tree[{pretty(body)}]"
         case _:
             raise ValueError(f"pretty: unknown PolyExpr {type(expr).__name__!r}")
 

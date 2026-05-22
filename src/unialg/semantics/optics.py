@@ -17,7 +17,7 @@ Lens, Prism, and Traversal are specific functor choices:
 
 No backend encoding logic.  The action methods return semantic ``Morphism``
 values; ``structure/realize.py`` lowers deferred recursion nodes.  Recursive
-carriers use small Hydra type/term constructors for their roll/unroll boundary
+carriers use ``Coerce`` expression nodes for their roll/unroll boundary
 morphisms.
 """
 
@@ -25,13 +25,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from hydra.core import Name, TypeVariable
-import hydra.dsl.meta.phantoms as P
 
 from . import typeops as Ty
 from .functors import Functor
 from .morphisms import Morphism, MorphismError, compose, identity, par as _par_morphisms, raw_signature
 from unialg.syntax import expressions as expr
-from unialg.objects import Type
+from unialg.objects import Type, ProductType, SumType
 
 
 @dataclass(frozen=True)
@@ -49,6 +48,7 @@ class Optic:
     forward: Morphism
     backward: Morphism
     carrier: Type | None = None
+    kind: str = "optic"
     _focus: Type = field(init=False, repr=False, compare=False)
     _replacement: Type = field(init=False, repr=False, compare=False)
 
@@ -154,7 +154,7 @@ class Optic:
             carrier = self.carrier
         else:
             carrier = self.carrier or other.carrier
-        return Optic(functor=functor, forward=fwd, backward=bwd, carrier=carrier)
+        return Optic(functor=functor, forward=fwd, backward=bwd, carrier=carrier, kind=self.kind)
 
 
 @dataclass(frozen=True)
@@ -180,25 +180,19 @@ class RecursiveCarrier:
 
     def optic(self) -> Optic:
         """Return the recursive optic induced by this carrier."""
-        return Optic(
-            functor=self.functor,
-            forward=self.unroll,
-            backward=self.roll,
-            carrier=self.typ,
-        )
+        return build_optic(self.name, "optic", self.functor, self.unroll, self.roll)
 
 
 def recursive_carrier(name: str, functor: Functor) -> RecursiveCarrier:
     """Build a nominal fixed-point carrier and its roll/unroll boundaries."""
     typ = TypeVariable(Name(f"unialg.carrier.{name}"))
     layer = functor.apply(typ)
-    raw_identity = P.lam("x", P.var("x")).value
     return RecursiveCarrier(
         name=name,
         functor=functor,
         typ=typ,
-        roll=Morphism(expr.Prim(raw_identity, layer, typ)),
-        unroll=Morphism(expr.Prim(raw_identity, typ, layer)),
+        roll=Morphism(expr.Coerce(layer, typ)),
+        unroll=Morphism(expr.Coerce(typ, layer)),
     )
 
 
@@ -212,7 +206,7 @@ def _compose_optic(outer: Optic, inner: Optic) -> Optic:
     composed_functor = outer.functor.compose(inner.functor)
     fwd = outer.act_forward(inner.forward)
     bwd = outer.act_backward(inner.backward)
-    return Optic(functor=composed_functor, forward=fwd, backward=bwd)
+    return Optic(functor=composed_functor, forward=fwd, backward=bwd, kind=outer.kind)
 
 
 def _require_carrier(fp: Optic) -> Type:
@@ -281,11 +275,60 @@ def hylo(fp: Optic, coalg: Morphism, alg: Morphism) -> Morphism:
     return compose(ana(fp, coalg), cata(fp, alg), shared_context=True)
 
 
+_RESIDUE_KINDS: dict = {
+    "lens":  (lambda R: expr.Prod(expr.Id(), expr.Const(R)), ProductType),
+    "prism": (lambda R: expr.Sum(expr.Id(), expr.Const(R)), SumType),
+}
+
+
+def build_optic(
+    name: str, kind: str, functor: Functor,
+    forward: Morphism, backward: Morphism,
+) -> Optic:
+    """Validate forward/backward boundaries against functor, build tagged Optic."""
+    carrier = forward.dom()
+    layer = functor.apply(carrier)
+    try:
+        Ty.require_equal(None, forward.cod(), layer, f"{kind} {name}.forward")
+        Ty.require_equal(None, backward.dom(), layer, f"{kind} {name}.backward")
+        Ty.require_equal(None, backward.cod(), carrier, f"{kind} {name}.carrier")
+    except TypeError as e:
+        raise MorphismError(str(e)) from e
+    return Optic(functor=functor, forward=forward, backward=backward,
+                 carrier=carrier, kind=kind)
+
+
 def identity_optic(*, name: str, functor: Functor, focus: Type) -> Optic:
     """Build an optic where S = T = F(focus), so both boundaries are identity."""
     carrier = functor.apply(focus)
-    return Optic(
-        functor=functor,
-        forward=identity(carrier),
-        backward=identity(carrier),
-    )
+    return Optic(functor=functor, forward=identity(carrier), backward=identity(carrier))
+
+
+def traversal_optic(name: str, functor: Functor, forward: Morphism, backward: Morphism) -> Optic:
+    """Build a traversal optic, validating boundaries against an arbitrary polynomial functor."""
+    return build_optic(name, "traversal", functor, forward, backward)
+
+
+def _residue_optic(name: str, kind: str, forward: Morphism, backward: Morphism) -> Optic:
+    """Infer residue R from forward.cod(), build functor via _RESIDUE_KINDS, validate via build_optic."""
+    mk_body, mk_layer = _RESIDUE_KINDS[kind]
+    A = forward.dom()
+    r_var = Ty.fresh_type_var()
+    expected_cod = mk_layer(A, r_var)
+    try:
+        match = Ty.unify(expected_cod, forward.cod(), f"{kind} {name}: infer residue")  # type: ignore[arg-type]
+        R = Ty.apply_subst(match.substitution, r_var)
+    except TypeError as e:
+        raise MorphismError(f"{kind} {name}: forward.cod() is not A ⋆ R: {e}") from e
+    functor = Functor(name=f"{kind}<{name}>", body=mk_body(R))
+    return build_optic(name, kind, functor, forward, backward)
+
+
+def lens_optic(name: str, forward: Morphism, backward: Morphism) -> Optic:
+    """Build a lens optic with functor F = Id × Const(R), inferring R from ``forward.cod()``."""
+    return _residue_optic(name, "lens", forward, backward)
+
+
+def prism_optic(name: str, forward: Morphism, backward: Morphism) -> Optic:
+    """Build a prism optic with functor F = Id + Const(R), inferring R from ``forward.cod()``."""
+    return _residue_optic(name, "prism", forward, backward)

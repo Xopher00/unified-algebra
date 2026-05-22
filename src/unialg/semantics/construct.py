@@ -27,7 +27,10 @@ from ._construct_helpers import (
 )
 from .morphisms import Morphism, MorphismError
 from .functors import Functor
-from .optics import Optic, RecursiveCarrier, recursive_carrier
+from .optics import (
+    Optic, RecursiveCarrier, recursive_carrier,
+    build_optic, lens_optic, prism_optic,
+)
 
 
 @dataclass(frozen=True)
@@ -136,8 +139,6 @@ def construct_program(program: Program, env: dict[str, Morphism] | None = None,
     def resolve_explicit_focus(name: str, decl: expr.FocusDecl) -> Optic:
         if decl.functor is None or decl.forward is None or decl.backward is None:
             raise MorphismError(f"construct_program: incomplete focus {name!r}")
-        if decl.functor not in functors:
-            resolve_functor(decl.functor)
 
         morphism_env = morphism_env_for(decl.forward)
         morphism_env.update(morphism_env_for(decl.backward))
@@ -147,17 +148,16 @@ def construct_program(program: Program, env: dict[str, Morphism] | None = None,
         backward = construct(
             decl.backward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx, domain_data, domain_context,
         )
-        functor = Functor(name=decl.functor, body=functors[decl.functor])
-        carrier = forward.dom()
-        layer = functor.apply(carrier)
-        try:
-            Ty.require_equal(None, forward.cod(), layer, f"focus {name}.forward")
-            Ty.require_equal(None, backward.dom(), layer, f"focus {name}.backward")
-            Ty.require_equal(None, backward.cod(), carrier, f"focus {name}.carrier")
-        except TypeError as e:
-            raise MorphismError(str(e)) from e
 
-        return Optic(functor=functor, forward=forward, backward=backward, carrier=carrier)
+        if decl.kind == "lens":
+            return lens_optic(name, forward, backward)
+        if decl.kind == "prism":
+            return prism_optic(name, forward, backward)
+
+        if decl.functor not in functors:
+            resolve_functor(decl.functor)
+        functor = Functor(name=decl.functor, body=functors[decl.functor])
+        return build_optic(name, decl.kind, functor, forward, backward)
 
     def resolve_focus(name: str) -> Optic:
         if name in focuses:

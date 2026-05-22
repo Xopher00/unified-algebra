@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from unialg.semantics.functors import apply_poly
+from unialg.semantics.functors import apply_poly, _count_id, id_, prod
 from unialg.semantics.morphisms import Morphism, MorphismError
 from unialg.objects import BINARY, ExpType, ProductType, repeated_product
 from unialg.syntax import expressions as expr
@@ -27,27 +27,14 @@ from .semirings import Semiring
 
 def _left_nested_shape(n: int):
     """Build a left-nested Prod(Id, ...) tree for n inputs."""
-    from unialg.syntax.expressions import Prod, Id
     if n <= 0:
         raise ValueError("need at least 1 input for shape")
     if n == 1:
-        return Id()
-    shape = Prod(Id(), Id())
+        return id_()
+    shape = prod(id_(), id_())
     for _ in range(n - 2):
-        shape = Prod(shape, Id())
+        shape = prod(shape, id_())
     return shape
-
-
-def _count_id(shape) -> int:
-    """Count Id positions in a PolyExpr shape."""
-    from unialg.syntax.expressions import Prod, Id, Exp
-    if isinstance(shape, Id):
-        return 1
-    if isinstance(shape, Exp):
-        return _count_id(shape.body)
-    if isinstance(shape, Prod):
-        return _count_id(shape.left) + _count_id(shape.right)
-    raise ValueError(f"unexpected shape node in _count_id: {type(shape).__name__}")
 
 
 def _index_product(labels: tuple[str, ...]):

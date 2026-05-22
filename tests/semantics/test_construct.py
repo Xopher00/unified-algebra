@@ -300,7 +300,7 @@ class TestConstructProgram:
             "shape bad : F <-> F by add1 / mul2\n"
             "let folded = cata[bad](add1)"
         )
-        with pytest.raises(MorphismError, match="focus bad.forward"):
+        with pytest.raises(MorphismError, match="bad.forward"):
             construct_program(prog, int_env)
 
     def test_unknown_focus_raises(self, int_env):

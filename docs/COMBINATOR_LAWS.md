@@ -312,9 +312,12 @@ shared between validation (`_SIG_VALIDATED` + `_resolve_validated`) and
 construction (`_assoc`, `_symmetry`, `distribute_left/right`). Each structural
 isomorphism has one cod-builder as its single source of truth.
 
-**Optic level** (`optics.py`) — no dispatch dicts. Optics are a consumer of
-morphism and functor combinators, not a parallel dispatch algebra. `Optic.compose`
-and `Optic.par` delegate to `morphisms.compose` and `morphisms.par`.
+**Optic level** (`optics.py`) — `build_optic(name, kind, functor, forward, backward)`
+is the single validated builder. `_RESIDUE_KINDS` maps kind → `(mk_body, mk_layer)`
+for residue-based optics (lens, prism). `_residue_optic` infers R from `forward.cod()`
+then delegates to `build_optic`. `Optic.compose` and `Optic.par` delegate to
+`morphisms.compose` and `morphisms.par`. Recursive carriers use `Coerce` nodes
+for roll/unroll boundaries.
 
 ### Semantic vs structural inventory
 
@@ -334,6 +337,8 @@ semantic vocabulary has gaps.
 | sum intro | `_inl(ab)` → `Left`, `_inr(ab)` → `Right` | **gap** | `backward` recomposes |
 | compose | `compose(f,g)` check `f.cod()==g.dom()` | `compose_poly` substitutes `Id` | `_compose_optic` |
 | parallel | `par(f,g)` via `_contextual_binary` | `Prod` on single type | `Optic.par` |
+| validated build | — | — | `build_optic` validates fwd/bwd against `F(carrier)` |
+| residue infer | — | — | `_residue_optic` via `_RESIDUE_KINDS` dict |
 | copy | `_copy(A)` → `Copy(A)` | **gap** (implicit `Prod(Id,Id)`) | **gap** |
 | merge | `merge(A)` = `case(id,id)` | **gap** (implicit `Sum` collapse) | **gap** |
 | delete | `_delete(A)` → `Delete(A)` | `One` body | **gap** |
@@ -376,6 +381,8 @@ between layers, not combinators within a layer.
 | `Exp(S,F)` | `λg. λs. F(h)(g(s))` | **error** — not traversable |
 | `Maybe(F)` | `maybe_effects(F(h))` | `maybe_effects(monad, F(h))` |
 | `List(F)` | `list_effects(F(h))` | `list_effects(monad, F(h))` |
+| `Rose(F)` | `product_effects(F(h), list_effects(h))` | `product_effects(monad, F(h), list_effects(monad, h))` |
+| `Tree(F)` | `maybe_effects(Rose(F)(h))` | `maybe_effects(monad, Rose(F)(h))` |
 
 ### Findings
 

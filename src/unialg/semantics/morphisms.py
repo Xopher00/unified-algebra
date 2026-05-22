@@ -179,6 +179,7 @@ _SIG_LEAF: dict = {
     expr.Left:         lambda n, pn: (n.ab.value.left, n.ab),
     expr.Right:        lambda n, pn: (n.ab.value.right, n.ab),
     expr.Absurd:       lambda n, pn: (VoidType(), n.cod),
+    expr.Coerce:       lambda n, pn: (n.dom, n.cod),
     expr.MonadicEmbed: lambda n, pn: (dom_of(n.f, pn), n.monad.wrap(cod_of(n.f, pn))),
 }
 

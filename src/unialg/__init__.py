@@ -26,7 +26,7 @@ def act_backward(optic: Optic, h) -> "Morphism":
 
 compose_optic = _compose_optic
 
-from .structure.recursion import recursive_carrier
+from .structure.realize import recursive_carrier
 from .semantics.optics import cata, ana, hylo
 from .main import lower, run, compile_morphism, compile_program, CompiledProgram
 

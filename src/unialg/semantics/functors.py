@@ -93,6 +93,8 @@ def _has_exp(body: expr.PolyExpr) -> bool:
         return True
     if isinstance(body, (expr.Sum, expr.Prod)):
         return _has_exp(body.left) or _has_exp(body.right)
+    if isinstance(body, (expr.List, expr.Maybe, expr.Rose, expr.Tree)):
+        return _has_exp(body.body)
     return False
 
 
@@ -168,6 +170,16 @@ def maybe(body: expr.PolyExpr) -> expr.Maybe:
     return expr.Maybe(body)
 
 
+def rose(body: expr.PolyExpr) -> expr.Rose:
+    """Constructor for rose-tree functor ``F(Y) = body(Y) × List[Y]``."""
+    return expr.Rose(body)
+
+
+def tree(body: expr.PolyExpr) -> expr.Tree:
+    """Constructor for n-ary tree functor ``F(Y) = 1 + Rose(body)(Y)``."""
+    return expr.Tree(body)
+
+
 _COMPOSE_POLY: dict = {
     expr.Id:          lambda _n,  s: s,
     expr.Zero:        lambda  n, _s: n,
@@ -179,6 +191,8 @@ _COMPOSE_POLY: dict = {
     expr.Exp:         lambda  n,  s: expr.Exp(n.base, compose_poly(n.body, s)),  # base is fixed exponent domain
     expr.List:        lambda  n,  s: expr.List(compose_poly(n.body, s)),
     expr.Maybe:       lambda  n,  s: expr.Maybe(compose_poly(n.body, s)),
+    expr.Rose:        lambda  n,  s: expr.Rose(compose_poly(n.body, s)),
+    expr.Tree:        lambda  n,  s: expr.Tree(compose_poly(n.body, s)),
 }
 
 _APPLY_POLY: dict = {
@@ -192,6 +206,8 @@ _APPLY_POLY: dict = {
     expr.Exp:         lambda  n,  s: ExpType(apply_poly(n.base, TypeUnit()), apply_poly(n.body, s)),
     expr.List:        lambda  n,  s: TypeList(apply_poly(n.body, s)),
     expr.Maybe:       lambda  n,  s: TypeMaybe(apply_poly(n.body, s)),
+    expr.Rose:        lambda  n,  s: ProductType(apply_poly(n.body, s), TypeList(s)),
+    expr.Tree:        lambda  n,  s: SumType(TypeUnit(), ProductType(apply_poly(n.body, s), TypeList(s))),
 }
 
 
@@ -232,6 +248,8 @@ def _count_id(node: expr.PolyExpr) -> int:
         return _count_id(node.body)
     if isinstance(node, (expr.List, expr.Maybe)):
         return _count_id(node.body)
+    if isinstance(node, (expr.Rose, expr.Tree)):
+        return _count_id(node.body) + 1  # +1 for the implicit List[Y] Id slot
     raise ValueError(f"_count_id: unknown PolyExpr {type(node).__name__!r}")
 
 
@@ -244,6 +262,6 @@ def _collect_consts(node: expr.PolyExpr) -> list[Type]:
         return _collect_consts(node.left) + _collect_consts(node.right)
     if isinstance(node, expr.Exp):
         return _collect_consts(node.base) + _collect_consts(node.body)
-    if isinstance(node, (expr.List, expr.Maybe)):
+    if isinstance(node, (expr.List, expr.Maybe, expr.Rose, expr.Tree)):
         return _collect_consts(node.body)
     raise ValueError(f"_collect_consts: unknown PolyExpr {type(node).__name__!r}")

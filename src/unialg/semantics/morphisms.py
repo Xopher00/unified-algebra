@@ -36,7 +36,9 @@ def _collect_aux_primitives(*morphisms: Morphism) -> tuple:
     return tuple(p for m in morphisms for p in m.aux_primitives)
 
 
-def _share_param(f_param: Type, g_param: Type, *, graph=None, allow_unification: bool = False) -> Type:
+def _share_param(
+    f_param: Type, g_param: Type, *, graph=None, allow_unification: bool = False,
+) -> Type:
     try:
         return Ty.share_param(
             graph, f_param, g_param,
@@ -107,7 +109,9 @@ class Morphism:
 
 def _lr(t: TypePair | TypeEither) -> tuple[Type, Type]:
     """Extract the left and right components from a product or sum type."""
-    return (t.value.first, t.value.second) if isinstance(t, TypePair) else (t.value.left, t.value.right)
+    if isinstance(t, TypePair):
+        return t.value.first, t.value.second
+    return t.value.left, t.value.right
 
 
 def _assoc_cod(dom: Type) -> Type | None:
@@ -126,9 +130,9 @@ def _symmetry_cod(dom: Type) -> Type | None:
     """Build ``B⋆A`` from ``A⋆B``, or None if dom is wrong shape."""
     if not isinstance(dom, (TypePair, TypeEither)):
         return None
-    l, r = _lr(dom)
+    left, right = _lr(dom)
     make = ProductType if isinstance(dom, TypePair) else SumType
-    return make(r, l)
+    return make(right, left)
 
 
 def _distl_cod(dom: Type) -> Type | None:
@@ -179,10 +183,15 @@ _SIG_LEAF: dict = {
 }
 
 _SIG_BINARY: dict = {
-    expr.Compose:  (_U,  _U,  lambda n, pn: (dom_of(n.f, pn), cod_of(n.g, pn))),
-    expr.Parallel: (_PU, _PU, lambda n, pn: (ProductType(dom_of(n.f, pn), dom_of(n.g, pn)), ProductType(cod_of(n.f, pn), cod_of(n.g, pn)))),
-    expr.Pair:     (_U,  _PU, lambda n, pn: (dom_of(n.f, pn), ProductType(cod_of(n.f, pn), cod_of(n.g, pn)))),
-    expr.Case:     (_SU, _U,  lambda n, pn: (SumType(dom_of(n.f, pn), dom_of(n.g, pn)), cod_of(n.f, pn))),
+    expr.Compose:  (_U, _U, lambda n, pn: (
+        dom_of(n.f, pn), cod_of(n.g, pn))),
+    expr.Parallel: (_PU, _PU, lambda n, pn: (
+        ProductType(dom_of(n.f, pn), dom_of(n.g, pn)),
+        ProductType(cod_of(n.f, pn), cod_of(n.g, pn)))),
+    expr.Pair:     (_U, _PU, lambda n, pn: (
+        dom_of(n.f, pn), ProductType(cod_of(n.f, pn), cod_of(n.g, pn)))),
+    expr.Case:     (_SU, _U, lambda n, pn: (
+        SumType(dom_of(n.f, pn), dom_of(n.g, pn)), cod_of(n.f, pn))),
 }
 
 _SIG_VALIDATED: dict = {
@@ -419,7 +428,10 @@ def _validated_binary(
     left: Type, right: Type, message: str, **kw,
 ) -> Morphism:
     try:
-        Ty.unify_or_equal(kw.get("graph"), left, right, message, allow_unification=kw.get("allow_unification", False))
+        Ty.unify_or_equal(
+            kw.get("graph"), left, right, message,
+            allow_unification=kw.get("allow_unification", False),
+        )
     except TypeError as e:
         raise MorphismError(str(e)) from e
     return _contextual_binary(cls, f, g, **kw)

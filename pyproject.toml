@@ -55,6 +55,8 @@ ignore = [
     "TRY003", # long exception messages in raise
     "EM",     # exception string style
     "COM812", # trailing comma conflicts with formatter
+    "RUF001", # ambiguous unicode — intentional mathematical notation (⋆, →, ×)
+    "RUF002", # ambiguous unicode in docstrings — same
 ]
 
 [tool.importlinter]

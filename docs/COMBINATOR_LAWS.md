@@ -269,7 +269,52 @@ cata(fp, alg) ≅ compose(unroll, compose(poly_fmap(F, cata(fp, alg)), alg))
 
 ---
 
-## Cross-layer audit (2026-05-21)
+## Cross-layer audit (2026-05-22)
+
+### Dispatch dicts as combinator tables
+
+The combinator vocabulary at each level is encoded as dispatch dicts — one dict
+per operation, with rows keyed by node type. Parallel dicts over the same keys
+represent the same algebra at different levels.
+
+**Functor level** (`functors.py`) — two dicts, same 10 PolyExpr keys:
+
+| Dict | Signature | Role |
+|---|---|---|
+| `_COMPOSE_POLY` | `(node, s) → PolyExpr` | expression-level substitution |
+| `_APPLY_POLY` | `(node, s) → Type` | semantic-level evaluation |
+
+**Morphism level** (`morphisms.py`) — four dicts by category:
+
+| Dict | Keys | Entry shape | Role |
+|---|---|---|---|
+| `_SIG_LEAF` | 9 leaf types | `(n, pn) → (dom, cod)` | signature derivation for leaves |
+| `_SIG_BINARY` | 4 binary combinators | `(placeholder_dom, placeholder_cod, compute)` | signature derivation with placeholder guards |
+| `_BINARY_SIG` | 4 binary combinators | `(f, g) → (dom, cod)` | signature for construction |
+| `_SIG_VALIDATED` | 4 structural isos | `(cod_builder, message)` | validation via cod-builders |
+
+**Realization level** (`realize.py`) — four dicts by dispatch mode:
+
+| Dict | Keys | Role |
+|---|---|---|
+| `_POLY_ACTION_DISPATCH` | 10 PolyExpr types | functor action term construction |
+| `_FIXED_MORPHISMS` | 12 structural nodes | simple term builders |
+| `_CONTEXTUAL_MORPHISMS` | 4 binary combinators | contextual term assembly |
+| `_SPECIAL_MORPHISMS` | 6 special nodes | primitives, poly fmap, alg expr |
+
+**Cross-level parallel:** `_SIG_BINARY` and `_BINARY_SIG` have the same 4 keys
+and the same dom/cod formulas, at expression level and Morphism level respectively.
+This mirrors `_COMPOSE_POLY` / `_APPLY_POLY` — same structure, different levels.
+If any parallel pair disagrees on a formula, it is a bug.
+
+**Cod-builders:** `_assoc_cod`, `_symmetry_cod`, `_distl_cod`, `_distr_cod` are
+shared between validation (`_SIG_VALIDATED` + `_resolve_validated`) and
+construction (`_assoc`, `_symmetry`, `distribute_left/right`). Each structural
+isomorphism has one cod-builder as its single source of truth.
+
+**Optic level** (`optics.py`) — no dispatch dicts. Optics are a consumer of
+morphism and functor combinators, not a parallel dispatch algebra. `Optic.compose`
+and `Optic.par` delegate to `morphisms.compose` and `morphisms.par`.
 
 ### Semantic vs structural inventory
 
@@ -283,33 +328,33 @@ semantic vocabulary has gaps.
 
 | Combinator | morphisms.py | functors.py | optics.py |
 |---|---|---|---|
-| product intro | `pair(f,g)` via `_contextual_binary(Pair)` | `Prod(F,G)` PolyExpr ctor | Lens = `Prod(Id, Const(R))` implicit |
+| product intro | `pair(f,g)` via `_validated_binary` → `_contextual_binary` | `Prod(F,G)` PolyExpr ctor | Lens = `Prod(Id, Const(R))` implicit |
 | product elim | `_fst(ab)` → `First`, `_snd(ab)` → `Second` | **gap** | `forward` decomposes |
-| sum elim | `case(f,g)` via `_contextual_binary(Case)` | `Sum(F,G)` PolyExpr ctor | Prism = `Sum(Id, Const(R))` implicit |
+| sum elim | `case(f,g)` via `_validated_binary` → `_contextual_binary` | `Sum(F,G)` PolyExpr ctor | Prism = `Sum(Id, Const(R))` implicit |
 | sum intro | `_inl(ab)` → `Left`, `_inr(ab)` → `Right` | **gap** | `backward` recomposes |
 | compose | `compose(f,g)` check `f.cod()==g.dom()` | `compose_poly` substitutes `Id` | `_compose_optic` |
-| parallel | `par(f,g)` via `_contextual_binary(Parallel)` | `Prod` on single type | `Optic.par` |
+| parallel | `par(f,g)` via `_contextual_binary` | `Prod` on single type | `Optic.par` |
 | copy | `_copy(A)` → `Copy(A)` | **gap** (implicit `Prod(Id,Id)`) | **gap** |
 | merge | `merge(A)` = `case(id,id)` | **gap** (implicit `Sum` collapse) | **gap** |
 | delete | `_delete(A)` → `Delete(A)` | `One` body | **gap** |
 | absurd | `absurd(A)` → `Absurd(A)` | `Zero` body | **gap** |
-| swap | `_symmetry(dom)` → `Symmetry(dom,cod)` | **gap** | **gap** |
-| assoc | `_assoc(dom)` → `Assoc(dom,cod)` | **gap** | **gap** |
-| distribute | `distribute_left/right` | **gap** | **gap** |
+| swap | `_symmetry(dom)` via `_symmetry_cod` | **gap** | **gap** |
+| assoc | `_assoc(dom)` via `_assoc_cod` | **gap** | **gap** |
+| distribute | `distribute_left/right` via `_distl_cod`/`_distr_cod` | **gap** | **gap** |
 
 #### Structural level (realize.py → terms.py)
 
 | Combinator | Plain Hydra term | Monadic Hydra term |
 |---|---|---|
-| product intro | `P.pair(f(x), g(x))` | `lift2_effect(monad, λl r. pair(l,r), f(x), g(x))` |
+| product intro | `P.pair(f(x), g(x))` | `pair_effects(monad, f(x), g(x))` |
 | product elim | `pairs.first` / `pairs.second` primitives | n/a |
-| sum elim | `eithers.bimap(f, g)` | `eithers.either(λl. map_effect(left, f(l)), ...)` |
+| sum elim | `eithers.either(f, g)` | `eithers.either(λl. map_effect(left, f(l)), ...)` |
 | sum intro | `λx. Terms.left(x)` / `λx. Terms.right(x)` | n/a |
-| compose | `g(f(x))` | `bind(monad, f(x), g)` |
-| parallel | `pairs.bimap(f, g)` | `λx. pair_effects(monad, f(fst(x)), g(snd(x)))` |
+| compose | `g(f(x))` via `_compose_op` | `bind(monad, f(x), g)` via `_compose_op` |
+| parallel | `pair_effects(monad, f(fst(x)), g(snd(x)))` via `_pair_effects_op` | same |
 | copy | `λx. pair(x, x)` | n/a |
-| swap | `λp. pair(snd(p), fst(p))` | n/a |
-| distribute_left | `λp. eithers.bimap(λb. pair(fst(p),b), λc. pair(fst(p),c))(snd(p))` | n/a |
+| swap | `pair_swap()` / `either_swap()` | n/a |
+| distribute | `_realize_distribute(fixed, sumpart, mk_pair)` — shared helper | n/a |
 
 The Hydra vocabulary (`pairs.first`, `pairs.second`, `pairs.bimap`, `eithers.bimap`,
 `eithers.either`, `Terms.left`, `Terms.right`) covers every structural combinator.
@@ -326,15 +371,17 @@ between layers, not combinators within a layer.
 | `Id` | `h` itself | `h` itself |
 | `One` | `constant(unit())` | `pure(monad, unit())` |
 | `Const(S)` | `identity` | `pure(monad, x)` |
-| `Prod(F,G)` | `pairs.bimap(F(h), G(h))` | `pair_effects(monad, F(h)(fst(x)), G(h)(snd(x)))` |
-| `Sum(F,G)` | `eithers.bimap(F(h), G(h))` | `eithers.either(map_effect per branch)` |
+| `Prod(F,G)` | `product_action(F(h), G(h))` | `product_action(monad, F(h), G(h))` |
+| `Sum(F,G)` | `case_effects(F(h), G(h))` | `case_effects(monad, F(h), G(h))` |
 | `Exp(S,F)` | `λg. λs. F(h)(g(s))` | **error** — not traversable |
+| `Maybe(F)` | `maybe_effects(F(h))` | `maybe_effects(monad, F(h))` |
+| `List(F)` | `list_effects(F(h))` | `list_effects(monad, F(h))` |
 
 ### Findings
 
 1. **The structural layer is complete.** Every combinator has a Hydra term.
-   realize.py + terms.py handle plain, parametric, and monadic modes for all
-   contextual binary nodes.
+   realize.py dispatches via `_FIXED_MORPHISMS`, `_CONTEXTUAL_MORPHISMS`,
+   and `_SPECIAL_MORPHISMS`; poly actions via `_POLY_ACTION_DISPATCH`.
 
 2. **The semantic layer has systematic gaps at the functor and optic levels.**
    Product introduction/elimination and coproduct introduction/elimination
@@ -353,16 +400,26 @@ between layers, not combinators within a layer.
 
 5. **Structural isomorphisms (swap, assoc, distribute) exist only at the
    morphism layer.** The functor and optic layers have no equivalent.
+   Cod-builders (`_assoc_cod`, `_symmetry_cod`, `_distl_cod`, `_distr_cod`)
+   are the single source of truth for both validation and construction.
 
 ---
 
 ## Cross-layer coverage and gaps
 
+### Shared combinators (present at multiple levels)
+
+| Combinator | morphisms.py | functors.py | optics.py | realize.py |
+|---|---|---|---|---|
+| compose | `compose(f, g)` | `F.compose(G)` / `_COMPOSE_POLY` | `outer.compose(inner)` | `_compose_op` in `_CONTEXTUAL_MORPHISMS` |
+| parallel/product | `par(f, g)` | `Prod(F, G)` / `_APPLY_POLY` | `Optic.par(other)` | `_pair_effects_op(first, second)` |
+| identity | `identity(A)` | `Id` body / `id_()` | `identity_optic` | `P.identity()` |
+
 ### Product structure
 
 | | `morphisms.py` | `functors.py` | `optics.py` |
 |---|---|---|---|
-| introduction | `pair(f, g) : A → B×C` | `Prod(F, G)` body | **gap** — Lens encodes product focus but no `optic_pair` |
+| introduction | `pair(f, g)` via `_validated_binary` | `Prod(F, G)` body | **gap** — Lens encodes product focus but no `optic_pair` |
 | elimination | `fst : A×B → A`, `snd : A×B → B` | **gap** — no functor projection | `forward` (implicit in Lens shape) |
 | bifunctor | `par(f, g) : A×C → B×D` | `Prod` applied = `F(A)×G(A)` | `Optic.par(other)` |
 | diagonal | `copy(A) : A → A×A` | **gap** — implicit as `Prod(Id, Id)` | **gap** |
@@ -372,7 +429,7 @@ between layers, not combinators within a layer.
 
 | | `morphisms.py` | `functors.py` | `optics.py` |
 |---|---|---|---|
-| elimination | `case(f, g) : A+B → C` | `Sum(F, G)` body | **gap** — Prism encodes sum focus but no `optic_case` |
+| elimination | `case(f, g)` via `_validated_binary` | `Sum(F, G)` body | **gap** — Prism encodes sum focus but no `optic_case` |
 | introduction | `inl : A → A+B`, `inr : B → A+B` | **gap** — no functor injection | `backward` (implicit in Prism shape) |
 | codiagonal | `merge(A) : A+A → A` | **gap** — implicit in `Sum` collapse | **gap** |
 | initial | `absurd : 0 → A` | `Zero` body | **gap** |
@@ -381,16 +438,9 @@ between layers, not combinators within a layer.
 
 | | `morphisms.py` | `functors.py` | `optics.py` |
 |---|---|---|---|
-| swap | `_symmetry(A×B)`, `_symmetry(A+B)` | **gap** | **gap** |
-| assoc | `_assoc((A×B)×C)` | **gap** | **gap** |
-| distribute | `distribute_left/right` | **gap** | **gap** |
-
-### Composition and identity
-
-| | `morphisms.py` | `functors.py` | `optics.py` |
-|---|---|---|---|
-| compose | `compose(f, g)` | `F.compose(G)` | `outer.compose(inner)` |
-| identity | `identity(A)` | `Id` body / `id_()` | `identity_optic` |
+| swap | `_symmetry(dom)` via `_symmetry_cod` | **gap** | **gap** |
+| assoc | `_assoc(dom)` via `_assoc_cod` | **gap** | **gap** |
+| distribute | `distribute_left/right` via `_distl_cod`/`_distr_cod` | **gap** | **gap** |
 
 ### Interlayer functors (NOT combinators)
 

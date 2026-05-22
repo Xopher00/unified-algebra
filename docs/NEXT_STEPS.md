@@ -70,15 +70,15 @@ Establish test coverage and settle the shared combinator vocabulary before struc
 ### ~~Optic runtime behavioral tests~~ ✓
 **Done.** `tests/semantics/test_optics_behavioral.py` (14 tests) and `tests/semantics/test_optics_adversarial.py` (16 tests). Covers lens (fst/snd/swap), prism (left/right, matching/nonmatching), traversal (Maybe/List), composition, parallel, identity action, rejection, and edge cases — all through `main.run()`.
 
-### Cross-layer structural combinator contract
-**Impact: High** | **Complexity: Medium**
+### ~~Cross-layer structural combinator contract~~ ✓
+**Done.** Dispatch dicts now serve as the combinator tables at each level. `COMBINATOR_LAWS.md` updated (2026-05-22) with full cross-layer audit documenting:
 
-Define a shared combinator vocabulary that applies consistently across morphisms, optics, and functors:
-```
-identity, compose, parallel, pair, case, map, associate, swap, distribute, copy, delete, merge, focus, traverse
-```
+- **Functor level:** `_COMPOSE_POLY` / `_APPLY_POLY` — 10 PolyExpr entries, same keys, expression vs type level
+- **Morphism level:** `_SIG_LEAF` (9 leaves), `_SIG_BINARY` / `_BINARY_SIG` (4 binary combinators at expression vs Morphism level), `_SIG_VALIDATED` (4 structural isos via cod-builders)
+- **Realization level:** `_POLY_ACTION_DISPATCH` (10 PolyExpr), `_FIXED_MORPHISMS` (12), `_CONTEXTUAL_MORPHISMS` (4), `_SPECIAL_MORPHISMS` (6)
+- **Optic level:** consumer of morphism/functor ops, no dispatch dicts needed
 
-**Precondition met**: `merge` and `distl`/`distr` are now implemented in Tier 1, so this is an audit rather than a design exercise: confirm every item is consistently present and named across `morphisms.py`, `optics.py`, `functors.py`. Prevents each layer from inventing its own wiring semantics. Directly informs what the `construct` elaboration phase (Tier 4) should produce.
+Shared combinators (compose, parallel, identity) verified consistent across all three levels. Product/sum/structural iso gaps at functor and optic levels documented as intentional. Cod-builders (`_assoc_cod`, `_symmetry_cod`, `_distl_cod`, `_distr_cod`) shared between validation and construction as single source of truth.
 
 ### ~~`Exp.base: Type → PolyExpr`~~ ✓
 **Done.** `Exp.base` changed from Hydra `Type` to `PolyExpr` across 8 files (expressions, functors, _construct_helpers, tensors/semantics, tensors/fusion, grammar, and two test files). `_index_product` now wraps in `Const(...)`; `_labels_from_base` rewritten to accept `PolyExpr`; `Exp[base, body]` syntax added to grammar. 445 tests pass.

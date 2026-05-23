@@ -29,8 +29,15 @@ from .morphisms import Morphism, MorphismError
 from .functors import Functor
 from .optics import (
     Optic, RecursiveCarrier, recursive_carrier,
-    build_optic, lens_optic, prism_optic,
+    lens_optic, prism_optic, traversal_optic,
 )
+
+_FOCUS_CONSTRUCTORS: dict = {
+    "lens":      lambda name, fwd, bwd, _ftr: lens_optic(name, fwd, bwd),
+    "prism":     lambda name, fwd, bwd, _ftr: prism_optic(name, fwd, bwd),
+    "traversal": lambda name, fwd, bwd, ftr:  traversal_optic(name, ftr, fwd, bwd),
+    "optic":     lambda name, fwd, bwd, ftr:  traversal_optic(name, ftr, fwd, bwd),
+}
 
 
 @dataclass(frozen=True)
@@ -137,8 +144,11 @@ def construct_program(program: Program, env: dict[str, Morphism] | None = None,
         return resolve_carrier(decl.carrier).optic()
 
     def resolve_explicit_focus(name: str, decl: expr.FocusDecl) -> Optic:
-        if decl.functor is None or decl.forward is None or decl.backward is None:
+        if decl.forward is None or decl.backward is None:
             raise MorphismError(f"construct_program: incomplete focus {name!r}")
+        ctor = _FOCUS_CONSTRUCTORS.get(decl.kind)
+        if ctor is None:
+            raise MorphismError(f"construct_program: unknown focus kind {decl.kind!r}")
 
         morphism_env = morphism_env_for(decl.forward)
         morphism_env.update(morphism_env_for(decl.backward))
@@ -149,15 +159,14 @@ def construct_program(program: Program, env: dict[str, Morphism] | None = None,
             decl.backward, morphism_env, functors, program.morphisms, program.morphism_params, focuses, _cx, domain_data, domain_context,
         )
 
-        if decl.kind == "lens":
-            return lens_optic(name, forward, backward)
-        if decl.kind == "prism":
-            return prism_optic(name, forward, backward)
-
-        if decl.functor not in functors:
-            resolve_functor(decl.functor)
-        functor = Functor(name=decl.functor, body=functors[decl.functor])
-        return build_optic(name, decl.kind, functor, forward, backward)
+        ftr = None
+        if decl.kind in ("traversal", "optic"):
+            if decl.functor is None:
+                raise MorphismError(f"construct_program: {decl.kind} focus {name!r} requires a functor")
+            if decl.functor not in functors:
+                resolve_functor(decl.functor)
+            ftr = Functor(name=decl.functor, body=functors[decl.functor])
+        return ctor(name, forward, backward, ftr)
 
     def resolve_focus(name: str) -> Optic:
         if name in focuses:
@@ -326,16 +335,16 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
             return ops.identity(space if space != TypeUnit() else _fresh())
 
         case expr.First(ab):
-            return ops._fst(ab if ab != ProductType(TypeUnit(), TypeUnit()) else _fresh_pair())
+            return ops._first(ab if ab != ProductType(TypeUnit(), TypeUnit()) else _fresh_pair())
 
         case expr.Second(ab):
-            return ops._snd(ab if ab != ProductType(TypeUnit(), TypeUnit()) else _fresh_pair())
+            return ops._second(ab if ab != ProductType(TypeUnit(), TypeUnit()) else _fresh_pair())
 
         case expr.Left(ab):
-            return ops._inl(ab if ab != SumType(TypeUnit(), TypeUnit()) else _fresh_sum())
+            return ops._inject_left(ab if ab != SumType(TypeUnit(), TypeUnit()) else _fresh_sum())
 
         case expr.Right(ab):
-            return ops._inr(ab if ab != SumType(TypeUnit(), TypeUnit()) else _fresh_sum())
+            return ops._inject_right(ab if ab != SumType(TypeUnit(), TypeUnit()) else _fresh_sum())
 
         case expr.Copy(space):
             return ops._copy(space if space != TypeUnit() else _fresh())

@@ -210,8 +210,8 @@ def test_realize_plain_case_law(ctx, graph, value, add_amount, mul_amount):
     mul = ops.Morphism(expr.Prim(mul_const_raw(mul_amount), INT, INT))
     cased = ops.case(add, mul)
 
-    left = Terms.apply(realize(ops._inl(cased.dom()).node), int_arg(value))
-    right = Terms.apply(realize(ops._inr(cased.dom()).node), int_arg(value))
+    left = Terms.apply(realize(ops._inject_left(cased.dom()).node), int_arg(value))
+    right = Terms.apply(realize(ops._inject_right(cased.dom()).node), int_arg(value))
 
     assert int_value(run(cased, left, ctx, graph)) == value + add_amount
     assert int_value(run(cased, right, ctx, graph)) == value * mul_amount
@@ -247,8 +247,8 @@ def test_realize_lax_case_law(ctx, graph, left_value, right_value, left_amount, 
     )
     cased = ops.case(left_branch, right_branch)
 
-    left = Terms.apply(realize(ops._inl(cased.dom()).node), int_arg(left_value))
-    right = Terms.apply(realize(ops._inr(cased.dom()).node), int_arg(right_value))
+    left = Terms.apply(realize(ops._inject_left(cased.dom()).node), int_arg(left_value))
+    right = Terms.apply(realize(ops._inject_right(cased.dom()).node), int_arg(right_value))
 
     assert maybe_int_value(run(cased, left, ctx, graph)) == left_value + left_amount
     assert maybe_int_value(run(cased, right, ctx, graph)) == right_value + right_amount
@@ -318,8 +318,8 @@ def test_poly_fmap_runtime_for_id_prod_and_sum(ctx, graph, left_value, right_val
 
     sum_body = expr.Sum(expr.Id(), expr.Id())
     lifted_sum = poly_fmap(sem.Functor("_", sum_body), add)
-    left = Terms.apply(realize(ops._inl(lifted_sum.dom()).node), int_arg(left_value))
-    right = Terms.apply(realize(ops._inr(lifted_sum.dom()).node), int_arg(right_value))
+    left = Terms.apply(realize(ops._inject_left(lifted_sum.dom()).node), int_arg(left_value))
+    right = Terms.apply(realize(ops._inject_right(lifted_sum.dom()).node), int_arg(right_value))
 
     assert int_value(run(lifted_sum, left, ctx, graph).value.value) == left_value + amount
     assert int_value(run(lifted_sum, right, ctx, graph).value.value) == right_value + amount

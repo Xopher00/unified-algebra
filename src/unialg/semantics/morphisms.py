@@ -135,26 +135,35 @@ def _symmetry_cod(dom: Type) -> Type | None:
     return make(right, left)
 
 
-def _distl_cod(dom: Type) -> Type | None:
-    """Build ``(A×B)+(A×C)`` from ``A×(B+C)``, or None if dom is wrong shape."""
+def _dist_cod(dom: Type, i: int) -> Type | None:
+    """Build the codomain for distributivity.
+    ``i=0``: A × (B + C)  ↦  (A × B) + (A × C)
+    ``i=1``: (A + B) × C  ↦  (A × C) + (B × C)
+    """
     if not isinstance(dom, TypePair):
         return None
-    a, bc = _lr(dom)
-    if not isinstance(bc, TypeEither):
+    outer = _lr(dom)
+    shared = outer[i]
+    choice = outer[1 - i]
+    if not isinstance(choice, TypeEither):
         return None
-    b, c = _lr(bc)
-    return SumType(ProductType(a, b), ProductType(a, c))
+    x, y = _lr(choice)
+    def product(branch: Type) -> Type:
+        return ProductType(
+            (shared, branch)[i],
+            (branch, shared)[i],
+        )
+    return SumType(product(x), product(y))
+
+
+def _distl_cod(dom: Type) -> Type | None:
+    """Build ``(A×B)+(A×C)`` from ``A×(B+C)``, or None if dom is wrong shape."""
+    return _dist_cod(dom, 0)
 
 
 def _distr_cod(dom: Type) -> Type | None:
     """Build ``(A×C)+(B×C)`` from ``(A+B)×C``, or None if dom is wrong shape."""
-    if not isinstance(dom, TypePair):
-        return None
-    ab, c = _lr(dom)
-    if not isinstance(ab, TypeEither):
-        return None
-    a, b = _lr(ab)
-    return SumType(ProductType(a, c), ProductType(b, c))
+    return _dist_cod(dom, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -186,9 +195,12 @@ _SIG_LEAF: dict = {
 _SIG_BINARY: dict = {
     expr.Compose:  (_U, _U, lambda n, pn: (
         dom_of(n.f, pn), cod_of(n.g, pn))),
-    expr.Parallel: (_PU, _PU, lambda n, pn: (
+    expr.Parallel:   (_PU, _PU, lambda n, pn: (
         ProductType(dom_of(n.f, pn), dom_of(n.g, pn)),
         ProductType(cod_of(n.f, pn), cod_of(n.g, pn)))),
+    expr.Coparallel: (_SU, _SU, lambda n, pn: (
+        SumType(dom_of(n.f, pn), dom_of(n.g, pn)),
+        SumType(cod_of(n.f, pn), cod_of(n.g, pn)))),
     expr.Pair:     (_U, _PU, lambda n, pn: (
         dom_of(n.f, pn), ProductType(cod_of(n.f, pn), cod_of(n.g, pn)))),
     expr.Case:     (_SU, _U, lambda n, pn: (
@@ -274,22 +286,22 @@ def _delete(space: Type) -> Morphism:
     return Morphism(node=expr.Delete(space))
 
 
-def _fst(ab: TypePair) -> Morphism:
+def _first(ab: TypePair) -> Morphism:
     """Left projection ``A × B -> A``."""
     return Morphism(node=expr.First(ab))
 
 
-def _snd(ab: TypePair) -> Morphism:
+def _second(ab: TypePair) -> Morphism:
     """Right projection ``A × B -> B``."""
     return Morphism(node=expr.Second(ab))
 
 
-def _inl(ab: TypeEither) -> Morphism:
+def _inject_left(ab: TypeEither) -> Morphism:
     """Left injection ``A -> A + B``."""
     return Morphism(node=expr.Left(ab))
 
 
-def _inr(ab: TypeEither) -> Morphism:
+def _inject_right(ab: TypeEither) -> Morphism:
     """Right injection ``B -> A + B``."""
     return Morphism(node=expr.Right(ab))
 
@@ -341,7 +353,8 @@ def raw_signature(param: Type, monad: Monad | None, dom: Type, cod: Type) -> tup
 
 _BINARY_SIG: dict = {
     expr.Compose:  lambda f, g: (f.dom(), g.cod()),
-    expr.Parallel: lambda f, g: (ProductType(f.dom(), g.dom()), ProductType(f.cod(), g.cod())),
+    expr.Parallel:   lambda f, g: (ProductType(f.dom(), g.dom()), ProductType(f.cod(), g.cod())),
+    expr.Coparallel: lambda f, g: (SumType(f.dom(), g.dom()), SumType(f.cod(), g.cod())),
     expr.Pair:     lambda f, g: (f.dom(), ProductType(f.cod(), g.cod())),
     expr.Case:     lambda f, g: (SumType(f.dom(), g.dom()), f.cod()),
 }
@@ -420,6 +433,17 @@ def par(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
     """
     return _contextual_binary(
         expr.Parallel, f, g,
+        shared_context=shared_context,
+    )
+
+
+def copar(f: Morphism, g: Morphism, *, shared_context: bool = False) -> Morphism:
+    """Coproduct bimap ``f && g : A + C -> B + D``.
+
+    Dual of ``par``.  Works uniformly for plain, parametric, and lax morphisms.
+    """
+    return _contextual_binary(
+        expr.Coparallel, f, g,
         shared_context=shared_context,
     )
 

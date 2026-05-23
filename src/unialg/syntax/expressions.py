@@ -164,6 +164,11 @@ class Parallel(ContextualBinary):
 
 
 @dataclass(frozen=True)
+class Coparallel(ContextualBinary):
+    """f && g — coproduct bimap (A+C → B+D)."""
+
+
+@dataclass(frozen=True)
 class Pair(ContextualBinary):
     """⟨f, g⟩ : A → B × C — product introduction."""
 
@@ -318,7 +323,7 @@ _MORPHISM_LEAVES: dict[type, str] = {
     Coerce: "coerce",
 }
 
-_MORPHISM_BINARY = (Compose, Parallel, Pair, Case)
+_MORPHISM_BINARY = (Compose, Parallel, Coparallel, Pair, Case)
 
 
 def _pretty_binary(expr: MorphismExpr) -> str:
@@ -327,6 +332,8 @@ def _pretty_binary(expr: MorphismExpr) -> str:
             return f"({pretty(f)} ; {pretty(g)})"
         case Parallel(f=f, g=g):
             return f"({pretty(f)} × {pretty(g)})"
+        case Coparallel(f=f, g=g):
+            return f"({pretty(f)} && {pretty(g)})"
         case Pair(f=f, g=g):
             return f"⟨{pretty(f)}, {pretty(g)}⟩"
         case Case(f=f, g=g):

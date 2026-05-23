@@ -114,19 +114,19 @@ def test_basic_morphism_constructors_have_expected_types(space):
 @settings(max_examples=60)
 @given(product_type_values())
 def test_product_projection_constructors_have_expected_types(product):
-    assert ops._fst(product).dom() == product
-    assert ops._fst(product).cod() == product.value.first
-    assert ops._snd(product).dom() == product
-    assert ops._snd(product).cod() == product.value.second
+    assert ops._first(product).dom() == product
+    assert ops._first(product).cod() == product.value.first
+    assert ops._second(product).dom() == product
+    assert ops._second(product).cod() == product.value.second
 
 
 @settings(max_examples=60)
 @given(sum_type_values())
 def test_sum_injection_constructors_have_expected_types(sum_type):
-    assert ops._inl(sum_type).dom() == sum_type.value.left
-    assert ops._inl(sum_type).cod() == sum_type
-    assert ops._inr(sum_type).dom() == sum_type.value.right
-    assert ops._inr(sum_type).cod() == sum_type
+    assert ops._inject_left(sum_type).dom() == sum_type.value.left
+    assert ops._inject_left(sum_type).cod() == sum_type
+    assert ops._inject_right(sum_type).dom() == sum_type.value.right
+    assert ops._inject_right(sum_type).cod() == sum_type
 
 
 @settings(max_examples=60)

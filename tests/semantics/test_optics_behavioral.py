@@ -212,13 +212,13 @@ def test_composed_lens_nested_focus(ctx, graph):
 
 
 # ---------------------------------------------------------------------------
-# Parallel: par acts on both product positions
+# Same-focus product: product acts uniformly on a shared focus across both positions
 # ---------------------------------------------------------------------------
 
-def test_par_acts_on_both_positions(ctx, graph):
+def test_product_acts_on_both_positions(ctx, graph):
     lens_l = identity_optic(name="L", functor=Functor("L", expr.Prod(expr.Id(), expr.Const(INT))), focus=INT)
     lens_r = identity_optic(name="R", functor=Functor("R", expr.Prod(expr.Id(), expr.Const(INT))), focus=INT)
-    par_optic = lens_l.par(lens_r)
+    par_optic = lens_l.product(lens_r)
     morphism = par_optic.act(_add_one())
 
     arg = P.pair(P.pair(P.int32(1), P.int32(2)), P.pair(P.int32(3), P.int32(4))).value

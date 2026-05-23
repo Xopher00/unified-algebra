@@ -4,12 +4,15 @@ from .semantics.functors import Functor, zero, one, id_, const, sum_, prod, exp,
 from .semantics.morphisms import Morphism, MorphismError
 from .semantics.morphisms import (
     identity, _copy as copy, _delete as delete,
-    _fst as fst, _snd as snd, _inl as inl, _inr as inr,
+    _first as fst, _second as snd, _inject_left as inl, _inject_right as inr,
     _assoc as assoc, _symmetry as symmetry,
-    compose, par, pair, case, absurd,
+    compose, par, copar, pair, case, absurd,
 )
 from .tensors.semirings import Semiring
-from .semantics.optics import Optic, _compose_optic
+from .semantics.optics import (
+    Optic, BinaryOptic, ProductOptic, CoproductOptic, _compose_optic,
+    carrier_optic, affine_optic, grate_optic,
+)
 
 
 def act(optic: Optic, h) -> "Morphism":
@@ -26,8 +29,7 @@ def act_backward(optic: Optic, h) -> "Morphism":
 
 compose_optic = _compose_optic
 
-from .structure.realize import recursive_carrier
-from .semantics.optics import cata, ana, hylo
+from .semantics.optics import cata, ana, hylo, recursive_carrier
 from .main import lower, run, compile_morphism, compile_program, CompiledProgram
 
 __all__ = [
@@ -40,6 +42,7 @@ __all__ = [
     "fst",
     "snd",
     "par",
+    "copar",
     "pair",
     "copy",
     "delete",
@@ -74,6 +77,7 @@ __all__ = [
     "prod",
     "exp",
     "Optic",
+    "BinaryOptic",
     "poly_fmap",
     "apply_poly",
     "recursive_carrier",
@@ -84,4 +88,9 @@ __all__ = [
     "act_forward",
     "act_backward",
     "compose_optic",
+    "ProductOptic",
+    "CoproductOptic",
+    "carrier_optic",
+    "affine_optic",
+    "grate_optic",
 ]

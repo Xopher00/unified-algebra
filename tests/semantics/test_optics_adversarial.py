@@ -86,18 +86,17 @@ class TestOpticRejection:
                 backward=ops.identity(INT),
             )
 
-    def test_par_rejects_carrier_mismatch(self):
-        f = Functor("F", expr.Prod(expr.Id(), expr.Const(INT)))
-        o1 = Optic(functor=f, forward=ops.identity(PAIR), backward=ops.identity(PAIR), carrier=INT)
-        f2 = Functor("G", expr.Prod(expr.Id(), expr.Const(BOOL)))
-        o2 = Optic(
-            functor=f2,
-            forward=ops.identity(ProductType(INT, BOOL)),
-            backward=ops.identity(ProductType(INT, BOOL)),
-            carrier=BOOL,
-        )
-        with pytest.raises(MorphismError, match="carrier mismatch"):
-            o1.par(o2)
+    def test_product_rejects_focus_mismatch(self):
+        # product() requires both optics share the same focus type.
+        # Using Id functor so focus == forward.cod() directly.  PAIR is a
+        # concrete ProductType(INT, INT), distinct from INT in Hydra's type
+        # equality — unlike TypeVariable("Bool") which is a free variable and
+        # unifies with anything.
+        f = Functor("Id", expr.Id())
+        o1 = Optic(functor=f, forward=ops.identity(INT), backward=ops.identity(INT))
+        o2 = Optic(functor=f, forward=ops.identity(PAIR), backward=ops.identity(PAIR))
+        with pytest.raises(MorphismError, match="optic combine focus"):
+            o1.product(o2)
 
 
 # ---------------------------------------------------------------------------
@@ -214,14 +213,14 @@ def test_prism_same_optic_both_branches(ctx, graph):
 
 
 # ---------------------------------------------------------------------------
-# Par with None carriers (should work)
+# product with None carriers (should work; carrier=None in result)
 # ---------------------------------------------------------------------------
 
-def test_par_none_carriers_allowed(ctx, graph):
+def test_product_none_carriers_allowed(ctx, graph):
     f = Functor("F", expr.Prod(expr.Id(), expr.Const(INT)))
     o1 = Optic(functor=f, forward=ops.identity(PAIR), backward=ops.identity(PAIR))
     o2 = Optic(functor=f, forward=ops.identity(PAIR), backward=ops.identity(PAIR))
-    par_optic = o1.par(o2)
+    par_optic = o1.product(o2)
     assert par_optic.carrier is None
 
     morphism = par_optic.act(_add_one())
@@ -244,17 +243,17 @@ def test_traversal_list_singleton(ctx, graph):
 
 
 # ---------------------------------------------------------------------------
-# Composition then par: (outer.compose(inner)).par(other)
+# Composition then product: (outer.compose(inner)).product(other)
 # ---------------------------------------------------------------------------
 
-def test_compose_then_par(ctx, graph):
+def test_compose_then_product(ctx, graph):
     outer = identity_optic(name="O", functor=Functor("O", expr.Prod(expr.Id(), expr.Const(INT))), focus=PAIR)
     inner = identity_optic(name="I", functor=Functor("I", expr.Prod(expr.Id(), expr.Const(INT))), focus=INT)
     composed = outer.compose(inner)
 
     simple = identity_optic(name="S", functor=Functor("S", expr.Prod(expr.Id(), expr.Const(INT))), focus=INT)
 
-    par_optic = composed.par(simple)
+    par_optic = composed.product(simple)
     morphism = par_optic.act(_add_one())
 
     left_arg = P.pair(P.pair(P.int32(10), P.int32(20)), P.int32(30))

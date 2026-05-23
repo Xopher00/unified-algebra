@@ -84,6 +84,7 @@ def _poly_compose_action(body, h, monad):
     mapped = poly_action_term(body.left, h, monad)  # type: ignore[union-attr]
     return poly_action_term(body.right, mapped, monad)  # type: ignore[union-attr]
 
+
 def _prod_action(b, h, m):
     return T.product_effects(m, poly_action_term(b.left, h, m), poly_action_term(b.right, h, m))
 
@@ -229,11 +230,6 @@ def _realize_distribute_right() -> Term:
     return _realize_distribute(P.second, P.first, lambda fixed, x: P.pair(x, fixed))
 
 
-def _realize_monadic_embed(node: expr.MonadicEmbed, _prims) -> Term:
-    f_term = realize_term(node.f, _prims)
-    return T.term_lambda("x", lambda x: T.pure(node.monad, P.apply(f_term, x))).value
-
-
 def _compose_op(n, v, f, g):
     if n.monad is None:
         return g(f(v))
@@ -247,6 +243,16 @@ def _pair_effects_op(left_of, right_of):
 def _case_op(_n, v, f, g):
     branches = T.eithers_either(T.term_lambda("ctx_left", f), T.term_lambda("ctx_right", g))
     return P.apply(branches, v)
+
+
+def _copar_effects_op(n, v, f, g):
+    action = T.case_effects(n.monad, T.term_lambda("ctx_left", f), T.term_lambda("ctx_right", g))
+    return P.apply(action, v)
+
+
+def _realize_monadic_embed(node: expr.MonadicEmbed, _prims) -> Term:
+    f_term = realize_term(node.f, _prims)
+    return T.term_lambda("x", lambda x: T.pure(node.monad, P.apply(f_term, x))).value
 
 
 def _realize_poly_fmap(node: expr.PolyFmap, _prims) -> Term:
@@ -290,26 +296,26 @@ def _realize_backend_prim(node: expr.BackendPrim, _prims) -> Term:
 
 
 _FIXED_MORPHISMS: dict = {
-    expr.Identity:       lambda n, _p: P.identity().value,
-    expr.Copy:           lambda n, _p: T.term_lambda("x", lambda x: P.pair(x, x)).value,
-    expr.Delete:         lambda n, _p: P.constant(P.unit()).value,
-    expr.First:          lambda n, _p: T.pair_first().value,
-    expr.Second:         lambda n, _p: T.pair_second().value,
-    expr.Left:           lambda n, _p: T.left_injection().value,
-    expr.Right:          lambda n, _p: T.right_injection().value,
-    expr.Absurd:         lambda n, _p: T.absurd().value,
-    expr.Symmetry:       lambda n, _p: _realize_symmetry(n),
-    expr.Assoc:          lambda _n, _p: _realize_assoc(),
-    expr.DistributeLeft: lambda _n, _p: _realize_distribute_left(),
+    expr.Identity:        lambda _n, _p: P.identity().value,
+    expr.Coerce:          lambda _n, _p: P.identity().value,
+    expr.Copy:            lambda _n, _p: T.term_lambda("x", lambda x: P.pair(x, x)).value,
+    expr.Delete:          lambda _n, _p: P.constant(P.unit()).value,
+    expr.First:           lambda _n, _p: T.pair_first().value,
+    expr.Second:          lambda _n, _p: T.pair_second().value,
+    expr.Left:            lambda _n, _p: T.left_injection().value,
+    expr.Right:           lambda _n, _p: T.right_injection().value,
+    expr.Absurd:          lambda _n, _p: T.absurd().value,    
+    expr.Assoc:           lambda _n, _p: _realize_assoc(),
+    expr.DistributeLeft:  lambda _n, _p: _realize_distribute_left(),
     expr.DistributeRight: lambda _n, _p: _realize_distribute_right(),
-    expr.Coerce:         lambda n, _p: P.identity().value,
 }
 
 _CONTEXTUAL_MORPHISMS: dict = {
-    expr.Compose:  _compose_op,
-    expr.Parallel: _pair_effects_op(P.first, P.second),
-    expr.Pair:     _pair_effects_op(lambda v: v, lambda v: v),
-    expr.Case:     _case_op,
+    expr.Compose:     _compose_op,
+    expr.Parallel:    _pair_effects_op(P.first, P.second),
+    expr.Coparallel:  _copar_effects_op,
+    expr.Pair:        _pair_effects_op(lambda v: v, lambda v: v),
+    expr.Case:        _case_op,
 }
 
 _SPECIAL_MORPHISMS: dict = {
@@ -317,6 +323,7 @@ _SPECIAL_MORPHISMS: dict = {
     expr.PolyFmap:     _realize_poly_fmap,
     expr.AlgExpr:      _realize_alg_expr,
     expr.BackendPrim:  _realize_backend_prim,
+    expr.Symmetry:     lambda n, _p: _realize_symmetry(n),
     expr.SelfRef:      lambda n, _p: P.primitive(Name(n.name)).value,
     expr.Prim:         lambda n, _p: n.raw,
 }
@@ -336,21 +343,3 @@ def realize(node: expr.MorphismExpr, _prims: list | None = None) -> Term:
             f"ensure the domain's finalize hook ran"
         )
     raise TypeError(f"realize: unknown MorphismExpr {type(node).__name__!r}")
-
-
-def recursive_carrier(*, functor: Functor, carrier: Type, unroll, roll) -> Optic:
-    """Build a carrier ``Optic`` from Python unroll/roll callables.
-
-    ``unroll`` and ``roll`` are called with a single ``TTerm`` argument and must
-    return a ``TTerm``.  They are wrapped as ``Prim`` morphisms and assembled
-    into an ``Optic`` directly.
-    """
-    layer = functor.apply(carrier)
-    unroll_term = T.normalize_term(T.term_lambda("x", unroll)).value
-    roll_term = T.normalize_term(T.term_lambda("layer", roll)).value
-    return Optic(
-        functor=functor,
-        forward=Morphism(expr.Prim(unroll_term, carrier, layer)),
-        backward=Morphism(expr.Prim(roll_term, layer, carrier)),
-        carrier=carrier,
-    )

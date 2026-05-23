@@ -19,7 +19,7 @@ from unialg.objects import BINARY
 from unialg.semantics import morphisms as ops
 from unialg.semantics.functors import Functor as _Functor, id_ as _id_body
 from unialg.semantics.morphisms import Morphism, MorphismError, _copy
-from unialg.semantics.optics import Optic as _Optic, build_optic as _build_optic, identity_optic as _identity_optic
+from unialg.semantics.optics import Optic as _Optic, traversal_optic as _traversal_optic, identity_optic as _identity_optic
 from unialg.syntax import expressions as expr
 
 from .notation import Equation
@@ -270,7 +270,7 @@ def _optic_leaf(par_node, outer_shape, outer_spec, avoid):
         return _leaf_optic(inner_shape), False, True
 
     fwd = Morphism(node=par_node, aux_primitives=())
-    optic = _build_optic("_", "optic", _Functor(name="_", body=_id_body()), fwd, ops.identity(BINARY))
+    optic = _traversal_optic("_", _Functor(name="_", body=_id_body()), fwd, ops.identity(BINARY))
     return optic, True, False
 
 
@@ -301,7 +301,7 @@ def _par_to_optic(par_node, outer_shape, outer_spec, avoid):
         return None
     r_optic, r_opaque, r_absorbed = right
     try:
-        combined = l_optic.par(r_optic)
+        combined = l_optic.product(r_optic)
     except MorphismError:
         return None
     if is_pair:

@@ -1,4 +1,4 @@
-"""Tests for Optic combinators, focusing on the Optic.par (product of optics)."""
+"""Tests for Optic combinators, focusing on the Optic.product (same-focus product of optics)."""
 import pytest
 
 from unialg.semantics.optics import Optic
@@ -24,23 +24,23 @@ def _carrier_optic(functor: Functor) -> Optic:
     return Optic(functor=functor, forward=fwd, backward=bwd, carrier=BINARY)
 
 
-class TestOpticPar:
-    def test_par_combines_functor_bodies(self):
+class TestOpticProduct:
+    def test_product_combines_functor_bodies(self):
         F = _id_functor("F")
         G = _id_functor("G")
         O_L = _carrier_optic(F)
         O_R = _carrier_optic(G)
 
-        O = O_L.par(O_R)
+        O = O_L.product(O_R)
         assert O.functor.body == expr.Prod(expr.Id(), expr.Id())
 
-    def test_par_forward_backward_are_par_of_components(self):
+    def test_product_forward_backward_are_par_of_components(self):
         F = _id_functor("F")
         G = _id_functor("G")
         O_L = _carrier_optic(F)
         O_R = _carrier_optic(G)
 
-        O = O_L.par(O_R)
+        O = O_L.product(O_R)
         expected_fwd = ops.par(O_L.forward, O_R.forward)
         expected_bwd = ops.par(O_L.backward, O_R.backward)
 
@@ -49,8 +49,8 @@ class TestOpticPar:
         assert O.backward.dom() == expected_bwd.dom()
         assert O.backward.cod() == expected_bwd.cod()
 
-    def test_par_carrier_is_shared_carrier(self):
-        # par requires both optics to share the same carrier type X.
+    def test_product_carrier_is_shared_carrier(self):
+        # product requires both optics to share the same carrier type X.
         # The combined carrier is X, not Prod(X, X): the functor Prod(L,R) still
         # maps X → apply_poly(L,X) × apply_poly(R,X), so X (not X×X) is the
         # common element type for both positions.
@@ -59,41 +59,41 @@ class TestOpticPar:
         O_L = _carrier_optic(F)
         O_R = _carrier_optic(G)
 
-        O = O_L.par(O_R)
+        O = O_L.product(O_R)
         assert O.carrier == BINARY
 
-    def test_par_passes_optic_validation(self):
+    def test_product_passes_optic_validation(self):
         F = _prod_functor("F")
         G = _id_functor("G")
         O_L = _carrier_optic(F)
         O_R = _carrier_optic(G)
 
         # Optic.__post_init__ validates via functor.unapply — must not raise.
-        O = O_L.par(O_R)
+        O = O_L.product(O_R)
         assert O.functor.body == expr.Prod(expr.Prod(expr.Id(), expr.Id()), expr.Id())
 
-    def test_par_source_and_target(self):
+    def test_product_source_and_target(self):
         from unialg.objects import ProductType
         F = _id_functor("F")
         G = _id_functor("G")
         O_L = _carrier_optic(F)
         O_R = _carrier_optic(G)
 
-        O = O_L.par(O_R)
+        O = O_L.product(O_R)
         assert O.source == ProductType(BINARY, BINARY)
         assert O.target == ProductType(BINARY, BINARY)
 
-    def test_par_without_carrier_yields_none(self):
+    def test_product_without_carrier_yields_none(self):
         F = _id_functor("F")
         fwd = ops.identity(BINARY)
         bwd = ops.identity(BINARY)
         O_no_carrier = Optic(functor=F, forward=fwd, backward=bwd, carrier=None)
 
-        O = O_no_carrier.par(O_no_carrier)
+        O = O_no_carrier.product(O_no_carrier)
         assert O.carrier is None
 
-    def test_par_compose_associativity_of_functor_bodies(self):
-        """par of two composed optics has a Prod of composed bodies."""
+    def test_product_compose_associativity_of_functor_bodies(self):
+        """product of two composed optics has a Prod of composed bodies."""
         F = _id_functor("F")
         G = _id_functor("G")
         O_base = _carrier_optic(_prod_functor("H"))
@@ -103,7 +103,7 @@ class TestOpticPar:
         # (O_base ∘ O_L) | (O_base ∘ O_R)
         composed_L = O_base.compose(O_L)
         composed_R = O_base.compose(O_R)
-        O = composed_L.par(composed_R)
+        O = composed_L.product(composed_R)
 
         # The functor bodies should be Prod of composed bodies
         assert isinstance(O.functor.body, expr.Prod)

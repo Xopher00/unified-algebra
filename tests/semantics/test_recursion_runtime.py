@@ -46,7 +46,7 @@ def _one_or_self_carrier(rolled_value: int = 42) -> Optic:
     shape = ops.SumType(UNIT, INT)
     return Optic(
         functor=Functor("OneOrSelf", expr.Sum(expr.One(), expr.Id())),
-        forward=ops.compose(ops._delete(INT), ops._inl(shape)),
+        forward=ops.compose(ops._delete(INT), ops._inject_left(shape)),
         backward=ops.case(_const_int(rolled_value), ops.identity(INT)),
         carrier=INT,
     )
@@ -59,7 +59,7 @@ def _const_int(value: int) -> ops.Morphism:
 
 def _left_unit() -> ops.Morphism:
     shape = ops.SumType(UNIT, INT)
-    return ops.compose(ops._delete(INT), ops._inl(shape))
+    return ops.compose(ops._delete(INT), ops._inject_left(shape))
 
 
 def _lax_para_const_from_param(dom=UNIT, offset: int = 1) -> ops.Morphism:

@@ -1,6 +1,6 @@
 # Checkpoint — Current State (2026-05-22)
 
-**Tests:** 449 passing, 4 skipped. All import-linter boundaries clean.
+**Tests:** 449 passing + 7 new tensor/activation tests added, 4 skipped. `TestOpaqueFusion::test_opaque_leaf_produces_compose_not_single_prim` is currently failing — opaque fusion pre-map dom carries ExpType from the optic product while `composed.dom()` is now fully stripped. See NEXT_STEPS.
 
 ---
 
@@ -108,7 +108,7 @@ src/unialg/
 - **Extension framework** — `extensions.py` generic registration API; parser and semantic hooks in `parse.py` and `construct.py`
 - **Tensor notation** — `tensors/notation.py`: `Equation` (parse, alignment_plan, diagonal_axes, post_diagonal_labels), `SemiringDecl`, `ContractExpr`
 - **Tensor semantics** — `tensors/semantics.py`: `resolve_semiring`, lazy `contract_morphism` returning `DomainPrim`, `ContractSpec` with `shape: PolyExpr` field using `Exp(index_product(labels), Id())` per slot
-- **ContractSpec dom/cod** — emit `ExpType`-wrapped types; `_strip_exp` at substrate boundary in `_decompose_leaf`
+- **ContractSpec dom/cod** — `dom` and `cod` now return substrate-level `BINARY` types (stripped via `_strip_exp`). The `ExpType`-wrapped label information lives only in `ContractSpec.shape` (the `PolyExpr`). This allows tensor contractions to compose directly with `BINARY→BINARY` activation functions. `_strip_exp` is retained at the substrate boundary in `_decompose_leaf` as a no-op safety check.
 - **Tensor compilation** — `tensors/primitives.py`: shape-guided `_build_alignment_tree` and `_build_fold_tree`; `diagonal_extract_morphism` with cross-backend `_call_diagonal`
 - **Diagonal/trace** — repeated labels accepted; `diagonal_axes`, `post_diagonal_labels` with numpy reordering; `take_diagonal` in all backend JSON specs
 - **Fusion pass** — `tensors/fusion.py`: `normalize_contracts` finalize hook; `_par_to_optic` catamorphism using `Optic.par`; handles Parallel-tree, opaque leaves, all Pair variants; alpha-renaming of reduced labels in `_rename_shape_labels`; shape-driven label extraction via `Exp` bases (no parallel label tracking)

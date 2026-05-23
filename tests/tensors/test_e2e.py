@@ -1,6 +1,7 @@
 """End-to-end tensor contraction execution tests."""
 
 import numpy as np
+from scipy.special import expit as scipy_sigmoid
 
 from unialg import compile_program
 
@@ -77,3 +78,40 @@ def test_numpy_tropical_inner_product():
     expected = np.min(a + b)
 
     assert np.allclose(result, expected)
+
+
+def test_numpy_matmul_then_sigmoid():
+    """Tensor contraction composed with activation executes correctly."""
+    prog = compile_program(
+        """
+        load numpy
+        load extension tensors
+        algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+        let f = contract[real]("ij,jk->ik") >> sigmoid
+        """
+    )
+
+    A = np.array([[1.0, 2.0], [3.0, 4.0]])
+    B = np.array([[0.5, -0.5], [-1.0, 1.0]])
+
+    result = prog.run(A, B)
+    assert np.allclose(result, scipy_sigmoid(A @ B))
+
+
+def test_numpy_matvec_then_softmax():
+    """Matrix-vector contraction composed with softmax executes correctly."""
+    prog = compile_program(
+        """
+        load numpy
+        load extension tensors
+        algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
+        let f = contract[real]("ij,j->i") >> softmax
+        """
+    )
+
+    W = np.array([[1.0, -2.0, 3.0], [-1.0, 2.0, -3.0]])
+    x = np.array([1.0, 1.0, 1.0])
+
+    result = prog.run(W, x)
+    from scipy.special import softmax as scipy_softmax
+    assert np.allclose(result, scipy_softmax(W @ x))

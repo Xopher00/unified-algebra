@@ -327,6 +327,19 @@ def _fill_opaque_labels(composite, outer):
     return composite
 
 
+def _strip_pre_map_ids(m: Morphism) -> Morphism:
+    """Replace identity(ExpType(...)) with identity(stripped) in a pre-map tree.
+
+    Absorbed contract leaves contribute identity(ExpType_carrier) to the combined
+    forward.  The fused contract's dom uses _strip_exp, so the pre-map must also
+    use stripped types for ops.compose to accept the boundary.
+    """
+    from .semantics import _strip_exp
+    if isinstance(m.node, expr.Identity):
+        return ops.identity(_strip_exp(m.node.space))
+    return _rewrite_contextual_children(m, _strip_pre_map_ids)
+
+
 def _types_compatible(pre: Morphism, fused_contract: Morphism, m: Morphism, fused_spec) -> bool:
     from .semantics import _strip_exp
     return (
@@ -389,6 +402,10 @@ def _try_fuse(m: Morphism) -> Morphism:
     # if at least one inner contract was actually absorbed into the fused spec.
     if not has_absorbed:
         return m
+    # Absorbed contract slots contribute identity(ExpType) to the combined forward.
+    # Strip to BINARY-level so pre.cod() matches fused_contract.dom().
+    if has_opaque:
+        pre = _strip_pre_map_ids(pre)
     return ops.compose(pre, fused_contract)
 
 

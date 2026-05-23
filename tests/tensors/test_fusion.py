@@ -322,7 +322,8 @@ class TestFusionOptimization:
         spec = fused.node.raw
         assert spec.shape is not None
         assert _count_id(spec.shape) == len(spec.equation.inputs)
-        assert apply_poly(spec.shape, BINARY) == spec.dom
+        from unialg.tensors.semantics import _strip_exp
+        assert _strip_exp(apply_poly(spec.shape, BINARY)) == spec.dom
 
     def test_non_left_nested_fuses(self, real_semiring, numpy_backend):
         """par(id, c1) with dom BINARY × (BINARY × BINARY) fuses correctly."""
@@ -473,6 +474,31 @@ class TestOpaqueFusion:
         # No DomainPrim was absorbed, so fusion should not fire
         assert isinstance(fused.node, expr.Compose)
 
+    def test_opaque_leaf_numerical(self, real_semiring, numpy_env, numpy_backend):
+        """par(tanh, c1) >> outer gives correct numerical result after opaque fusion."""
+        import numpy as np
+        from unialg.tensors.fusion import normalize_contracts
+        from unialg.main import compile_morphism
+
+        tanh = self._make_tanh(numpy_env)
+        c1 = contract_morphism(real_semiring, "jk,kl->jl")
+        inner_par = ops.par(tanh, c1)
+        outer = contract_morphism(real_semiring, "ij,jl->il")
+        composed = ops.compose(inner_par, outer)
+
+        substrate = normalize_contracts(composed, {"_domain_context": numpy_backend})
+        prog = compile_morphism(substrate, backend=numpy_backend)
+
+        rng = np.random.default_rng(42)
+        A = rng.random((3, 4))   # tanh input (i×j)
+        B = rng.random((4, 5))   # c1 left (j×k)
+        C = rng.random((5, 2))   # c1 right (k×l)
+
+        # dom is right-nested: BINARY × (BINARY × BINARY)
+        result = prog.run(A, (B, C))
+        expected = np.tanh(A) @ (B @ C)
+        assert np.allclose(result, expected)
+
     def test_opaque_leaf_equation_has_passthrough_label(self, real_semiring, numpy_env):
         """Opaque leaf's slot in fused equation preserves outer's label."""
         tanh = self._make_tanh(numpy_env)
@@ -580,7 +606,8 @@ class TestPairFusion:
         fused_spec = fused.node.g.raw  # the DomainPrim inside compose(Copy, ...)
         assert fused_spec.shape is not None
         assert _count_id(fused_spec.shape) == len(fused_spec.equation.inputs)
-        assert apply_poly(fused_spec.shape, BINARY) == fused_spec.dom
+        from unialg.tensors.semantics import _strip_exp
+        assert _strip_exp(apply_poly(fused_spec.shape, BINARY)) == fused_spec.dom
 
     def test_pair_dom_cod_preserved(self, real_semiring):
         """Fused result preserves original compose's dom and cod (up to Exp wrapping)."""

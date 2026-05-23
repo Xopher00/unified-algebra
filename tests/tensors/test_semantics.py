@@ -5,7 +5,8 @@ from pathlib import Path
 from unialg.syntax import expressions as expr
 from unialg.objects import ProductType
 from unialg.runtime import BackendOps
-from unialg.semantics.morphisms import Morphism
+from unialg.semantics import morphisms as ops
+from unialg.semantics.morphisms import Morphism, MorphismError
 from unialg.tensors.semantics import (
     BINARY,
     resolve_semiring,
@@ -249,3 +250,41 @@ class TestConstructProtocol:
         env["_domain_data"] = {"tensors": domain_data}
         with pytest.raises(Exception, match="unknown algebra 'missing'"):
             construct_expr(node, env)
+
+
+class TestContractActivationComposition:
+    """Composing a tensor contraction with a BINARY→BINARY activation must not raise."""
+
+    def test_matmul_then_sigmoid_type(self, real_semiring, numpy_env):
+        sigmoid = numpy_env["sigmoid"]
+        m = contract_morphism(real_semiring, "ij,jk->ik")
+        composed = ops.compose(m, sigmoid)
+        assert composed.dom() == ProductType(BINARY, BINARY)
+        assert composed.cod() == BINARY
+
+    def test_matvec_then_sigmoid_type(self, real_semiring, numpy_env):
+        sigmoid = numpy_env["sigmoid"]
+        m = contract_morphism(real_semiring, "ij,j->i")
+        composed = ops.compose(m, sigmoid)
+        assert composed.dom() == ProductType(BINARY, BINARY)
+        assert composed.cod() == BINARY
+
+    def test_scalar_contract_then_activation_type(self, real_semiring, numpy_env):
+        sigmoid = numpy_env["sigmoid"]
+        m = contract_morphism(real_semiring, "i,i->")
+        composed = ops.compose(m, sigmoid)
+        assert composed.dom() == ProductType(BINARY, BINARY)
+        assert composed.cod() == BINARY
+
+    def test_activation_then_contract_type(self, real_semiring, numpy_env):
+        sigmoid = numpy_env["sigmoid"]
+        m = contract_morphism(real_semiring, "ij,jk->ik")
+        composed = ops.compose(ops.par(sigmoid, sigmoid), m)
+        assert composed.dom() == ProductType(BINARY, BINARY)
+        assert composed.cod() == BINARY
+
+    def test_incompatible_activation_raises(self, real_semiring, numpy_env):
+        """activation cod != contract dom raises, not silently succeeds."""
+        sigmoid = numpy_env["sigmoid"]
+        with pytest.raises(MorphismError):
+            ops.compose(sigmoid, contract_morphism(real_semiring, "ij,jk->ik"))

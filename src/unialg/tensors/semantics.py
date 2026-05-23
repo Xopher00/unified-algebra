@@ -101,13 +101,13 @@ class ContractSpec:
     @property
     def dom(self):
         if self.shape is not None:
-            return apply_poly(self.shape, BINARY)
+            return _strip_exp(apply_poly(self.shape, BINARY))
         n = len(self.equation.inputs)
         return BINARY if n == 1 else repeated_product(BINARY, n)
 
     @property
     def cod(self):
-        return tensor_type(self.equation.output)
+        return BINARY
 
 
 # ---------------------------------------------------------------------------

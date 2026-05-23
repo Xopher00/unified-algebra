@@ -108,6 +108,17 @@ Note: a pending plan (plan file `compiled-petting-acorn.md`) covers a related `C
 
 Tensor support currently activates on import. Add an explicit activation path — `load extension tensors` in the DSL or `enable("tensors")` in the Python API — so syntax availability is intentional and testable. Aligns with the existing extension registry model in `extensions.py`. Do this before writing further integration tests against the tensor extension so those tests exercise correct activation semantics.
 
+### Fix opaque fusion pre-map dom after ContractSpec strip
+**Impact: Low** | **Complexity: Low**
+
+`TestOpaqueFusion::test_opaque_leaf_produces_compose_not_single_prim` fails after the `ContractSpec.dom/cod` strip fix. The fusion pass builds `compose(pre, fused_contract)` where `pre = inner_optic.forward`. The `pre.dom()` carries `ExpType`-typed domain from the optic product's `par(tanh_fwd, identity(BINARY))`, because the inner contract leaf's DomainPrim node internally propagates the old shape-typed domain through the optic machinery. Meanwhile `composed.dom()` is now fully stripped `BINARY`.
+
+The specific mismatch: `fused.dom() = ProductType(BINARY, ProductType(ExpType(K_jk, BINARY), ExpType(K_kl, BINARY)))` vs `composed.dom() = ProductType(BINARY, ProductType(BINARY, BINARY))`.
+
+The optic's `_combine_optic` uses `ops.par` on the forwards, so the combined forward dom should be `ProductType(BINARY, BINARY)` — but something in the `_types_compatible` / pre-map path is allowing a mismatched compose through. Investigate `_types_compatible` and `ops.compose(pre, fused_contract)` in `fusion.py:_try_fuse` to find where the ExpType leaks into the pre-map's stored dom.
+
+Do before Tier 3 boundary cleanup; it is a direct consequence of the strip fix.
+
 ### Smooth-tropical semiring via composed morphisms
 **Impact: High** | **Complexity: Medium**
 

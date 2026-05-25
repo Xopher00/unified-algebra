@@ -74,11 +74,11 @@ Establish test coverage and settle the shared combinator vocabulary before struc
 **Done.** Dispatch dicts now serve as the combinator tables at each level. `COMBINATOR_LAWS.md` updated (2026-05-22) with full cross-layer audit documenting:
 
 - **Functor level:** `_COMPOSE_POLY` / `_APPLY_POLY` — 10 PolyExpr entries, same keys, expression vs type level
-- **Morphism level:** `_SIG_LEAF` (9 leaves), `_SIG_BINARY` / `_BINARY_SIG` (4 binary combinators at expression vs Morphism level), `_SIG_VALIDATED` (4 structural isos via cod-builders)
-- **Realization level:** `_POLY_ACTION_DISPATCH` (10 PolyExpr), `_FIXED_MORPHISMS` (12), `_CONTEXTUAL_MORPHISMS` (4), `_SPECIAL_MORPHISMS` (6)
+- **Morphism level:** `_SIG_LEAF` (9 leaves), `_SIG_BINARY` / `_BINARY_SIG` (5 binary combinators at expression vs Morphism level), `_SIG_VALIDATED` (4 structural isos via cod-builders)
+- **Realization level:** `_POLY_ACTION_DISPATCH` (10 PolyExpr), `_FIXED_MORPHISMS` (12), `_CONTEXTUAL_MORPHISMS` (5), `_SPECIAL_MORPHISMS` (6)
 - **Optic level:** consumer of morphism/functor ops, no dispatch dicts needed
 
-Shared combinators (compose, parallel, identity) verified consistent across all three levels. Product/sum/structural iso gaps at functor and optic levels documented as intentional. Cod-builders (`_assoc_cod`, `_symmetry_cod`, `_distl_cod`, `_distr_cod`) shared between validation and construction as single source of truth.
+Shared combinators (compose, parallel product, parallel coproduct, identity) verified consistent across all three levels. Product/sum/structural iso gaps at functor and optic levels documented as intentional. Cod-builders (`_assoc_cod`, `_symmetry_cod`, `_distl_cod`, `_distr_cod`) shared between validation and construction as single source of truth.
 
 ### ~~`Exp.base: Type → PolyExpr`~~ ✓
 **Done.** `Exp.base` changed from Hydra `Type` to `PolyExpr` across 8 files (expressions, functors, _construct_helpers, tensors/semantics, tensors/fusion, grammar, and two test files). `_index_product` now wraps in `Const(...)`; `_labels_from_base` rewritten to accept `PolyExpr`; `Exp[base, body]` syntax added to grammar. 445 tests pass.
@@ -184,7 +184,9 @@ High-complexity items that benefit from settled vocabulary (Tier 1–2) and clea
 ### `construct` — phase-based split
 **Impact: High** | **Complexity: High**
 
-`semantics/construct.py:243`. Currently acts as resolver + typechecker + elaborator + finalizer coordinator in one monolithic function. Split by **compiler phase**, not node kind:
+`semantics/construct.py:307` (renumbered after 2026-05-25 refactor). Currently acts as resolver + typechecker + elaborator + finalizer coordinator in one monolithic function. Split by **compiler phase**, not node kind:
+
+**Partial progress (2026-05-25):** `_literal_value` and `_argument_types` extracted to module level; `construct` ruff C901 reduced 71 → 56. `construct_program` C901(42) is the dominant remaining violation and requires this split to resolve.
 
 ```
 resolve    → name lookup, ref resolution, scope

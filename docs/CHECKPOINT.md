@@ -1,6 +1,24 @@
-# Checkpoint — Current State (2026-05-22)
+# Checkpoint — Current State (2026-05-25)
 
-**Tests:** 511 passing, 4 skipped. Typed literal points and configured axis arguments are covered across semantic, runtime, and tensor composition tests.
+**Tests:** 524 passing, 6 skipped. Typed literal points, configured axis arguments, and coproduct bimap syntax/realization are covered across semantic, runtime, and tensor composition tests.
+
+---
+
+## Recent changes (2026-05-25)
+
+**Hydra dependency migrated to `hydra-kernel==0.15.0` (PyPI)**
+- `hatch_build.py` and its copy-from-local-clone hook removed.
+- `src/hydra/` removed from the source tree; `[tool.hatch.build.targets.wheel]` no longer lists it.
+- `hydra-kernel==0.15.0` added to `[project].dependencies`.
+- `hydra-python` must not be co-installed — it owns the same `hydra/` namespace directory and clobbers the kernel modules on install. Only `hydra-kernel` is needed.
+- The local clone at `/home/scanbot/hydra` (121 commits ahead of v0.15.0) is retained as a reference but is no longer part of the build.
+
+**`construct.py` literal parser refactor**
+- `_literal_value`, `_argument_types` extracted from inside `construct()` to module level.
+- `_parse_literal_value` rewritten as a dispatch via `_LITERAL_PARSERS` dict; per-type helpers `_parse_bool`, `_parse_int`, `_parse_float` extracted as named module-level functions.
+- `from unialg.objects import TypePair, TypeUnit, ProductType, SumType` hoisted from inside `construct()` to module level.
+- `Coparallel` match case added to the `construct()` dispatch (`ops.copar(_recurse(f), _recurse(g))`).
+- `construct` ruff C901: 71 → 56. `construct_program` C901(42) unchanged — requires the Tier 4 phase-based split.
 
 ---
 
@@ -16,11 +34,12 @@ Do not revisit or redesign the following.
 - `compose` and `case` auto-embed plain morphisms into lax context
 - dom/cod derived via `dom_of(node)` / `cod_of(node)` — NOT stored on Morphism
 - `MorphismError(TypeError)` — single error class with `check(a, b, msg)` classmethod
-- `MorphismExpr` ADT: Identity, Copy, Delete, Literal, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (base), Compose, Parallel, Pair, Case, Prim, DomainPrim, BackendPrim
+- `MorphismExpr` ADT: Identity, Copy, Delete, Literal, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (base), Compose, SharedCompose, Parallel, Coparallel, Pair, Case, Prim, DomainPrim, BackendPrim
 - Typed literal points are restored as `lit(value, A) : Unit -> A`; single-quoted payloads resolve only at typed application sites and lift into context through `delete >> lit`
 - Distributivity: `distribute_left(a,b,c) : A×(B+C)→(A×B)+(A×C)`, `distribute_right(a,b,c) : (A+B)×C→(A×C)+(B×C)`; DSL keywords `distl`, `distr`
 - `merge(a) : A+A→A` — codiagonal; derivable as `case(id,id)` but named in the vocabulary; DSL keyword `merge`
 - `ContextualBinary` subclasses carry `f, g, f_param, g_param, param, monad, dom, cod` — dom/cod are stored and authoritative
+- `copar(f,g) : A+C -> B+D`; DSL notation `f && g` constructs the coproduct bimap
 - `PolyExpr` ADT: Zero, One, Id, Const(space), Sum(l,r), Prod(l,r), Exp(base: PolyExpr, body), PolyCompose(l,r), List(body), Maybe(body)
 - Extension activation: `extensions.enable("tensors")` / `is_enabled("tensors")`; DSL `load extension tensors`; auto-registration removed from `tensors/__init__.py`
 - `Functor(name, body: PolyExpr)` — named polynomial endofunctor; `apply`, `unapply`, `compose`, `map` as instance methods

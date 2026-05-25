@@ -9,7 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field as dataclass_field
 import re
 
-from hydra.core import LiteralType, TypeLiteral
+from hydra.core import (
+    LiteralTypeBinary, LiteralTypeBoolean, LiteralTypeString,
+    LiteralTypeFloat, LiteralTypeInteger, TypeLiteral,
+)
 from hydra.sorting import topological_sort
 from hydra.dsl.python import Left
 
@@ -25,7 +28,7 @@ from ._construct_helpers import (
     construct_monadic_lift, construct_poly_fmap,
     construct_recursion_app, finalize_domain_morphisms, 
     focus_alias_candidate, focus_expr_refs, 
-    morphism_refs, poly_refs, resolve_poly_refs,
+    expanded_morphism_refs, morphism_refs, poly_refs, resolve_poly_refs,
 )
 from .morphisms import Morphism, MorphismError
 from .functors import Functor
@@ -64,10 +67,10 @@ def _parse_float(text: str) -> float:
 
 
 _LITERAL_PARSERS: dict = {
-    LiteralType.STRING:  lambda text: text,
-    LiteralType.BOOLEAN: _parse_bool,
-    LiteralType.INTEGER: _parse_int,
-    LiteralType.FLOAT:   _parse_float,
+    LiteralTypeString:  lambda text: text,
+    LiteralTypeBoolean: _parse_bool,
+    LiteralTypeInteger: _parse_int,
+    LiteralTypeFloat:   _parse_float,
 }
 
 
@@ -78,9 +81,9 @@ def _parse_literal_value(text: str, expected) -> object:
     if not isinstance(expected, TypeLiteral):
         raise MorphismError("construct: quoted literal requires a scalar receiving type")
     kind = expected.value
-    if kind == LiteralType.BINARY:
+    if isinstance(kind, LiteralTypeBinary):
         raise MorphismError("construct: quoted literal cannot be used for BINARY input")
-    parser = _LITERAL_PARSERS.get(kind)
+    parser = _LITERAL_PARSERS.get(type(kind))
     if parser is None:
         raise MorphismError("construct: quoted literal requires INT, FLOAT, BOOL, or STRING input")
     return parser(text)
@@ -174,7 +177,8 @@ def construct_program(program: Program, env: dict[str, Morphism] | None = None,
 
     def morphism_env_for(node: expr.MorphismExpr) -> dict[str, Morphism]:
         morphism_env = dict(base_env)
-        for ref in sorted(morphism_refs(node)):
+        refs = expanded_morphism_refs(node, program.morphisms, program.morphism_params)
+        for ref in sorted(refs):
             if ref not in program.morphisms or ref in program.morphism_params:
                 continue
             morphism_env[ref] = resolve_morphism(ref)
@@ -271,7 +275,13 @@ def construct_program(program: Program, env: dict[str, Morphism] | None = None,
     morphism_names = [n for n in program.morphisms if n not in program.morphism_params]
     focus_order = _topo_order(program.focuses, lambda n: focus_expr_refs(program.focuses[n].expr), "focus")
     functor_order = _topo_order(raw_functors, lambda n: poly_refs(raw_functors[n]), "functor")
-    morphism_order = _topo_order(morphism_names, lambda n: morphism_refs(program.morphisms[n]), "morphism")
+    morphism_order = _topo_order(
+        morphism_names,
+        lambda n: expanded_morphism_refs(
+            program.morphisms[n], program.morphisms, program.morphism_params,
+        ),
+        "morphism",
+    )
 
     for name in program.carriers:
         resolve_carrier(name)
@@ -365,7 +375,7 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
             )
         local_bound = dict(bound_exprs)
         for pname, arg_node in zip(declared_params, args):
-            local_bound[pname] = arg_node
+            local_bound[pname] = _expand_bound(arg_node)
         return construct(
             body, env, functor_env, morphism_bodies, morphism_params, focus_env,
             _cx, _domain_data, _domain_context, None, local_bound,

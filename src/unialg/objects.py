@@ -13,7 +13,7 @@ from typing import cast
 import hydra.dsl.types as T
 import hydra.show.core as ShowCore
 from hydra.core import (
-    LiteralType, Name, Type, TypeEither, TypeFunction, TypePair, TypeList, 
+    Name, Type, TypeEither, TypeFunction, TypePair, TypeList,
     TypeLiteral, TypeMaybe, TypeVoid, TypeScheme, TypeUnit, TypeVariable,
 )
 from hydra.lib import names as Names
@@ -34,7 +34,7 @@ def ExpType(left: Type, right: Type) -> TypeFunction:
     return cast(TypeFunction, T.function(left, right))
 
 
-BINARY: TypeLiteral = TypeLiteral(LiteralType.BINARY)
+BINARY: TypeLiteral = T.binary()
 
 
 def ListType(inner: Type) -> TypeList:

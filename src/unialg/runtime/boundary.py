@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from hydra.core import (
-    LiteralType, 
+    LiteralTypeBinary,
     Type, TypeEither, TypeList,
     TypeMaybe, TypePair, TypeLiteral,
 )
@@ -40,7 +40,7 @@ class RuntimeStore:
 
 def is_binary_type(typ: Type) -> bool:
     """Return True when a Hydra type is the BINARY handle type."""
-    return isinstance(typ, TypeLiteral) and typ.value == LiteralType.BINARY
+    return isinstance(typ, TypeLiteral) and isinstance(typ.value, LiteralTypeBinary)
 
 
 @dataclass(frozen=True)

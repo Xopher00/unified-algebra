@@ -17,11 +17,13 @@ from __future__ import annotations
 from typing import Callable
 
 from hydra.core import (
-    EitherType, PairType, LiteralType,
-    LiteralBinary, LiteralBoolean, LiteralString, 
+    EitherType, PairType,
+    LiteralBinary, LiteralBoolean, LiteralString,
+    LiteralTypeBinary, LiteralTypeBoolean, LiteralTypeString, LiteralTypeFloat, LiteralTypeInteger,
     Term, TermEither, TermList, TermLiteral, TermMaybe, TermPair, TermUnit,
     Type, TypeEither, TypeList, TypeLiteral, TypeMaybe, TypePair, TypeUnit,
 )
+import hydra.dsl.types as T
 from hydra.dsl.python import Just, Left, Nothing, Right
 from hydra.graph import TermCoder
 import hydra.dsl.meta.phantoms as P
@@ -123,11 +125,11 @@ def _mk_term_coder(typ: Type,
 # ---------------------------------------------------------------------------
 
 _TYPE_SHORTHANDS: dict[str, Type] = {
-    "FLOAT":  TypeLiteral(LiteralType.FLOAT),
-    "INT":    TypeLiteral(LiteralType.INTEGER),
-    "STRING": TypeLiteral(LiteralType.STRING),
-    "BOOL":   TypeLiteral(LiteralType.BOOLEAN),
-    "BINARY": TypeLiteral(LiteralType.BINARY),
+    "FLOAT":  T.float64(),
+    "INT":    T.int32(),
+    "STRING": T.string(),
+    "BOOL":   T.boolean(),
+    "BINARY": T.binary(),
     "UNIT":   TypeUnit(),
 }
 
@@ -287,11 +289,11 @@ def _binary_encode(x):
 
 
 _LITERAL_CODERS: dict = {
-    LiteralType.FLOAT:   _mk_term_coder(TypeLiteral(LiteralType.FLOAT),   lambda t: _literal_value(t, "FLOAT coder"),  _float_encode),
-    LiteralType.INTEGER: _mk_term_coder(TypeLiteral(LiteralType.INTEGER), lambda t: _literal_value(t, "INT coder"),    _int_encode),
-    LiteralType.STRING:  _mk_term_coder(TypeLiteral(LiteralType.STRING),  lambda t: _literal_value(t, "STRING coder"), _string_encode),
-    LiteralType.BOOLEAN: _mk_term_coder(TypeLiteral(LiteralType.BOOLEAN), lambda t: _literal_value(t, "BOOL coder"),   _bool_encode),
-    LiteralType.BINARY:  _mk_term_coder(TypeLiteral(LiteralType.BINARY),  lambda t: _literal_value(t, "BINARY coder"), _binary_encode),
+    LiteralTypeFloat:   _mk_term_coder(T.float64(),  lambda t: _literal_value(t, "FLOAT coder"),  _float_encode),
+    LiteralTypeInteger: _mk_term_coder(T.int32(),    lambda t: _literal_value(t, "INT coder"),    _int_encode),
+    LiteralTypeString:  _mk_term_coder(T.string(),   lambda t: _literal_value(t, "STRING coder"), _string_encode),
+    LiteralTypeBoolean: _mk_term_coder(T.boolean(),  lambda t: _literal_value(t, "BOOL coder"),   _bool_encode),
+    LiteralTypeBinary:  _mk_term_coder(T.binary(),   lambda t: _literal_value(t, "BINARY coder"), _binary_encode),
 }
 
 
@@ -300,7 +302,7 @@ def coder_for_type(typ: Type) -> TermCoder:
     if isinstance(typ, TypeUnit):
         return _unit_coder
     if isinstance(typ, TypeLiteral):
-        coder = _LITERAL_CODERS.get(typ.value)
+        coder = _LITERAL_CODERS.get(type(typ.value))
         if coder is None:
             raise TypeError(f"coder_for_type: no coder for literal type {typ.value!r}")
         return coder

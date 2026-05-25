@@ -6,11 +6,12 @@ from hypothesis import strategies as st
 import hydra.dsl.meta.phantoms as P
 import hydra.lexical as L
 import hydra.sources.libraries as Libs
-from hydra.core import IntegerType, LiteralType, LiteralTypeInteger, Name, TypeLiteral
+from hydra.core import IntegerType, LiteralTypeInteger, Name, TypeLiteral
+import hydra.dsl.types as T
 from hydra.dsl.python import Just
 
 from unialg.syntax import expressions as expr
-from unialg.syntax._ops import make_compose, make_pair, make_par, make_case
+from unialg.syntax._ops import make_compose, make_pair, make_par, make_copar, make_case
 from unialg.syntax.parse import parse_morphism, parse_program
 from unialg.semantics.morphisms import Morphism, MorphismError, lit
 from unialg.semantics.construct import construct, construct_program
@@ -24,7 +25,6 @@ def _has_module(name: str) -> bool:
 
 
 INT = TypeLiteral(LiteralTypeInteger(IntegerType.INT32))
-SCALAR_INT = TypeLiteral(LiteralType.INTEGER)
 ADD = Name("hydra.lib.math.add")
 MUL = Name("hydra.lib.math.mul")
 
@@ -80,10 +80,10 @@ class TestConstructBasic:
         assert m.cod() == INT
 
     def test_literal_point_signature(self):
-        m = lit(-1, SCALAR_INT, "-1")
+        m = lit(-1, INT, "-1")
         from unialg.objects import TypeUnit
         assert m.dom() == TypeUnit()
-        assert m.cod() == SCALAR_INT
+        assert m.cod() == INT
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +107,13 @@ class TestConstructCombinators:
         tree = make_par(expr.Ref("add1"), expr.Ref("mul2"))
         m = construct(tree, int_env)
         assert m.dom() == ProductType(INT, INT)
+
+    def test_copar(self, int_env):
+        from unialg.objects import SumType
+        tree = make_copar(expr.Ref("add1"), expr.Ref("mul2"))
+        m = construct(tree, int_env)
+        assert m.dom() == SumType(INT, INT)
+        assert m.cod() == SumType(INT, INT)
 
     def test_case(self, int_env):
         from unialg.objects import SumType
@@ -143,10 +150,10 @@ class TestConstructRuntime:
     @pytest.mark.parametrize(
         ("value", "typ"),
         [
-            (-1, TypeLiteral(LiteralType.INTEGER)),
-            (0.5, TypeLiteral(LiteralType.FLOAT)),
-            (True, TypeLiteral(LiteralType.BOOLEAN)),
-            ("0.5", TypeLiteral(LiteralType.STRING)),
+            (-1, T.int32()),
+            (0.5, T.float64()),
+            (True, T.boolean()),
+            ("0.5", T.string()),
         ],
     )
     def test_literal_points_realize_as_constants(self, value, typ, ctx, graph):
@@ -457,6 +464,7 @@ class TestLoadDirective:
         pytest.param("torch", marks=pytest.mark.skipif(not _has_module("torch"), reason="torch not installed")),
         pytest.param("jax", marks=pytest.mark.skipif(not _has_module("jax"), reason="jax not installed")),
         pytest.param("cupy", marks=pytest.mark.skipif(not _has_module("cupy"), reason="cupy not installed")),
+        pytest.param("tensorflow", marks=pytest.mark.skipif(not _has_module("tensorflow"), reason="tensorflow not installed")),
     ])
     def test_load_backend_compiles(self, backend):
         prog = compile_program(f"load {backend}\nlet f = tanh")
@@ -475,13 +483,57 @@ class TestLoadDirective:
         pytest.param("torch", marks=pytest.mark.skipif(not _has_module("torch"), reason="torch not installed")),
         pytest.param("jax", marks=pytest.mark.skipif(not _has_module("jax"), reason="jax not installed")),
         pytest.param("cupy", marks=pytest.mark.skipif(not _has_module("cupy"), reason="cupy not installed")),
+        pytest.param("tensorflow", marks=pytest.mark.skipif(not _has_module("tensorflow"), reason="tensorflow not installed")),
     ])
     def test_all_backends_have_common_ops(self, backend):
         env = load_backend(
             f"src/unialg/runtime/backends/{backend}.json"
         )
-        for op in ("add", "multiply", "tanh", "exp", "log"):
+        shared_ops = (
+            "add", "subtract", "multiply", "divide", "power",
+            "minimum", "maximum", "logaddexp",
+            "tanh", "exp", "log", "log1p", "sqrt", "abs",
+            "reciprocal", "sign", "square", "sin", "cos", "neg",
+            "sigmoid", "softmax", "reduce.logaddexp",
+            "reduce.add", "reduce.multiply", "reduce.minimum", "reduce.maximum",
+            "bessel_i0", "ceil", "digamma", "erf", "erfc", "floor",
+            "lgamma", "not", "round", "equal", "greater", "less", "and",
+            "or", "clip", "where", "matmul", "norm", "reduce.and",
+            "reduce.or", "mean", "std",
+        )
+        for op in shared_ops:
             assert op in env, f"{backend} missing {op}"
+
+
+class TestParameterizedTransitiveDeps:
+    """Parameterized morphisms that close over named morphisms defined elsewhere."""
+
+    def test_callee_body_dep_resolved_when_caller_first(self):
+        # 'out' is parsed first so it appears first in morphism_names.
+        # Without the fix, _topo_order sees no deps for 'out' (morphism_refs
+        # only returns {"wrap","exp"}, skipping wrap's body), so it may order
+        # 'out' before 'helper'. construct() then fails with unresolved 'helper'.
+        env = load_backend("src/unialg/runtime/backends/numpy.json")
+        prog = parse_program("""
+            let out = wrap(exp)
+            let helper = tanh >> tanh
+            let wrap(f) = f >> helper
+        """)
+        result = construct_program(prog, env)
+        assert "out" in result.morphisms
+
+    def test_nested_parameterized_callee_dep_resolved(self):
+        # outer(f) calls inner(f), inner(f) closes over 'shared'.
+        # 'out' appears first; without transitive expansion, 'shared' is missed.
+        env = load_backend("src/unialg/runtime/backends/numpy.json")
+        prog = parse_program("""
+            let out = outer(exp)
+            let shared = tanh >> tanh
+            let inner(f) = f >> shared
+            let outer(f) = inner(f)
+        """)
+        result = construct_program(prog, env)
+        assert "out" in result.morphisms
 
 
 def _peano_value(value) -> int:

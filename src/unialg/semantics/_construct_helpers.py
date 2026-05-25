@@ -58,6 +58,50 @@ def morphism_refs(node: expr.MorphismExpr) -> set[str]:
     return _morphism_refs_multi(node)
 
 
+def expanded_morphism_refs(
+    node: expr.MorphismExpr,
+    bodies: dict[str, expr.MorphismExpr],
+    params: dict[str, tuple[str, ...]],
+    seen: frozenset[str] = frozenset(),
+) -> set[str]:
+    """Like morphism_refs, but expands through parameterized callee bodies.
+
+    For MorphismApp(Ref(name), args) where name is parameterized, also
+    collects refs from the callee body (minus its declared param names),
+    recursively. This gives the full transitive dependency set needed for
+    topological ordering and environment preparation.
+    """
+    if isinstance(node, expr.Ref):
+        return {node.name}
+    if type(node) in _MORPHISM_REF_EMPTY or hasattr(node, '_domain_tag'):
+        return set()
+    if isinstance(node, _MORPHISM_REF_SINGLE):
+        return _morphism_refs_single(node)
+    if not isinstance(node, expr.MorphismApp):
+        return _morphism_refs_multi(node)
+
+    # MorphismApp: collect from args, then expand callee body if parameterized
+    fun, args = node.fun, node.args
+    refs = _many_expanded_morphism_refs(args, bodies, params, seen)
+    if not isinstance(fun, expr.Ref):
+        refs |= expanded_morphism_refs(fun, bodies, params, seen)
+        return refs
+    callee = fun.name
+    refs.add(callee)
+    if callee in params and callee in bodies and callee not in seen:
+        formal_params = set(params[callee])
+        body_refs = expanded_morphism_refs(bodies[callee], bodies, params, seen | {callee})
+        refs |= body_refs - formal_params
+    return refs
+
+
+def _many_expanded_morphism_refs(nodes, bodies, params, seen) -> set[str]:
+    refs = set()
+    for node in nodes:
+        refs |= expanded_morphism_refs(node, bodies, params, seen)
+    return refs
+
+
 def resolve_poly_refs(
     node: expr.PolyExpr,
     functors: dict[str, expr.PolyExpr],

@@ -9,7 +9,7 @@ from typing import Any
 from unialg.syntax.expressions import (
     MorphismExpr, PolyExpr, PolyFmap, MorphismApp, RecursionApp,
     CarrierBoundary, MonadicLift, FocusExpr, FocusRef, FocusCompose,
-    Identity, Copy, Delete, First, Second, Left, Right,
+    Identity, Copy, Delete, Literal, First, Second, Left, Right,
     Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, Ref, PolyRef,
     Id, Zero, One, Exp as PolyExp, List as PolyList, Maybe as PolyMaybe,
     Rose as PolyRose, Tree as PolyTree,
@@ -159,38 +159,43 @@ def _nud_name_token(p: PrattParser, name: str) -> MorphismExpr:
     return Ref(name)
 
 
+def _nud_paren(p: PrattParser, _val) -> MorphismExpr:
+    inner = p.parse(0)
+    p.expect("RPAREN", "closing )")
+    return inner  # type: ignore[return-value]
+
+
+def _nud_star(p: PrattParser, _val) -> MorphismExpr:
+    if p.peek()[0] != "INT":
+        raise ParseError("copy power expects an integer >= 2")
+    _, count = p.expect("INT", "copy power")
+    return _copy_power(count)
+
+
+def _nud_case(p: PrattParser, _val) -> MorphismExpr:
+    if p.peek()[0] != "INT":
+        raise ParseError("'|' in prefix position expects 0 or 1")
+    _, index = p.expect("INT", "injection index")
+    return _case_injection(index)
+
+
+_MORPHISM_NUD_DISPATCH: dict[str, Any] = {
+    "LPAREN": _nud_paren,
+    "LBRACKET": lambda p, _v: _nud_lbracket(p),
+    "BANG": lambda _p, _v: Delete(_U),
+    "STAR": _nud_star,
+    "CASE": _nud_case,
+    "INT": lambda _p, v: _nud_int(v),
+    "QUOTED": lambda _p, v: Literal(v, None, _U),
+    "NAME": lambda p, v: _nud_name_token(p, v),
+}
+
+
 def _morphism_nud(p: PrattParser, tok: Token) -> MorphismExpr:
     kind, val = tok
-
-    if kind == "LPAREN":
-        inner = p.parse(0)
-        p.expect("RPAREN", "closing )")
-        return inner  # type: ignore[return-value]
-
-    if kind == "LBRACKET":
-        return _nud_lbracket(p)
-
-    if kind == "BANG":
-        return Delete(_U)
-
-    if kind == "STAR":
-        if p.peek()[0] != "INT":
-            raise ParseError("copy power expects an integer >= 2")
-        _, count = p.expect("INT", "copy power")
-        return _copy_power(count)
-
-    if kind == "CASE":
-        if p.peek()[0] != "INT":
-            raise ParseError("'|' in prefix position expects 0 or 1")
-        _, index = p.expect("INT", "injection index")
-        return _case_injection(index)
-
-    if kind == "INT":
-        return _nud_int(val)
-
-    if kind == "NAME":
-        return _nud_name_token(p, val)
-
+    handler = _MORPHISM_NUD_DISPATCH.get(kind)
+    if handler is not None:
+        return handler(p, val)
     raise ParseError(f"unexpected token {kind!r} ({val!r}) in morphism expression")
 
 

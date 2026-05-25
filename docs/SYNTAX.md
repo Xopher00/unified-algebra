@@ -74,10 +74,12 @@ parameterized morphisms:
 
 ```unialg
 let f = add(exp, tanh)
+let normalized = softmax(x, '-1')
 ```
 
 This means: apply `exp` and `tanh` to the same input, then call `add` on the two
-results.
+results. A single-quoted argument is a typed scalar point whose type is
+selected by the primitive's receiving argument declaration.
 
 ## `let`
 
@@ -103,6 +105,32 @@ let compose2(a, b) = a >> b
 let f = compose2(exp, tanh)
 ```
 
+Single-quoted literal payloads may pass through parameterized definitions until
+they reach a declared primitive input type:
+
+```unialg
+let configured(axis) = softmax(x, axis)
+let f = configured('-1')
+let columns = reduce.add(x, '0')
+```
+
+A receiving `INT`, `FLOAT`, or `BOOL` argument resolves values such as `'-1'`,
+`'0.5'`, and `'true'` to that scalar type. A receiving `STRING` argument keeps
+the quoted contents as text, including numeric-looking or boolean-looking
+contents. The resulting point `lit_A(v) : 1 -> A` is used alongside an input
+branch by lifting it through deletion, for example:
+
+```text
+BINARY --delete--> 1 --lit_INT(-1)--> INT
+```
+
+A quoted literal is not accepted as `BINARY` or `UNIT`, and it cannot be bound
+without a typed receiving site:
+
+```unialg
+let axis = '-1'  # invalid: no receiving argument supplies its type
+```
+
 ## Morphism Expressions
 
 Morphism expressions denote arrows. They are parsed first as syntax and then
@@ -118,6 +146,7 @@ resolved by semantic construction, so most atoms start with placeholder types.
 | `*n` | prefix shorthand for n-fold copy |
 | `delete`, `drop`, `del`, `!`, `1` | delete, `A -> 1` |
 | `absurd`, `0` | absurd morphism, `0 -> A` |
+| `'<payload>'` | typed literal point, resolved at a typed application site as `1 -> A` |
 | `assoc` | associativity isomorphism |
 | `sym`, `symmetry` | symmetry isomorphism |
 | `distl` | distributivity `A × (B + C) → (A × B) + (A × C)` |
@@ -128,6 +157,9 @@ resolved by semantic construction, so most atoms start with placeholder types.
 | `|0` | left injection |
 | `|1` | right injection |
 | `<name>` | named morphism or backend primitive |
+
+Bare `0` and `1` retain their structural meanings. Double-quoted strings remain
+available for extension forms such as `contract[real]("ij,j->i")`.
 
 ### Morphism Operators
 
@@ -412,4 +444,3 @@ These are implementation limits, not desired long-term semantics:
   accepted yet.
 - User-defined type aliases and type-level interpretation are not complete.
 - `;` is rejected; use `>>` for composition.
-

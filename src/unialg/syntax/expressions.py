@@ -64,6 +64,18 @@ class Delete(MorphismExpr):
 
 
 @dataclass(frozen=True)
+class Literal(MorphismExpr):
+    """Typed point morphism ``lit_A(v) : 1 -> A``.
+
+    Parsed quoted payloads keep ``value`` unresolved until semantic
+    construction receives the codomain expected by an application site.
+    """
+    text: str
+    value: object | None
+    cod: Type
+
+
+@dataclass(frozen=True)
 class First(MorphismExpr):
     """π₁ : A × B → A — left projection."""
     ab: TypePair
@@ -362,6 +374,8 @@ def _pretty_wrapped(expr: MorphismExpr) -> str | None:
 
 def _pretty_named(expr: MorphismExpr) -> str:
     match expr:
+        case Literal(text=text):
+            return f"'{text}'"
         case DomainPrim(tag=tag):
             return f"domain_prim[{tag}]"
         case MorphismApp(fun=fun, args=args):
@@ -546,7 +560,15 @@ def _pretty_poly_atom(expr: PolyExpr) -> str | None:
             return None
 
 
+_POLY_WRAPPER_NAMES: dict[type, str] = {
+    List: "List", Maybe: "Maybe", Rose: "Rose", Tree: "Tree",
+}
+
+
 def _pretty_poly_compound(expr: PolyExpr) -> str:
+    wrapper_name = _POLY_WRAPPER_NAMES.get(type(expr))
+    if wrapper_name is not None:
+        return f"{wrapper_name}[{pretty(expr.body)}]"  # type: ignore[attr-defined]
     match expr:
         case Sum(left=left, right=right):
             return f"{pretty(left)} + {pretty(right)}"
@@ -565,14 +587,6 @@ def _pretty_poly_compound(expr: PolyExpr) -> str:
             if isinstance(body, (Sum, Prod)):
                 bs = f"({bs})"
             return f"{pretty(base)} -> {bs}"
-        case List(body=body):
-            return f"List[{pretty(body)}]"
-        case Maybe(body=body):
-            return f"Maybe[{pretty(body)}]"
-        case Rose(body=body):
-            return f"Rose[{pretty(body)}]"
-        case Tree(body=body):
-            return f"Tree[{pretty(body)}]"
         case _:
             raise ValueError(f"pretty: unknown PolyExpr {type(expr).__name__!r}")
 

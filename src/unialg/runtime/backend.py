@@ -30,14 +30,14 @@ Spec format (JSON)::
       }
     }
 
-``arg_type`` and ``result_type`` are Hydra type declarations parsed by
+``arg_type`` or ``arg_types`` and ``result_type`` are Hydra type declarations parsed by
 ``type_from_spec``; TermCoders are derived automatically via ``coder_for_type``.
 Supported shorthands: ``"FLOAT"``, ``"INT"``, ``"STRING"``, ``"BOOL"``,
 ``"BINARY"``, ``"UNIT"``.  Structured types (``{"list": T}``, ``{"pair": [A, B]}``,
 etc.) are also valid for backend ops that accept/return lists, pairs, or
 optional values in universal Python representation. The ``kind`` field is
 descriptive metadata; loading semantics are determined by ``path``, ``arity``,
-``arg_type``, and ``result_type``.
+``arg_type``/``arg_types``, and ``result_type``.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ from hydra.graph import Graph, Primitive, TermCoder
 from hydra.lib import maps as Maps
 from hydra.packaging import Library, Namespace
 
-from unialg.objects import ExpType, TypeScheme, standard_graph, repeated_product
+from unialg.objects import ExpType, ProductType, TypeScheme, standard_graph
 
 from .codecs import type_from_spec, coder_for_type, expect_right
 from .boundary import (
@@ -80,10 +80,10 @@ class BackendPrimitive:
 
     primitive: Primitive
     arity: int
-    arg_type: Type
+    arg_types: tuple[Type, ...]
     result_type: Type
     dom: Type
-    arg_coder: TermCoder
+    arg_coders: tuple[TermCoder, ...]
     result_coder: TermCoder
     fn: Callable
     # Operation metadata. BackendOps owns the adapter used at the whole-program
@@ -95,6 +95,16 @@ class BackendPrimitive:
     def name(self) -> Name:
         """Canonical Hydra name, e.g. ``Name("unialg.backend.add")``."""
         return self.primitive.name
+
+    @property
+    def arg_type(self) -> Type:
+        """First argument type, retained for single-carrier consumers."""
+        return self.arg_types[0]
+
+    @property
+    def arg_coder(self) -> TermCoder:
+        """First argument coder, retained for tensor carrier consumers."""
+        return self.arg_coders[0]
 
 
 def resolve_function(path: str):
@@ -138,19 +148,29 @@ def infer_arity(fn) -> int:
     )
 
 
-def _curried_type(arg_type, result_type, arity: int):
-    """Build the curried Hydra type ``arg_type -> ... -> result_type`` for ``arity`` arguments."""
+def _curried_type(arg_types: tuple[Type, ...], result_type: Type):
+    """Build the curried Hydra type for the declared argument sequence."""
     typ = result_type
-    for _ in range(arity):
+    for arg_type in reversed(arg_types):
         typ = ExpType(arg_type, typ)
     return typ
 
 
+def _argument_domain(arg_types: tuple[Type, ...]) -> Type:
+    """Build the left-nested product shape used for multi-argument execution."""
+    dom = arg_types[0]
+    for arg_type in arg_types[1:]:
+        dom = ProductType(dom, arg_type)
+    return dom
+
+
 def register_backend_primitive(
     canonical_name: str, path: str | Callable,
-    arg_type: Type, arity: int, *,
-    arg_coder: TermCoder, result_coder: TermCoder,
+    arg_type: Type | None, arity: int, *,
+    arg_coder: TermCoder | None, result_coder: TermCoder,
     result_type: Type | None = None,
+    arg_types: tuple[Type, ...] | None = None,
+    arg_coders: tuple[TermCoder, ...] | None = None,
     binary_adapter=None,
     store: RuntimeStore | None = None,
 ) -> BackendPrimitive:
@@ -160,28 +180,36 @@ def register_backend_primitive(
         canonical_name: Hydra primitive name, e.g. ``"unialg.backend.add"``.
             This name is the same across all backends for the same logical op.
         path: Dotted import path to the backend function, e.g. ``"numpy.add"``.
-        arg_type: Hydra ``Type`` for all input arguments (homogeneous).
+        arg_type: Legacy homogeneous Hydra input type.
         arity: Number of arguments the function takes.  Must be provided
             explicitly — do not rely on ``infer_arity`` for arbitrary APIs.
-        arg_coder: TermCoder used to decode arguments before calling the function.
+        arg_coder: Legacy homogeneous input coder.
         result_coder: TermCoder used to encode the Python result back to a Hydra term.
-        result_type: Hydra ``Type`` for the return value.  Defaults to
-            ``arg_type`` when omitted.
+        result_type: Hydra ``Type`` for the return value.  Defaults to the
+            first declared argument type when omitted.
 
     Returns:
         A ``BackendPrimitive`` whose ``primitive`` field is registered under
         ``canonical_name`` with the appropriate curried ``TypeScheme``.
     """
     fn = resolve_function(path) if isinstance(path, str) else path
-    result_type = result_type or arg_type
+    arg_types = arg_types or ((arg_type,) * arity if arg_type is not None else ())
+    if not arg_types:
+        raise ValueError(f"{canonical_name}: arg_types or arg_type must be provided")
+    if len(arg_types) != arity:
+        raise ValueError(f"{canonical_name}: arity {arity} does not match {len(arg_types)} argument types")
+    arg_coders = arg_coders or ((arg_coder,) * arity if arg_coder is not None else ())
+    if len(arg_coders) != arity:
+        raise ValueError(f"{canonical_name}: arity {arity} does not match {len(arg_coders)} argument coders")
+    result_type = result_type or arg_types[0]
     name = Name(canonical_name)
-    scheme = TypeScheme((), _curried_type(arg_type, result_type, arity), Nothing())
+    scheme = TypeScheme((), _curried_type(arg_types, result_type), Nothing())
 
-    store_args = store is not None and is_binary_type(arg_type)
+    store_args = tuple(store is not None and is_binary_type(t) for t in arg_types)
     store_result = store is not None and is_binary_type(result_type)
 
     def impl(ctx: Context, graph: Graph, args, *, fn=fn, 
-        arg_coder=arg_coder, result_coder=result_coder,
+        arg_coders=arg_coders, result_coder=result_coder,
         canonical_name=canonical_name,
         store=store, store_args=store_args, 
         store_result=store_result,
@@ -192,10 +220,12 @@ def register_backend_primitive(
                 arg_coder.encode(ctx, graph, arg),
                 f"decoding argument for {canonical_name}",
             )
-            for arg in args
+            for arg_coder, arg in zip(arg_coders, args)
         ]
-        if store_args:
-            py_args = [store.get(key) for key in py_args]
+        py_args = [
+            store.get(value) if use_store else value
+            for value, use_store in zip(py_args, store_args)
+        ]
         py_result = fn(*py_args)
         if store_result:
             py_result = store.put(py_result)
@@ -204,10 +234,10 @@ def register_backend_primitive(
     return BackendPrimitive(
         primitive=Primitive(name, scheme, impl),
         arity=arity,
-        arg_type=arg_type,
+        arg_types=arg_types,
         result_type=result_type,
-        dom=repeated_product(arg_type, arity),
-        arg_coder=arg_coder,
+        dom=_argument_domain(arg_types),
+        arg_coders=arg_coders,
         result_coder=result_coder,
         fn=fn,
         binary_adapter=binary_adapter,
@@ -240,13 +270,18 @@ def _resolve_binary_adapter(adapter_spec) -> object | None:
 
 
 def _prepare_op(backend_name: str, op_name: str, entry: dict) -> tuple:
-    arg_type     = type_from_spec(entry["arg_type"])
-    result_type  = type_from_spec(entry.get("result_type", entry["arg_type"]))
-    arg_coder    = coder_for_type(arg_type)
+    arg_specs    = entry.get("arg_types")
+    if arg_specs is None:
+        arg_specs = [entry["arg_type"]] * entry["arity"]
+    if len(arg_specs) != entry["arity"]:
+        raise ValueError(f"backend {backend_name!r} op {op_name!r}: arity does not match arg_types")
+    arg_types    = tuple(type_from_spec(spec) for spec in arg_specs)
+    result_type  = type_from_spec(entry.get("result_type", arg_specs[0]))
+    arg_coders   = tuple(coder_for_type(arg_type) for arg_type in arg_types)
     result_coder = coder_for_type(result_type)
     canonical    = f"{_CANONICAL_PREFIX}.{op_name}"
     fn           = _resolve_operation_function(backend_name, op_name, entry["path"])
-    return (op_name, entry, arg_type, result_type, arg_coder, result_coder, canonical, fn)
+    return (op_name, entry, arg_types, result_type, arg_coders, result_coder, canonical, fn)
 
 
 def load_spec(
@@ -274,16 +309,18 @@ def load_spec(
                 for op_name, entry in spec["operations"].items()]
 
     needs_store = any(
-        is_binary_type(arg_type) or is_binary_type(result_type)
-        for _, _, arg_type, result_type, *_ in prepared
+        any(is_binary_type(arg_type) for arg_type in arg_types) or is_binary_type(result_type)
+        for _, _, arg_types, result_type, *_ in prepared
     )
     store: RuntimeStore | None = RuntimeStore() if needs_store else None
 
     result: dict[str, BackendPrimitive] = {}
-    for op_name, entry, arg_type, result_type, arg_coder, result_coder, canonical, fn in prepared:
+    for op_name, entry, arg_types, result_type, arg_coders, result_coder, canonical, fn in prepared:
         result[op_name] = register_backend_primitive(
-            canonical, fn, arg_type, entry["arity"],
-            arg_coder=arg_coder,
+            canonical, fn, None, entry["arity"],
+            arg_coder=None,
+            arg_types=arg_types,
+            arg_coders=arg_coders,
             result_coder=result_coder,
             result_type=result_type,
             binary_adapter=binary_adapter,
@@ -461,43 +498,3 @@ def library_to_graph(library: Library, base: Graph | None = None) -> Graph:
     return replace(base, primitives=Maps.from_list(list(prims.items())))
 
 
-def backend_graph(ops: "BackendOps", base: Graph | None = None) -> Graph:
-    """Create a Hydra Graph containing all primitives for a backend."""
-    return ops.to_graph(base)
-
-
-def backend_op_names(ops: "BackendOps") -> frozenset[str]:
-    """Return the logical op names supported by a backend."""
-    return ops.op_names
-
-
-def backend_hydra_names(ops: "BackendOps") -> frozenset[Name]:
-    """Return canonical Hydra primitive names for a backend."""
-    return ops.hydra_names
-
-
-def backend_coverage(ops: "BackendOps", required: set[str] | frozenset[str]) -> dict[str, frozenset[str]]:
-    """Report supported and missing logical ops for a backend."""
-    return ops.coverage(required)
-
-
-def compare_backend_coverage(left: "BackendOps", right: "BackendOps") -> dict[str, frozenset[str]]:
-    """Compare logical op coverage between two backends."""
-    left_ops = left.op_names
-    right_ops = right.op_names
-    return {
-        "shared": frozenset(sorted(left_ops & right_ops)),
-        "left_only": frozenset(sorted(left_ops - right_ops)),
-        "right_only": frozenset(sorted(right_ops - left_ops)),
-    }
-
-
-def backend_has_coverage(ops: "BackendOps", required: set[str] | frozenset[str]) -> bool:
-    """Return True iff the backend supports every required logical op."""
-    return frozenset(required).issubset(ops.op_names)
-
-
-def backend_required_for_term(required_ops: set[str] | frozenset[str], *candidates: "BackendOps") -> list["BackendOps"]:
-    """Return the candidate backends which satisfy a required logical op set."""
-    needed = frozenset(required_ops)
-    return [ops for ops in candidates if backend_has_coverage(ops, needed)]

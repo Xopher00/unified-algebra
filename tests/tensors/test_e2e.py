@@ -98,14 +98,14 @@ def test_numpy_matmul_then_sigmoid():
     assert np.allclose(result, scipy_sigmoid(A @ B))
 
 
-def test_numpy_matvec_then_softmax():
-    """Matrix-vector contraction composed with softmax executes correctly."""
+def test_numpy_matvec_then_softmax_with_inline_axis():
+    """Tensor contraction composes with a typed configured operation."""
     prog = compile_program(
         """
         load numpy
         load extension tensors
         algebra real(plus=add, times=multiply, zero=0.0, one=1.0)
-        let f = contract[real]("ij,j->i") >> softmax
+        let f = contract[real]("ij,j->i") >> softmax(x, '-1')
         """
     )
 
@@ -114,4 +114,4 @@ def test_numpy_matvec_then_softmax():
 
     result = prog.run(W, x)
     from scipy.special import softmax as scipy_softmax
-    assert np.allclose(result, scipy_softmax(W @ x))
+    assert np.allclose(result, scipy_softmax(W @ x, axis=-1))

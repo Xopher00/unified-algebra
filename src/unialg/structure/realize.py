@@ -300,6 +300,7 @@ _FIXED_MORPHISMS: dict = {
     expr.Coerce:          lambda _n, _p: P.identity().value,
     expr.Copy:            lambda _n, _p: T.term_lambda("x", lambda x: P.pair(x, x)).value,
     expr.Delete:          lambda _n, _p: P.constant(P.unit()).value,
+    expr.Literal:         lambda n, _p: T.literal_point(n.value).value,
     expr.First:           lambda _n, _p: T.pair_first().value,
     expr.Second:          lambda _n, _p: T.pair_second().value,
     expr.Left:            lambda _n, _p: T.left_injection().value,

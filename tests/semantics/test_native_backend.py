@@ -215,3 +215,80 @@ class TestMixedStoreBoundary:
 
         assert adapter is None
         assert isinstance(store, RuntimeStore)
+
+
+class TestTypedLiteralArguments:
+    @pytest.mark.parametrize(
+        ("name", "type_spec", "source", "fn", "expected"),
+        [
+            ("with_float", "FLOAT", "0.5", lambda arr, v: arr + v, np.array([1.5, 2.5])),
+            ("with_bool", "BOOL", "true", lambda arr, v: arr if v else -arr, np.array([1.0, 2.0])),
+            ("with_string", "STRING", "true", lambda arr, v: arr if v == "true" else -arr, np.array([1.0, 2.0])),
+        ],
+    )
+    def test_scalar_literal_type_is_selected_by_declared_argument(
+        self, name, type_spec, source, fn, expected,
+    ):
+        store = RuntimeStore()
+        binary = type_from_spec("BINARY")
+        config = type_from_spec(type_spec)
+        bp = register_backend_primitive(
+            f"unialg.backend.{name}",
+            fn,
+            None,
+            2,
+            arg_coder=None,
+            arg_types=(binary, config),
+            arg_coders=(coder_for_type(binary), coder_for_type(config)),
+            result_coder=coder_for_type(binary),
+            result_type=binary,
+            store=store,
+        )
+        ops = BackendOps({name: bp}, store=store)
+        env = {
+            name: Morphism(
+                node=expr.BackendPrim(bp.primitive, bp.arity, bp.dom, bp.result_type),
+                aux_primitives=(bp.primitive,),
+            )
+        }
+        morphism = construct_program(
+            parse_program(f"let f = {name}(x, '{source}')"), env,
+        ).morphisms["f"]
+        prog = compile_morphism(morphism, backend=ops)
+
+        assert np.allclose(prog.run(np.array([1.0, 2.0])), expected)
+
+    def test_multiple_configured_arguments_follow_declared_arity(self):
+        store = RuntimeStore()
+        binary = type_from_spec("BINARY")
+        integer = type_from_spec("INT")
+        boolean = type_from_spec("BOOL")
+        bp = register_backend_primitive(
+            "unialg.backend.shift_if",
+            lambda arr, amount, enabled: arr + amount if enabled else arr,
+            None,
+            3,
+            arg_coder=None,
+            arg_types=(binary, integer, boolean),
+            arg_coders=(
+                coder_for_type(binary),
+                coder_for_type(integer),
+                coder_for_type(boolean),
+            ),
+            result_coder=coder_for_type(binary),
+            result_type=binary,
+            store=store,
+        )
+        ops = BackendOps({"shift_if": bp}, store=store)
+        env = {
+            "shift_if": Morphism(
+                node=expr.BackendPrim(bp.primitive, bp.arity, bp.dom, bp.result_type),
+                aux_primitives=(bp.primitive,),
+            )
+        }
+        morphism = construct_program(
+            parse_program("let f = shift_if(x, '2', 'true')"), env,
+        ).morphisms["f"]
+        prog = compile_morphism(morphism, backend=ops)
+
+        assert np.allclose(prog.run(np.array([1.0, 2.0])), np.array([3.0, 4.0]))

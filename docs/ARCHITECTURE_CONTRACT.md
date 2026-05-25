@@ -37,7 +37,7 @@ syntax, semantics, structure, or orchestration.
 - No Hydra term construction; no imports from other unialg modules
 
 ### `syntax/expressions.py` — expression syntax
-- `MorphismExpr` sealed ADT: Identity, Copy, Delete, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (Compose, SharedCompose, Parallel, Pair, Case), PolyFmap, SelfRef, AlgExpr, Cata, Ana, Prim, DomainPrim, BackendPrim
+- `MorphismExpr` sealed ADT: Identity, Copy, Delete, Literal, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (Compose, SharedCompose, Parallel, Pair, Case), PolyFmap, SelfRef, AlgExpr, Cata, Ana, Prim, DomainPrim, BackendPrim
 - `PolyExpr` sealed ADT: Zero, One, Id, Const, Sum, Prod, Exp(base: PolyExpr, body), PolyCompose, List, Maybe
 - `pretty` display via singledispatch
 - Frozen dataclasses; no Hydra term imports
@@ -47,6 +47,7 @@ syntax, semantics, structure, or orchestration.
 - `dom_of` / `cod_of` / `signature` — type derivation from `MorphismExpr`
 - `MorphismError(TypeError)` with `check(a, b, msg)` — single error class
 - Combinators: `compose`, `par`, `pair`, `case` — via `_contextual_binary`; `distribute_left(a,b,c)`, `distribute_right(a,b,c)` — distributivity isos; `merge(a)` — codiagonal `A+A→A`
+- Point constructor: `lit(value, A) : Unit -> A`; contextual use is assembled as `delete(X) >> lit(value, A) : X -> A`
 - `shared_context=True` on contextual combinators — shares a matching non-unit param; recursion uses this to avoid `P × P` contexts
 - `_resolve_monad` — derives target monad; errors on conflict
 - `Morphism.to_lax(monad)` — universal coercion into lax context
@@ -79,6 +80,7 @@ syntax, semantics, structure, or orchestration.
 - Lambda and application builders: `prim2`, `term_lambda`, `lam2`
 - Monad-polymorphic term builders: `bind`, `pure`, `apply_effect`, `map_effect`, `lift2_effect`
 - Shape-specific builders: `pure_unit`, `pure_identity`, `product_action`, `pair_effects`, `case_effects`, `list_effects`, `maybe_effects`
+- Scalar point builders: `scalar_literal`, `literal_point` for integer, float, boolean, and string Hydra values
 - Projection/injection terms: `pair_first`, `pair_second`, `pair_swap`, `either_swap`, `pairs_bimap`, `eithers_bimap`, `eithers_either`, `left_injection`, `right_injection`, `absurd`
 - List/maybe terms: `lists_cons`, `lists_empty`, `lists_foldr`, `lists_map`, `lists_uncons`, `maybes_maybe`, `maybes_nothing`, `maybes_just`
 - `optimize_term` — peephole simplifier
@@ -88,6 +90,7 @@ syntax, semantics, structure, or orchestration.
 - `realize_term(node, _prims=None)` → typed `TTerm` handle
 - `poly_action_term(body, h, monad)` — functor action realization
 - Handles the deferred-node pattern: `SelfRef` resolves to a named primitive; `Cata`/`Ana` create and register a `Primitive` in `_prims`
+- Realizes `Literal` only after semantic typing has resolved its codomain and native scalar payload
 - Does not evaluate terms — that is `main.py`'s job
 
 ### `structure/recursion.py` — fixed-point optic bridge
@@ -128,23 +131,24 @@ syntax, semantics, structure, or orchestration.
 ## Invariants
 
 1. `compose(f, g)` is defined iff `f.cod() == g.dom()`; mismatch raises `MorphismError` at construction time.
-2. `identity(A).dom() == identity(A).cod() == A`
-3. `fst(AB).dom() == AB`, `fst(AB).cod() == AB.value.first`
-4. `snd(AB).dom() == AB`, `snd(AB).cod() == AB.value.second`
-5. `par(f, g).dom() == ProductType(f.dom(), g.dom())`, `par(f, g).cod() == ProductType(f.cod(), g.cod())`
-6. Types are native `hydra.core.Type` variants; equality is Hydra type equality.
-7. Import direction follows ownership: `semantics/` does not import `structure/`, `runtime/`, or `main.py`; `structure/` may import syntax/semantics for realization but does not import `runtime/` or `main.py`; `runtime/` does not import syntax/semantics/structure/main.
-8. `Optic.__post_init__` validates that `functor.unapply()` succeeds on both `forward.cod()` and `backward.dom()`.
-9. `poly_fmap(F, h).dom() == F.apply(h.dom())`, `poly_fmap(F, h).cod() == F.apply(h.cod())`
-10. For recursive optics, `fp.carrier` is present and marks `μF`.
-11. `fp.forward.dom() == fp.carrier`, `fp.forward.cod() == fp.functor.apply(fp.carrier)`
-12. `fp.backward.dom() == fp.functor.apply(fp.carrier)`, `fp.backward.cod() == fp.carrier`
-13. `cata(fp, alg)` and `ana(fp, coalg)` preserve the `param` and `monad` of their algebra/coalgebra.
-14. `hylo(fp, coalg, alg)` uses `compose(..., shared_context=True)`, so matching non-unit params are shared, not duplicated.
-15. `Cata`/`Ana` nodes are created by `semantics/optics.py` with no Hydra imports; `structure/realize.py` materializes them.
-16. The `_prims` list accumulator in `realize` is the mechanism for registering recursion-created `Primitive` objects; `main.run()` and `CompiledProgram.run()` augment the graph with collected primitives before reduction.
-17. `DomainProtocol.finalize` is a whole-morphism rewrite hook. It runs after all semantic construction is complete, before realization. Every registered domain's finalize hook is applied to every morphism in registration order. Finalize may restructure the morphism tree but must preserve dom/cod and param/monad invariants.
-18. Combinator laws (identity, associativity, product/coproduct universal properties, bifunctor, functorial action) hold at every layer that implements them. See `docs/COMBINATOR_LAWS.md`.
+2. `Literal(text, value, cod)` denotes `Unit -> cod`; syntax holds text, semantics resolves typed values, and only `structure/` builds Hydra literal terms.
+3. `identity(A).dom() == identity(A).cod() == A`
+4. `fst(AB).dom() == AB`, `fst(AB).cod() == AB.value.first`
+5. `snd(AB).dom() == AB`, `snd(AB).cod() == AB.value.second`
+6. `par(f, g).dom() == ProductType(f.dom(), g.dom())`, `par(f, g).cod() == ProductType(f.cod(), g.cod())`
+7. Types are native `hydra.core.Type` variants; equality is Hydra type equality.
+8. Import direction follows ownership: `semantics/` does not import `structure/`, `runtime/`, or `main.py`; `structure/` may import syntax/semantics for realization but does not import `runtime/` or `main.py`; `runtime/` does not import syntax/semantics/structure/main.
+9. `Optic.__post_init__` validates that `functor.unapply()` succeeds on both `forward.cod()` and `backward.dom()`.
+10. `poly_fmap(F, h).dom() == F.apply(h.dom())`, `poly_fmap(F, h).cod() == F.apply(h.cod())`
+11. For recursive optics, `fp.carrier` is present and marks `μF`.
+12. `fp.forward.dom() == fp.carrier`, `fp.forward.cod() == fp.functor.apply(fp.carrier)`
+13. `fp.backward.dom() == fp.functor.apply(fp.carrier)`, `fp.backward.cod() == fp.carrier`
+14. `cata(fp, alg)` and `ana(fp, coalg)` preserve the `param` and `monad` of their algebra/coalgebra.
+15. `hylo(fp, coalg, alg)` uses `compose(..., shared_context=True)`, so matching non-unit params are shared, not duplicated.
+16. `Cata`/`Ana` nodes are created by `semantics/optics.py` with no Hydra imports; `structure/realize.py` materializes them.
+17. The `_prims` list accumulator in `realize` is the mechanism for registering recursion-created `Primitive` objects; `main.run()` and `CompiledProgram.run()` augment the graph with collected primitives before reduction.
+18. `DomainProtocol.finalize` is a whole-morphism rewrite hook. It runs after all semantic construction is complete, before realization. Every registered domain's finalize hook is applied to every morphism in registration order. Finalize may restructure the morphism tree but must preserve dom/cod and param/monad invariants.
+19. Combinator laws (identity, associativity, product/coproduct universal properties, bifunctor, functorial action) hold at every layer that implements them. See `docs/COMBINATOR_LAWS.md`.
 
 ## Do not redo
 - Do not redo Hydra API exploration (already settled)

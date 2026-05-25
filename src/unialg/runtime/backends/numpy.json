@@ -30,13 +30,13 @@
     "neg":              {"kind": "unary", "path": "numpy.negative",                       "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
 
     "sigmoid":          {"kind": "unary", "path": "scipy.special.expit",                  "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "softmax":          {"kind": "unary", "path": "scipy.special.softmax",                "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "softmax":          {"kind": "unary", "path": "scipy.special.softmax",                "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
     "softplus":         {"kind": "unary", "path": "scipy.special.softplus",               "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.logaddexp": {"kind": "reduce", "path": "scipy.special.logsumexp",             "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "reduce.logaddexp": {"kind": "reduce", "path": "scipy.special.logsumexp",             "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
 
-    "reduce.add":       {"kind": "reduce", "path": "numpy.sum",                           "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.multiply":  {"kind": "reduce", "path": "numpy.prod",                          "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.minimum":   {"kind": "reduce", "path": "numpy.min",                           "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.maximum":   {"kind": "reduce", "path": "numpy.max",                           "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"}    
+    "reduce.add":       {"kind": "reduce", "path": "numpy.sum",                           "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.multiply":  {"kind": "reduce", "path": "numpy.prod",                          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.minimum":   {"kind": "reduce", "path": "numpy.min",                           "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.maximum":   {"kind": "reduce", "path": "numpy.max",                           "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"}
   }
 }

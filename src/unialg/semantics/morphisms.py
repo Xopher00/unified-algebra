@@ -183,6 +183,7 @@ _SIG_LEAF: dict = {
     expr.Identity:     lambda n, pn: (n.space, n.space),
     expr.Copy:         lambda n, pn: (n.space, ProductType(n.space, n.space)),
     expr.Delete:       lambda n, pn: (n.space, TypeUnit()),
+    expr.Literal:      lambda n, pn: (TypeUnit(), n.cod),
     expr.First:        lambda n, pn: (n.ab, n.ab.value.first),
     expr.Second:       lambda n, pn: (n.ab, n.ab.value.second),
     expr.Left:         lambda n, pn: (n.ab.value.left, n.ab),
@@ -284,6 +285,11 @@ def _copy(space: Type) -> Morphism:
 def _delete(space: Type) -> Morphism:
     """Terminal morphism ``space -> Unit``."""
     return Morphism(node=expr.Delete(space))
+
+
+def lit(value: object, cod: Type, text: str = "") -> Morphism:
+    """Point morphism selecting ``value`` in ``cod``: ``Unit -> cod``."""
+    return Morphism(node=expr.Literal(text=text, value=value, cod=cod))
 
 
 def _first(ab: TypePair) -> Morphism:

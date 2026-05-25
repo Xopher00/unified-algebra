@@ -31,13 +31,13 @@
 
     "relu":             {"kind": "unary", "path": "torch.relu",                           "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
     "sigmoid":          {"kind": "unary", "path": "torch.sigmoid",                        "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "softmax":          {"kind": "unary", "path": "torch.nn.functional.softmax",          "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "softmax":          {"kind": "unary", "path": "torch.nn.functional.softmax",          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
     "softplus":         {"kind": "unary", "path": "torch.nn.functional.softplus",         "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.logaddexp": {"kind": "reduce", "path": "torch.logsumexp",                     "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "reduce.logaddexp": {"kind": "reduce", "path": "torch.logsumexp",                     "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
 
-    "reduce.add":       {"kind": "reduce", "path": "torch.sum",                           "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.multiply":  {"kind": "reduce", "path": "torch.prod",                          "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.minimum":   {"kind": "reduce", "path": "torch.amin",                          "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.maximum":   {"kind": "reduce", "path": "torch.amax",                          "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"}    
+    "reduce.add":       {"kind": "reduce", "path": "torch.sum",                           "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.multiply":  {"kind": "reduce", "path": "torch.prod",                          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.minimum":   {"kind": "reduce", "path": "torch.amin",                          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.maximum":   {"kind": "reduce", "path": "torch.amax",                          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"}
   }
 }

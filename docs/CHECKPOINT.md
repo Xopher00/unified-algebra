@@ -1,6 +1,6 @@
 # Checkpoint — Current State (2026-05-22)
 
-**Tests:** 449 passing + 7 new tensor/activation tests added, 4 skipped. `TestOpaqueFusion::test_opaque_leaf_produces_compose_not_single_prim` is currently failing — opaque fusion pre-map dom carries ExpType from the optic product while `composed.dom()` is now fully stripped. See NEXT_STEPS.
+**Tests:** 511 passing, 4 skipped. Typed literal points and configured axis arguments are covered across semantic, runtime, and tensor composition tests.
 
 ---
 
@@ -16,7 +16,8 @@ Do not revisit or redesign the following.
 - `compose` and `case` auto-embed plain morphisms into lax context
 - dom/cod derived via `dom_of(node)` / `cod_of(node)` — NOT stored on Morphism
 - `MorphismError(TypeError)` — single error class with `check(a, b, msg)` classmethod
-- `MorphismExpr` ADT: Identity, Copy, Delete, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (base), Compose, Parallel, Pair, Case, Prim, DomainPrim, BackendPrim
+- `MorphismExpr` ADT: Identity, Copy, Delete, Literal, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (base), Compose, Parallel, Pair, Case, Prim, DomainPrim, BackendPrim
+- Typed literal points are restored as `lit(value, A) : Unit -> A`; single-quoted payloads resolve only at typed application sites and lift into context through `delete >> lit`
 - Distributivity: `distribute_left(a,b,c) : A×(B+C)→(A×B)+(A×C)`, `distribute_right(a,b,c) : (A+B)×C→(A×C)+(B×C)`; DSL keywords `distl`, `distr`
 - `merge(a) : A+A→A` — codiagonal; derivable as `case(id,id)` but named in the vocabulary; DSL keyword `merge`
 - `ContextualBinary` subclasses carry `f, g, f_param, g_param, param, monad, dom, cod` — dom/cod are stored and authoritative
@@ -49,12 +50,12 @@ surface expression
 | Layer | Files | Hydra? |
 |-------|-------|--------|
 | Type ground | `objects.py` | types only |
-| Surface syntax | `syntax/expressions.py`, `syntax/parse.py` | no |
+| Surface syntax | `syntax/expressions.py`, `syntax/parse.py` | no; quoted literal payloads remain unresolved |
 | Semantic construction | `semantics/construct.py` | types only |
 | Algebraic construction | `semantics/morphisms.py` | types only |
 | Polynomial functors | `semantics/functors.py` | type unification only |
 | Optics | `semantics/optics.py` | no term construction |
-| Term realization | `structure/realize.py` | yes |
+| Term realization | `structure/realize.py` | yes; realizes typed literal points as Hydra constants |
 | Recursion schemes | `structure/recursion.py` | yes |
 | Hydra vocabulary | `structure/terms.py` | yes |
 | Runtime boundary | `runtime/` | yes |

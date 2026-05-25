@@ -180,6 +180,24 @@ def absurd() -> TTerm:
     return P.match(VOID_CASE_TYPE, P.Nothing(), [])
 
 
+def scalar_literal(value: object) -> TTerm:
+    """Build a Hydra scalar term for an already typed literal payload."""
+    if isinstance(value, bool):
+        return P.boolean(value)
+    if isinstance(value, int):
+        return P.int64(value)
+    if isinstance(value, float):
+        return P.float64(value)
+    if isinstance(value, str):
+        return P.string(value)
+    raise TypeError(f"scalar_literal: unsupported payload {type(value).__name__!r}")
+
+
+def literal_point(value: object) -> TTerm:
+    """Constant point morphism ``Unit -> A`` for a typed scalar payload."""
+    return P.constant(scalar_literal(value))
+
+
 def pairs_bimap(left: TTerm, right: TTerm) -> TTerm:
     """Hydra ``pairs.bimap`` partially applied to two component functions."""
     return prim2(PAIRS_BIMAP, left, right)
@@ -262,19 +280,11 @@ def maybes_just() -> TTerm:
 def product_arg(x: TTerm, n: int) -> list[TTerm]:
     """Destructure a left-nested Hydra pair term into ``n`` component terms.
 
-    Mirrors the left-nested product shape built by ``backend.repeated_product``:
-    the first ``n-1`` components come from successive ``fst`` projections; the
-    last is the final element.
+    Mirrors the left-nested product shape built for backend argument domains.
     """
     if n == 1:
         return [x]
-    vals = []
-    cur = x
-    for _ in range(n - 1):
-        vals.append(P.first(cur))
-        cur = P.second(cur)
-    vals.append(cur)
-    return vals
+    return product_arg(P.first(x), n - 1) + [P.second(x)]
 
 
 

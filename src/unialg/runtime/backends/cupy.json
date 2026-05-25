@@ -30,12 +30,12 @@
     "neg":              {"kind": "unary", "path": "cupy.negative",                        "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
 
     "sigmoid":          {"kind": "unary", "path": "cupyx.scipy.special.expit",            "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "softmax":          {"kind": "unary", "path": "cupyx.scipy.special.softmax",          "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.logaddexp": {"kind": "reduce", "path": "cupyx.scipy.special.logsumexp",       "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "softmax":          {"kind": "unary", "path": "cupyx.scipy.special.softmax",          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.logaddexp": {"kind": "reduce", "path": "cupyx.scipy.special.logsumexp",       "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
 
-    "reduce.add":       {"kind": "reduce", "path": "cupy.sum",                            "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.multiply":  {"kind": "reduce", "path": "cupy.prod",                           "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.minimum":   {"kind": "reduce", "path": "cupy.min",                            "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
-    "reduce.maximum":   {"kind": "reduce", "path": "cupy.max",                            "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"}    
+    "reduce.add":       {"kind": "reduce", "path": "cupy.sum",                            "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.multiply":  {"kind": "reduce", "path": "cupy.prod",                           "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.minimum":   {"kind": "reduce", "path": "cupy.min",                            "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.maximum":   {"kind": "reduce", "path": "cupy.max",                            "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"}
   }
 }

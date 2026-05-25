@@ -4,7 +4,7 @@ from pathlib import Path
 
 from unialg.syntax import expressions as expr
 from unialg.objects import ProductType
-from unialg.runtime import BackendOps
+from unialg.runtime import BackendOps, type_from_spec
 from unialg.semantics import morphisms as ops
 from unialg.semantics.morphisms import Morphism, MorphismError
 from unialg.tensors.semantics import (
@@ -70,7 +70,7 @@ class TestResolveSemiring:
         sr = real_semiring
         assert sr.plus_reduce is not None
         assert sr.times_reduce is not None
-        assert sr.plus_reduce.dom() == BINARY
+        assert sr.plus_reduce.dom() == ProductType(BINARY, type_from_spec("INT"))
         assert sr.plus_reduce.cod() == BINARY
 
     def test_zero_is_float(self, real_semiring):

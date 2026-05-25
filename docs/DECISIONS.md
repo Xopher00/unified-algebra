@@ -22,6 +22,20 @@ types are native `hydra.core.Type` variants directly: `TypePair`, `TypeEither`,
 Hydra type equality, so product and sum order remains structural and
 order-sensitive.
 
+## Scalar values are typed point morphisms
+
+Literal values used as morphism arguments are represented categorically as
+`lit(value, A) : Unit -> A`, not as constant functors and not as backend
+configuration escape hatches. Single-quoted source payloads remain unresolved
+syntax until a declared argument type supplies `A`; a contextual application
+lifts the point as `X -> Unit -> A` using `delete`.
+
+Supported receiving scalar types are `INT`, `FLOAT`, `BOOL`, and `STRING`.
+`BINARY` remains a runtime-handle carrier, and `UNIT` is already represented by
+terminal structure. Bare source atoms `0` and `1` retain their existing
+structural meanings; double-quoted strings remain available to extension
+forms.
+
 ## par is implemented as pair(f ∘ fst, g ∘ snd)
 `par(f, g) : A × C → B × D` is not a primitive. It is derived from projections
 and an internal pair construction. The general pairing/fanout/copy/delete API

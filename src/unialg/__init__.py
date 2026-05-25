@@ -6,7 +6,7 @@ from .semantics.morphisms import (
     identity, _copy as copy, _delete as delete,
     _first as fst, _second as snd, _inject_left as inl, _inject_right as inr,
     _assoc as assoc, _symmetry as symmetry,
-    compose, par, copar, pair, case, absurd,
+    compose, par, copar, pair, case, absurd, lit,
 )
 from .tensors.semirings import Semiring
 from .semantics.optics import (
@@ -50,6 +50,7 @@ __all__ = [
     "inr",
     "case",
     "absurd",
+    "lit",
     "assoc",
     "symmetry",
     "Semiring",

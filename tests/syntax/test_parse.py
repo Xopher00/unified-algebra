@@ -76,6 +76,13 @@ class TestMorphismAtoms:
     def test_identity_x(self):
         assert isinstance(parse_morphism("x"), expr.Identity)
 
+    def test_quoted_literal_argument_is_generic_syntax(self):
+        tree = parse_morphism("foo(x, '-1')")
+        assert isinstance(tree, expr.MorphismApp)
+        assert isinstance(tree.args[1], expr.Literal)
+        assert tree.args[1].text == "-1"
+        assert tree.args[1].value is None
+
     @given(valid_names)
     @settings(max_examples=20)
     def test_arbitrary_name_produces_ref(self, name):

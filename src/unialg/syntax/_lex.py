@@ -91,6 +91,15 @@ def _raw_string():
         P.bind(P.char(ord('"')), lambda _:
         P.pure("".join(chr(c) for c in cs)))))
 
+def _raw_quoted_literal():
+    """Parse a single-quoted payload for contextual morphism literals."""
+    inner_char = P.satisfy(lambda c: chr(c) != "'" and chr(c) != '\n')
+    return P.bind(
+        P.char(ord("'")), lambda _:
+        P.bind(P.many(inner_char), lambda cs:
+        P.bind(P.char(ord("'")), lambda _:
+        P.pure("".join(chr(c) for c in cs)))))
+
 def _lit(text: str, kind: str, value: object = None):
     """Build a parser for a fixed literal token."""
     v = text if value is None else value
@@ -158,6 +167,7 @@ def _morphism_token():
         _lit("=",  "EQ"),
         _lit(";",  "ERROR", "use '>>' instead of ';'"),
         _lit("-",  "MINUS"),
+        P.bind(_raw_quoted_literal(), lambda s: P.pure(("QUOTED", s))),
         P.bind(_raw_string(), lambda s: P.pure(("STRING", s))),
         _raw_number(),
         P.bind(_raw_ident(),  lambda s: P.pure((_KEYWORDS.get(s, "NAME"), s))),

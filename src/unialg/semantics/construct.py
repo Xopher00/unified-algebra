@@ -7,7 +7,9 @@ typed Morphism ready for compile_program.
 from __future__ import annotations
 
 from dataclasses import dataclass, field as dataclass_field
+import re
 
+from hydra.core import LiteralType, TypeLiteral
 from hydra.sorting import topological_sort
 from hydra.dsl.python import Left
 
@@ -257,6 +259,8 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
     _cx: list | None = None,
     _domain_data: dict[str, object] | None = None,
     _domain_context: object | None = None,
+    _expected_cod=None,
+    _bound_exprs: dict[str, expr.MorphismExpr] | None = None,
 ) -> Morphism:
     """Resolve a parsed expression tree into a typed Morphism.
 
@@ -268,11 +272,15 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
     """
     if _cx is None:
         _cx = [L.empty_context()]
+    bound_exprs = dict(_bound_exprs or {})
 
-    def _recurse(n):
-        return construct(n, env, functor_env, morphism_bodies, morphism_params, focus_env, _cx, _domain_data, _domain_context)
+    def _recurse(n, expected_cod=None):
+        return construct(
+            n, env, functor_env, morphism_bodies, morphism_params, focus_env,
+            _cx, _domain_data, _domain_context, expected_cod, bound_exprs,
+        )
 
-    from unialg.objects import TypeUnit, ProductType, SumType
+    from unialg.objects import TypePair, TypeUnit, ProductType, SumType
 
     def _fresh():
         var, new_cx = Ty.fresh_variable_type(_cx[0])
@@ -285,6 +293,48 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
     def _fresh_sum():
         return SumType(_fresh(), _fresh())
 
+    def _expand_bound(n: expr.MorphismExpr) -> expr.MorphismExpr:
+        seen: set[str] = set()
+        while isinstance(n, expr.Ref) and n.name in bound_exprs:
+            if n.name in seen:
+                raise MorphismError(f"construct: cyclic parameter binding {n.name!r}")
+            seen.add(n.name)
+            n = bound_exprs[n.name]
+        return n
+
+    def _literal_value(text: str, expected):
+        if expected == TypeUnit():
+            raise MorphismError("construct: quoted literal cannot inhabit UNIT; use delete")
+        if not isinstance(expected, TypeLiteral):
+            raise MorphismError("construct: quoted literal requires a scalar receiving type")
+        kind = expected.value
+        if kind == LiteralType.BINARY:
+            raise MorphismError("construct: quoted literal cannot be used for BINARY input")
+        if kind == LiteralType.STRING:
+            return text
+        if kind == LiteralType.BOOLEAN:
+            if text == "true":
+                return True
+            if text == "false":
+                return False
+            raise MorphismError(f"construct: invalid BOOL literal {text!r}")
+        if kind == LiteralType.INTEGER:
+            if not re.fullmatch(r"[+-]?[0-9]+", text):
+                raise MorphismError(f"construct: invalid INT literal {text!r}")
+            return int(text, 10)
+        if kind == LiteralType.FLOAT:
+            if not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", text):
+                raise MorphismError(f"construct: invalid FLOAT literal {text!r}")
+            return float(text)
+        raise MorphismError("construct: quoted literal requires INT, FLOAT, BOOL, or STRING input")
+
+    def _argument_types(dom, arity: int) -> tuple:
+        if arity == 1:
+            return (dom,)
+        if not isinstance(dom, TypePair):
+            raise MorphismError("construct: primitive argument domain does not match arity")
+        return _argument_types(dom.value.first, arity - 1) + (dom.value.second,)
+
     def _apply_parameterized_morphism(fun: expr.Ref, args: tuple[expr.MorphismExpr, ...]) -> Morphism:
         bodies = morphism_bodies or {}
         params = morphism_params or {}
@@ -295,35 +345,71 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
                 f"construct: {fun.name} expects {len(declared_params)} "
                 f"params, got {len(args)}"
             )
-        local_env = dict(env)
+        local_bound = dict(bound_exprs)
         for pname, arg_node in zip(declared_params, args):
-            local_env[pname] = _recurse(arg_node)
-        return construct(body, local_env, functor_env, morphism_bodies, morphism_params, focus_env, _cx, _domain_data, _domain_context)
+            local_bound[pname] = arg_node
+        return construct(
+            body, env, functor_env, morphism_bodies, morphism_params, focus_env,
+            _cx, _domain_data, _domain_context, None, local_bound,
+        )
 
     def _apply_backend_primitive(resolved_fun: Morphism, fun, args: tuple[expr.MorphismExpr, ...]) -> Morphism:
         bp = resolved_fun.node
-        if not isinstance(bp, expr.BackendPrim) or bp.arity <= 1:
+        if not isinstance(bp, expr.BackendPrim):
             raise MorphismError(
-                f"construct: cannot apply {fun!r} (not parameterized, not arity > 1)"
+                f"construct: cannot apply {fun!r} (not parameterized or backend primitive)"
             )
         if len(args) != bp.arity:
             raise MorphismError(
                 f"construct: {fun!r} expects {bp.arity} args, got {len(args)}"
             )
-        resolved_args = [_recurse(a) for a in args]
+        expected_types = _argument_types(bp.dom, bp.arity)
+        resolved_args: list[tuple[Morphism, bool]] = []
+        for arg, expected in zip(args, expected_types):
+            expanded = _expand_bound(arg)
+            is_literal = isinstance(expanded, expr.Literal)
+            resolved = _recurse(expanded, expected)
+            try:
+                Ty.require_equal(None, resolved.cod(), expected, "Backend primitive argument")
+            except TypeError as e:
+                raise MorphismError(str(e)) from e
+            resolved_args.append((resolved, is_literal))
+
+        visible_dom = TypeUnit()
+        for resolved, is_literal in resolved_args:
+            if is_literal:
+                continue
+            if visible_dom == TypeUnit():
+                visible_dom = resolved.dom()
+            else:
+                try:
+                    Ty.require_equal(None, visible_dom, resolved.dom(), "Backend primitive input context")
+                except TypeError as e:
+                    raise MorphismError(str(e)) from e
+
+        lifted_args: list[Morphism] = []
+        for resolved, is_literal in resolved_args:
+            if is_literal:
+                resolved = ops.compose(
+                    ops._delete(visible_dom), resolved, allow_unification=True,
+                )
+            lifted_args.append(resolved)
+
         all_aux = resolved_fun.aux_primitives
-        for ra in resolved_args:
+        for ra in lifted_args:
             all_aux = all_aux + ra.aux_primitives
         return Morphism(
             node=expr.BackendPrim(
-                bp.primitive, bp.arity, resolved_args[0].dom(), bp.cod,
-                args=tuple(ra.node for ra in resolved_args),
+                bp.primitive, bp.arity, visible_dom, bp.cod,
+                args=tuple(ra.node for ra in lifted_args),
             ),
             aux_primitives=all_aux,
         )
 
     match node:
         case expr.Ref(name=name):
+            if name in bound_exprs:
+                return _recurse(bound_exprs[name], _expected_cod)
             if name not in env:
                 raise MorphismError(f"construct: unresolved reference {name!r}")
             return env[name]
@@ -332,7 +418,16 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
             return Morphism(node=node)
 
         case expr.Identity(space):
-            return ops.identity(space if space != TypeUnit() else _fresh())
+            return ops.identity(
+                space if space != TypeUnit() else (_expected_cod or _fresh())
+            )
+
+        case expr.Literal(text=text, value=value, cod=cod):
+            if value is not None and cod != TypeUnit():
+                return ops.lit(value, cod, text)
+            if _expected_cod is None:
+                raise MorphismError("construct: quoted literal requires a typed argument context")
+            return ops.lit(_literal_value(text, _expected_cod), _expected_cod, text)
 
         case expr.First(ab):
             return ops._first(ab if ab != ProductType(TypeUnit(), TypeUnit()) else _fresh_pair())

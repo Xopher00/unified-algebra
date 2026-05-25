@@ -6,16 +6,17 @@ from hypothesis import strategies as st
 import hydra.dsl.meta.phantoms as P
 import hydra.lexical as L
 import hydra.sources.libraries as Libs
-from hydra.core import IntegerType, LiteralTypeInteger, Name, TypeLiteral
+from hydra.core import IntegerType, LiteralType, LiteralTypeInteger, Name, TypeLiteral
 from hydra.dsl.python import Just
 
 from unialg.syntax import expressions as expr
 from unialg.syntax._ops import make_compose, make_pair, make_par, make_case
 from unialg.syntax.parse import parse_morphism, parse_program
-from unialg.semantics.morphisms import Morphism, MorphismError
+from unialg.semantics.morphisms import Morphism, MorphismError, lit
 from unialg.semantics.construct import construct, construct_program
 from unialg.main import compile_morphism, run, load_backend, compile_program
 from unialg.objects import MAYBE
+from unialg.runtime.codecs import term_value
 
 def _has_module(name: str) -> bool:
     import importlib.util
@@ -23,6 +24,7 @@ def _has_module(name: str) -> bool:
 
 
 INT = TypeLiteral(LiteralTypeInteger(IntegerType.INT32))
+SCALAR_INT = TypeLiteral(LiteralType.INTEGER)
 ADD = Name("hydra.lib.math.add")
 MUL = Name("hydra.lib.math.mul")
 
@@ -76,6 +78,12 @@ class TestConstructBasic:
         m = construct(node, {})
         assert m.dom() == INT
         assert m.cod() == INT
+
+    def test_literal_point_signature(self):
+        m = lit(-1, SCALAR_INT, "-1")
+        from unialg.objects import TypeUnit
+        assert m.dom() == TypeUnit()
+        assert m.cod() == SCALAR_INT
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +139,19 @@ class TestConstructRuntime:
         result = run(m, P.int32(5).value, ctx, graph)
         assert result.value[0].value.value.value == 6   # 5+1
         assert result.value[1].value.value.value == 10  # 5*2
+
+    @pytest.mark.parametrize(
+        ("value", "typ"),
+        [
+            (-1, TypeLiteral(LiteralType.INTEGER)),
+            (0.5, TypeLiteral(LiteralType.FLOAT)),
+            (True, TypeLiteral(LiteralType.BOOLEAN)),
+            ("0.5", TypeLiteral(LiteralType.STRING)),
+        ],
+    )
+    def test_literal_points_realize_as_constants(self, value, typ, ctx, graph):
+        result = run(lit(value, typ), P.unit().value, ctx, graph)
+        assert term_value(result) == value
 
     @given(st.integers(min_value=-100, max_value=100))
     @settings(max_examples=20)
@@ -397,6 +418,33 @@ class TestParametricNativeBackend:
         )
         result = prog.run(np.array([1.0, 2.0]))
         assert np.allclose(result, np.exp(np.tanh(np.log([1.0, 2.0]))))
+
+    def test_quoted_literal_lifts_into_shared_input_context(self):
+        from unialg.objects import BINARY
+        cp = construct_program(
+            parse_program("let f = softmax(x, '-1')"),
+            load_backend("src/unialg/runtime/backends/numpy.json"),
+        )
+        node = cp.morphisms["f"].node
+        assert node.dom == BINARY
+        assert isinstance(node.args[1], expr.Compose)
+
+    def test_quoted_literal_through_parametric_let(self):
+        import numpy as np
+        from scipy.special import softmax as scipy_softmax
+        prog = compile_program(
+            "load numpy\nlet configured(axis) = softmax(x, axis)\nlet f = configured('-1')"
+        )
+        x = np.array([[1.0, 2.0], [3.0, 4.0]])
+        assert np.allclose(prog.run(x), scipy_softmax(x, axis=-1))
+
+    def test_literal_without_receiving_type_raises(self):
+        with pytest.raises(MorphismError, match="typed argument context"):
+            construct_program(parse_program("let f = '-1'"))
+
+    def test_binary_argument_rejects_quoted_literal(self):
+        with pytest.raises(MorphismError, match="BINARY"):
+            compile_program("load numpy\nlet f = add(x, '1')")
 
 
 # ---------------------------------------------------------------------------

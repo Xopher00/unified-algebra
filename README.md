@@ -79,8 +79,18 @@ Morphism composition:
 let sequential = exp >> log
 let paired = exp & tanh
 let parallel = exp || tanh
+let coparallel = left_step && right_step
 let branch = zero | succ
 let shared = f >>>> g
+```
+
+Typed literal points configure multi-argument primitives without requiring an
+extra runtime input:
+
+```unialg
+load numpy
+let rows = softmax(x, '-1')
+let columns = reduce.add(x, '0')
 ```
 
 Polynomial functors and actions:
@@ -149,7 +159,8 @@ For architecture details, see:
 Implemented and tested:
 
 - `let`, `shape`, and `load` program syntax
-- typed morphism composition, pairing, parallel product, and case
+- typed morphism composition, pairing, parallel product, coproduct bimap, and case
+- typed literal points for configured primitive arguments
 - parameterized morphisms
 - backend primitive loading through runtime specs
 - polynomial functor object and arrow action

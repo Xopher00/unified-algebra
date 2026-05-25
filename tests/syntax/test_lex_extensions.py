@@ -77,6 +77,10 @@ class TestExistingTokensUnchanged:
         toks = _tokens("f >> g")
         assert ("COMPOSE", ">>") in toks
 
+    def test_coparallel(self):
+        toks = _tokens("f && g")
+        assert toks == [("NAME", "f"), ("COPAR", "&&"), ("NAME", "g")]
+
     def test_identity(self):
         toks = _tokens("id")
         assert toks == [("NAME", "id")]

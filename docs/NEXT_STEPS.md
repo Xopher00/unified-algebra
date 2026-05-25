@@ -261,6 +261,17 @@ First-class structural traversal for optics, functors, lists, maybe-types, and r
 
 Items that are explicitly blocked or premature. Revisit when blockers resolve.
 
+### `dsl_tutorial.ipynb` — Section 11 GPT-2 cell
+**Blocked on: weight-routing design decision**
+
+The cell currently has a placeholder demo (self-attention without learnable weights). The original intent was to wire weight matrices `(Wq, Wk, Wv, W_up, W_down)` as runtime product inputs alongside `x`, using `proj = contract[real]("ij,j->i")` for `W @ x`. Two open problems:
+
+1. **Weight routing**: `proj` is `(binary, binary) -> binary`; inside `attention(q, k, v)` the params are used as `binary -> binary`. Routing the weight matrices through the product structure (via `assoc`, `symm`, shared-context parallel, or Para-style threading) needs a concrete design before it can be written.
+
+2. **TypeVariable domain**: `copy >> (hadamard >> soft)` compiles but `dom_of` returns `TypeVariable` because `copy`'s polymorphic `A` isn't back-propagated to `binary` after unification. `coder_for_type` then rejects it at the runtime boundary. Unknown whether this is a pre-existing gap in `compose` or specific to this case.
+
+Fix the design on paper first; don't touch the cell until both points have answers.
+
 ### Semiring law checking
 **Impact: Medium** | **Complexity: Low (once unblocked)** | **Blocked on structural normalization layer**
 

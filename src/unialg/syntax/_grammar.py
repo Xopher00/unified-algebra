@@ -12,7 +12,7 @@ from unialg.syntax.expressions import (
     Identity, Copy, Delete, Literal, First, Second, Left, Right,
     Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, Ref, PolyRef,
     Id, Zero, One, Exp as PolyExp, List as PolyList, Maybe as PolyMaybe,
-    Rose as PolyRose, Tree as PolyTree,
+    Rose as PolyRose, Tree as PolyTree, ConstRef,
 )
 from unialg.syntax._pratt import PrattParser, ParseError
 from unialg.syntax._ops import (
@@ -236,9 +236,26 @@ def make_morphism_grammar() -> tuple[Any, Any, dict]:
 # Functor grammar
 # ---------------------------------------------------------------------------
 
+def _parse_const_type(p: PrattParser) -> str:
+    """Parse a type expression inside const[...]. Returns canonical type name."""
+    _, outer = p.expect("NAME", "type name")
+    outer = str(outer)
+    if outer in ("List", "Maybe") and p.peek()[0] == "LBRACKET":
+        p.advance()
+        _, inner = p.expect("NAME", "element type name")
+        p.expect("RBRACKET", f"closing ] for {outer}")
+        return f"{outer}[{inner}]"
+    return outer
+
+
 def _functor_nud_name(p: PrattParser, val: str) -> PolyExpr:
     if val in ("x", "id"):
         return Id()
+    if val == "const":
+        p.expect("LBRACKET", "[")
+        type_str = _parse_const_type(p)
+        p.expect("RBRACKET", "closing ] for const")
+        return ConstRef(type_str)
     if val == "List":
         p.expect("LBRACKET", "[")
         inner = p.parse(0)

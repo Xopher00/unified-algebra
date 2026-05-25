@@ -14,7 +14,7 @@ import hydra.serialization as ser
 from unialg.objects import TypeUnit, ProductType, SumType
 from unialg.syntax.expressions import (
     MorphismExpr, PolyExpr,
-    Compose, SharedCompose, Parallel, Pair, Case,
+    Compose, SharedCompose, Parallel, Coparallel, Pair, Case,
     Prod, Sum, PolyCompose, List as PolyList,
 )
 
@@ -44,6 +44,7 @@ COMPOSE_OP = createOp(symbol=">>", padding=True, precedence=60, associativity="l
 SHARED_COMPOSE_OP = createOp(symbol=">>>>", padding=True, precedence=60, associativity="left")
 PAIR_OP    = createOp("&", True, 70, "left")
 PAR_OP     = createOp("||", True, 65, "left")
+COPAR_OP   = createOp("&&", True, 65, "left")
 CASE_OP    = createOp("|", True, 50, "left")
 INDEX_OP   = createOp("[", False, 90, "left")
 STAR_OP    = createOp("*", False, 90, "left")
@@ -60,6 +61,7 @@ _MORPHISM_OPS: dict[str, hast.Op] = {
     "SHARED_COMPOSE": SHARED_COMPOSE_OP,
     "PAIR":           PAIR_OP,
     "PAR":            PAR_OP,
+    "COPAR":          COPAR_OP,
     "CASE":           CASE_OP,
     "LBRACKET":       INDEX_OP,
     "STAR":           STAR_OP,
@@ -121,6 +123,13 @@ def make_par(f: MorphismExpr, g: MorphismExpr) -> Parallel:
                     dom=ProductType(_U, _U), cod=ProductType(_U, _U))
 
 
+def make_copar(f: MorphismExpr, g: MorphismExpr) -> Coparallel:
+    """Build a placeholder-typed parallel coproduct node."""
+    return Coparallel(f=f, g=g, f_param=_U, g_param=_U,
+                      param=_U, monad=None,
+                      dom=SumType(_U, _U), cod=SumType(_U, _U))
+
+
 def make_case(f: MorphismExpr, g: MorphismExpr) -> Case:
     """Build a placeholder-typed coproduct elimination node."""
     return Case(f=f, g=g, f_param=_U, g_param=_U,
@@ -132,6 +141,7 @@ _MORPHISM_BUILDERS: dict[str, Any] = {
     "SHARED_COMPOSE": make_shared_compose,
     "PAIR":           make_pair,
     "PAR":            make_par,
+    "COPAR":          make_copar,
     "CASE":           make_case,
 }
 

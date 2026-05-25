@@ -204,6 +204,20 @@ def test_realize_plain_parallel_law(ctx, graph, left, right, add_amount, mul_amo
 
 
 @settings(max_examples=40)
+@given(small_ints, small_ints, small_ints, small_ints)
+def test_realize_plain_coparallel_law(ctx, graph, left_value, right_value, left_amount, right_amount):
+    left_branch = ops.Morphism(expr.Prim(add_const_raw(left_amount), INT, INT))
+    right_branch = ops.Morphism(expr.Prim(add_const_raw(right_amount), INT, INT))
+    coparallel = ops.copar(left_branch, right_branch)
+
+    left = Terms.apply(realize(ops._inject_left(coparallel.dom()).node), int_arg(left_value))
+    right = Terms.apply(realize(ops._inject_right(coparallel.dom()).node), int_arg(right_value))
+
+    assert int_value(run(coparallel, left, ctx, graph).value.value) == left_value + left_amount
+    assert int_value(run(coparallel, right, ctx, graph).value.value) == right_value + right_amount
+
+
+@settings(max_examples=40)
 @given(small_ints, small_ints, small_ints)
 def test_realize_plain_case_law(ctx, graph, value, add_amount, mul_amount):
     add = ops.Morphism(expr.Prim(add_const_raw(add_amount), INT, INT))

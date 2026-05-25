@@ -438,6 +438,12 @@ class Const(PolyExpr):
 
 
 @dataclass(frozen=True)
+class ConstRef(PolyExpr):
+    """Deferred constant functor: type name resolved during semantic construction."""
+    type_name: str
+
+
+@dataclass(frozen=True)
 class Sum(PolyExpr):
     """F(X) = G(X) + H(X) — coproduct of functors."""
     left: PolyExpr

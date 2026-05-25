@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unialg.objects import monad_by_name
+from unialg.objects import monad_by_name, type_from_name
 from unialg.syntax import expressions as expr
 from unialg.syntax.parse import Program
 
@@ -124,6 +124,8 @@ def resolve_poly_refs(
             return expr.List(resolve_poly_refs(body, functors))
         case expr.Maybe(body=body):
             return expr.Maybe(resolve_poly_refs(body, functors))
+        case expr.ConstRef(type_name=tn):
+            return expr.Const(type_from_name(tn))
         case expr.Zero() | expr.One() | expr.Id() | expr.Const():
             return node
         case _:
@@ -161,7 +163,7 @@ def poly_refs(node: expr.PolyExpr) -> set[str]:
             return poly_refs(l) | poly_refs(r)
         case expr.Exp(body=b) | expr.List(body=b) | expr.Maybe(body=b):
             return poly_refs(b)
-        case expr.Zero() | expr.One() | expr.Id() | expr.Const():
+        case expr.Zero() | expr.One() | expr.Id() | expr.Const() | expr.ConstRef():
             return set()
         case _:
             raise TypeError(f"poly_refs: unknown PolyExpr {type(node).__name__!r}")

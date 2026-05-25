@@ -28,6 +28,15 @@
     "sin":              {"kind": "unary", "path": "torch.sin",                            "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
     "cos":              {"kind": "unary", "path": "torch.cos",                            "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
     "neg":              {"kind": "unary", "path": "torch.neg",                            "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "bessel_i0":        {"kind": "unary", "path": "torch.special.i0",                     "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "ceil":             {"kind": "unary", "path": "torch.ceil",                           "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "digamma":          {"kind": "unary", "path": "torch.digamma",                        "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "erf":              {"kind": "unary", "path": "torch.special.erf",                    "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "erfc":             {"kind": "unary", "path": "torch.special.erfc",                   "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "floor":            {"kind": "unary", "path": "torch.floor",                          "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "lgamma":           {"kind": "unary", "path": "torch.lgamma",                         "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "not":              {"kind": "unary", "path": "torch.logical_not",                    "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "round":            {"kind": "unary", "path": "torch.round",                          "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
 
     "relu":             {"kind": "unary", "path": "torch.relu",                           "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
     "sigmoid":          {"kind": "unary", "path": "torch.sigmoid",                        "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
@@ -38,6 +47,20 @@
     "reduce.add":       {"kind": "reduce", "path": "torch.sum",                           "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
     "reduce.multiply":  {"kind": "reduce", "path": "torch.prod",                          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
     "reduce.minimum":   {"kind": "reduce", "path": "torch.amin",                          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
-    "reduce.maximum":   {"kind": "reduce", "path": "torch.amax",                          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"}
+    "reduce.maximum":   {"kind": "reduce", "path": "torch.amax",                          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+
+    "equal":            {"kind": "elementwise binary", "path": "torch.eq",                "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},
+    "greater":          {"kind": "elementwise binary", "path": "torch.gt",                "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},
+    "less":             {"kind": "elementwise binary", "path": "torch.lt",                "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},
+    "and":              {"kind": "elementwise binary", "path": "torch.logical_and",       "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},
+    "or":               {"kind": "elementwise binary", "path": "torch.logical_or",        "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},
+    "clip":             {"kind": "ternary", "path": "torch.clamp",                        "arity": 3, "arg_type": "BINARY", "result_type": "BINARY"},
+    "where":            {"kind": "ternary", "path": "torch.where",                        "arity": 3, "arg_type": "BINARY", "result_type": "BINARY"},
+    "matmul":           {"kind": "contraction", "path": "torch.matmul",                   "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},
+    "norm":             {"kind": "reduce", "path": "torch.linalg.norm",                   "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "reduce.and":       {"kind": "reduce", "path": "torch.all",                           "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "reduce.or":        {"kind": "reduce", "path": "torch.any",                           "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "mean":             {"kind": "reduce", "path": "torch.mean",                          "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"},
+    "std":              {"kind": "reduce", "path": "torch.std",                           "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "BINARY"}
   }
 }

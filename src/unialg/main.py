@@ -91,7 +91,8 @@ class CompiledProgram:
         ctx = default_context()
 
         if self.backend and args:
-            self.backend.store.reset()
+            if self.backend.store is not None:
+                self.backend.store.reset()
             argument = encode_input(self.backend, self.input_type, ctx, pack_args(args))
         elif args:
             argument = args[0]

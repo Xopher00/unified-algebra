@@ -22,6 +22,12 @@ class TestNativeCompileUnary:
         result = prog.run(np.array([4.0, 9.0, 16.0]))
         assert np.allclose(result, np.sqrt([4.0, 9.0, 16.0]))
 
+    def test_restored_special_function(self):
+        prog = compile_program("load numpy\nlet f = erf")
+        x = np.array([-1.0, 0.0, 1.0])
+        result = prog.run(x)
+        assert np.allclose(result, np.array([-0.84270079, 0.0, 0.84270079]))
+
     def test_softmax_accepts_axis_argument(self):
         prog = compile_program("load numpy\nlet f = softmax")
         x = np.array([[1.0, 2.0], [3.0, 4.0]])
@@ -51,6 +57,26 @@ class TestNativeCompileBinary:
         result = prog.run(np.array([10.0, 20.0]), np.array([3.0, 7.0]))
         assert np.allclose(result, [7.0, 13.0])
 
+    def test_restored_comparison(self):
+        prog = compile_program("load numpy\nlet f = greater")
+        result = prog.run(np.array([1.0, 3.0]), np.array([2.0, 2.0]))
+        assert np.array_equal(result, [False, True])
+
+    def test_restored_matmul(self):
+        prog = compile_program("load numpy\nlet f = matmul")
+        left = np.array([[1.0, 2.0], [3.0, 4.0]])
+        right = np.array([[2.0], [1.0]])
+        assert np.allclose(prog.run(left, right), left @ right)
+
+
+class TestNativeCompileTernary:
+    def test_restored_where(self):
+        prog = compile_program("load numpy\nlet f = where")
+        condition = np.array([True, False])
+        left = np.array([1.0, 2.0])
+        right = np.array([10.0, 20.0])
+        assert np.allclose(prog.run(condition, left, right), [1.0, 20.0])
+
 
 class TestNativeCompileAxisReductions:
     @pytest.mark.parametrize(
@@ -61,12 +87,21 @@ class TestNativeCompileAxisReductions:
             ("reduce.minimum", lambda x: np.min(x, axis=0)),
             ("reduce.maximum", lambda x: np.max(x, axis=0)),
             ("reduce.logaddexp", lambda x: scipy_logsumexp(x, axis=0)),
+            ("reduce.and", lambda x: np.all(x, axis=0)),
+            ("reduce.or", lambda x: np.any(x, axis=0)),
+            ("mean", lambda x: np.mean(x, axis=0)),
+            ("std", lambda x: np.std(x, axis=0)),
         ],
     )
     def test_numpy_reductions_accept_inline_axis_literal(self, name, expected):
         prog = compile_program(f"load numpy\nlet f = {name}(x, '0')")
         x = np.array([[1.0, 2.0], [3.0, 4.0]])
         assert np.allclose(prog.run(x), expected(x))
+
+    def test_restored_scalar_norm(self):
+        prog = compile_program("load numpy\nlet f = norm")
+        x = np.array([1.0, 2.0, 3.0])
+        assert np.allclose(prog.run(x), np.linalg.norm(x))
 
 
 class TestNativeCompileComposition:

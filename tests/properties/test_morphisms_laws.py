@@ -298,6 +298,10 @@ def test_plain_combinators_derive_expected_types(a, b, c, d):
     assert parallel.dom() == ops.ProductType(a, c)
     assert parallel.cod() == ops.ProductType(b, d)
 
+    coparallel = ops.copar(f, g)
+    assert coparallel.dom() == ops.SumType(a, c)
+    assert coparallel.cod() == ops.SumType(b, d)
+
     paired = ops.pair(f, ops.Morphism(expr.Prim(object(), a, d)))
     assert paired.dom() == a
     assert paired.cod() == ops.ProductType(b, d)

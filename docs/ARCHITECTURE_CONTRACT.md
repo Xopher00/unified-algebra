@@ -37,7 +37,7 @@ syntax, semantics, structure, or orchestration.
 - No Hydra term construction; no imports from other unialg modules
 
 ### `syntax/expressions.py` — expression syntax
-- `MorphismExpr` sealed ADT: Identity, Copy, Delete, Literal, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (Compose, SharedCompose, Parallel, Pair, Case), PolyFmap, SelfRef, AlgExpr, Cata, Ana, Prim, DomainPrim, BackendPrim
+- `MorphismExpr` sealed ADT: Identity, Copy, Delete, Literal, First, Second, Left, Right, Absurd, Assoc, Symmetry, DistributeLeft, DistributeRight, MonadicEmbed, ContextualBinary (Compose, SharedCompose, Parallel, Coparallel, Pair, Case), PolyFmap, SelfRef, AlgExpr, Cata, Ana, Prim, DomainPrim, BackendPrim
 - `PolyExpr` sealed ADT: Zero, One, Id, Const, Sum, Prod, Exp(base: PolyExpr, body), PolyCompose, List, Maybe
 - `pretty` display via singledispatch
 - Frozen dataclasses; no Hydra term imports
@@ -46,7 +46,7 @@ syntax, semantics, structure, or orchestration.
 - `Morphism(node, param, monad, aux_primitives)` — typed handle with plain/para/lax/lax-para modes
 - `dom_of` / `cod_of` / `signature` — type derivation from `MorphismExpr`
 - `MorphismError(TypeError)` with `check(a, b, msg)` — single error class
-- Combinators: `compose`, `par`, `pair`, `case` — via `_contextual_binary`; `distribute_left(a,b,c)`, `distribute_right(a,b,c)` — distributivity isos; `merge(a)` — codiagonal `A+A→A`
+- Combinators: `compose`, `par`, `copar`, `pair`, `case` — via `_contextual_binary`; `copar(f,g) : A+C -> B+D` is the coproduct bimap; `distribute_left(a,b,c)`, `distribute_right(a,b,c)` — distributivity isos; `merge(a)` — codiagonal `A+A→A`
 - Point constructor: `lit(value, A) : Unit -> A`; contextual use is assembled as `delete(X) >> lit(value, A) : X -> A`
 - `shared_context=True` on contextual combinators — shares a matching non-unit param; recursion uses this to avoid `P × P` contexts
 - `_resolve_monad` — derives target monad; errors on conflict

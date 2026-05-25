@@ -126,7 +126,7 @@ def _run(parser, src: str) -> list[Token]:
 
 # ---------------------------------------------------------------------------
 # Morphism token set
-# Multi-char tokens (>>>>, <->, >>, ||) listed before their single-char prefixes.
+# Multi-char tokens (>>>>, <->, >>, ||, &&) listed before their single-char prefixes.
 # ---------------------------------------------------------------------------
 
 # Reserved top-level keywords — cannot be used as expression atom names.
@@ -150,6 +150,7 @@ def _morphism_token():
         _lit("<->", "BIDIR"),
         _lit(">>", "COMPOSE"),
         _lit("||", "PAR"),
+        _lit("&&", "COPAR"),
         _lit("&",  "PAIR"),
         _lit("|",  "CASE"),
         _lit("*",  "STAR"),

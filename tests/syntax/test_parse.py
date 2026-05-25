@@ -19,7 +19,7 @@ valid_names = st.from_regex(r"[a-z][a-z0-9_.]*", fullmatch=True).filter(
 
 structural_keywords = st.sampled_from(["id", "identity", "copy", "absurd", "assoc", "sym", "distl", "distr"])
 
-binary_ops = st.sampled_from([">>", "&", "||", "|"])
+binary_ops = st.sampled_from([">>", "&", "||", "&&", "|"])
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +142,10 @@ class TestMorphismBinary:
     def test_par(self):
         tree = parse_morphism("add || mul")
         assert isinstance(tree, expr.Parallel)
+
+    def test_copar(self):
+        tree = parse_morphism("add && mul")
+        assert isinstance(tree, expr.Coparallel)
 
     def test_case(self):
         tree = parse_morphism("add | mul")

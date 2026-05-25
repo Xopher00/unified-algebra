@@ -47,6 +47,32 @@ def MaybeType(inner: Type) -> TypeMaybe:
     return cast(TypeMaybe, T.maybe(inner))
 
 
+_SCALAR_TYPE_NAMES = {
+    "STRING":  T.string,
+    "INT":     T.int32,
+    "FLOAT":   T.float64,
+    "BOOL":    T.boolean,
+    "BOOLEAN": T.boolean,
+    "BINARY":  T.binary,
+}
+
+
+def type_from_name(name: str) -> Type:
+    """Resolve a backend type name to a Hydra Type.
+
+    Supports scalar names (STRING, INT, FLOAT, BOOL, BINARY) and
+    compound forms List[NAME] and Maybe[NAME].
+    """
+    ctor = _SCALAR_TYPE_NAMES.get(name)
+    if ctor is not None:
+        return ctor()
+    if name.startswith("List[") and name.endswith("]"):
+        return ListType(type_from_name(name[5:-1]))
+    if name.startswith("Maybe[") and name.endswith("]"):
+        return MaybeType(type_from_name(name[6:-1]))
+    raise ValueError(f"type_from_name: unrecognized type {name!r}")
+
+
 def VoidType() -> TypeVoid:
     """Build the structural Hydra void type."""
     return TypeVoid() # T.Nothing?

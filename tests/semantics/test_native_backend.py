@@ -157,6 +157,26 @@ class TestStoreLifecycle:
 
 
 class TestMixedStoreBoundary:
+    def test_non_binary_backend_runs_without_store(self):
+        string = type_from_spec("STRING")
+        bp = register_backend_primitive(
+            "unialg.backend.upper",
+            lambda text: text.upper(),
+            string,
+            1,
+            arg_coder=coder_for_type(string),
+            result_coder=coder_for_type(string),
+            result_type=string,
+        )
+        ops = BackendOps({"upper": bp})
+        morphism = Morphism(
+            node=expr.BackendPrim(bp.primitive, bp.arity, bp.dom, bp.result_type),
+            aux_primitives=(bp.primitive,),
+        )
+        prog = compile_morphism(morphism, backend=ops)
+
+        assert prog.run("motif") == "MOTIF"
+
     def test_binary_arg_scalar_result_uses_store_only_for_input(self):
         store = RuntimeStore()
         arg_type = type_from_spec("BINARY")

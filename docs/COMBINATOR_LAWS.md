@@ -110,6 +110,26 @@ par(compose(f, f'), compose(g, g')) ≅ compose(par(f, g), par(f', g'))
 
 ---
 
+## 5a. Coparallel (coproduct bifunctor)
+
+**Law:** coparallel applies two independent morphisms to the two sides of a
+coproduct. The DSL surface notation is `f && g`.
+
+```
+copar(f, g) : A + C → B + D     for f : A → B, g : C → D
+
+copar(id, id) ≅ id
+copar(compose(f, f'), compose(g, g')) ≅ compose(copar(f, g), copar(f', g'))
+```
+
+| Layer | Form |
+|-------|------|
+| `morphisms.py` | `copar(f, g)` — `Coparallel` node |
+| `functors.py` | `Sum(F, G)` body evaluated on a single type (diagonal of bifunctor) |
+| `optics.py` | `op1.choice(op2)` — parallel optic over coproduct focus |
+
+---
+
 ## 6. Interlayer functors
 
 `poly_fmap` and `optic.act` are not combinators — they are functors that
@@ -289,8 +309,8 @@ represent the same algebra at different levels.
 | Dict | Keys | Entry shape | Role |
 |---|---|---|---|
 | `_SIG_LEAF` | 9 leaf types | `(n, pn) → (dom, cod)` | signature derivation for leaves |
-| `_SIG_BINARY` | 4 binary combinators | `(placeholder_dom, placeholder_cod, compute)` | signature derivation with placeholder guards |
-| `_BINARY_SIG` | 4 binary combinators | `(f, g) → (dom, cod)` | signature for construction |
+| `_SIG_BINARY` | 5 binary combinators | `(placeholder_dom, placeholder_cod, compute)` | signature derivation with placeholder guards |
+| `_BINARY_SIG` | 5 binary combinators | `(f, g) → (dom, cod)` | signature for construction |
 | `_SIG_VALIDATED` | 4 structural isos | `(cod_builder, message)` | validation via cod-builders |
 
 **Realization level** (`realize.py`) — four dicts by dispatch mode:
@@ -299,10 +319,10 @@ represent the same algebra at different levels.
 |---|---|---|
 | `_POLY_ACTION_DISPATCH` | 10 PolyExpr types | functor action term construction |
 | `_FIXED_MORPHISMS` | 12 structural nodes | simple term builders |
-| `_CONTEXTUAL_MORPHISMS` | 4 binary combinators | contextual term assembly |
+| `_CONTEXTUAL_MORPHISMS` | 5 binary combinators | contextual term assembly |
 | `_SPECIAL_MORPHISMS` | 6 special nodes | primitives, poly fmap, alg expr |
 
-**Cross-level parallel:** `_SIG_BINARY` and `_BINARY_SIG` have the same 4 keys
+**Cross-level parallel:** `_SIG_BINARY` and `_BINARY_SIG` have the same 5 keys
 and the same dom/cod formulas, at expression level and Morphism level respectively.
 This mirrors `_COMPOSE_POLY` / `_APPLY_POLY` — same structure, different levels.
 If any parallel pair disagrees on a formula, it is a bug.
@@ -337,6 +357,7 @@ semantic vocabulary has gaps.
 | sum intro | `_inl(ab)` → `Left`, `_inr(ab)` → `Right` | **gap** | `backward` recomposes |
 | compose | `compose(f,g)` check `f.cod()==g.dom()` | `compose_poly` substitutes `Id` | `_compose_optic` |
 | parallel | `par(f,g)` via `_contextual_binary` | `Prod` on single type | `Optic.par` |
+| coparallel | `copar(f,g)` via `_contextual_binary` | `Sum` on single type | `Optic.choice` |
 | validated build | — | — | `build_optic` validates fwd/bwd against `F(carrier)` |
 | residue infer | — | — | `_residue_optic` via `_RESIDUE_KINDS` dict |
 | copy | `_copy(A)` → `Copy(A)` | **gap** (implicit `Prod(Id,Id)`) | **gap** |
@@ -357,6 +378,7 @@ semantic vocabulary has gaps.
 | sum intro | `λx. Terms.left(x)` / `λx. Terms.right(x)` | n/a |
 | compose | `g(f(x))` via `_compose_op` | `bind(monad, f(x), g)` via `_compose_op` |
 | parallel | `pair_effects(monad, f(fst(x)), g(snd(x)))` via `_pair_effects_op` | same |
+| coparallel | `case_effects(monad, f, g)` via `_copar_effects_op` | same |
 | copy | `λx. pair(x, x)` | n/a |
 | swap | `pair_swap()` / `either_swap()` | n/a |
 | distribute | `_realize_distribute(fixed, sumpart, mk_pair)` — shared helper | n/a |
@@ -420,6 +442,7 @@ between layers, not combinators within a layer.
 |---|---|---|---|---|
 | compose | `compose(f, g)` | `F.compose(G)` / `_COMPOSE_POLY` | `outer.compose(inner)` | `_compose_op` in `_CONTEXTUAL_MORPHISMS` |
 | parallel/product | `par(f, g)` | `Prod(F, G)` / `_APPLY_POLY` | `Optic.par(other)` | `_pair_effects_op(first, second)` |
+| coparallel/sum | `copar(f, g)` | `Sum(F, G)` / `_APPLY_POLY` | `Optic.choice(other)` | `_copar_effects_op` |
 | identity | `identity(A)` | `Id` body / `id_()` | `identity_optic` | `P.identity()` |
 
 ### Product structure
@@ -438,6 +461,7 @@ between layers, not combinators within a layer.
 |---|---|---|---|
 | elimination | `case(f, g)` via `_validated_binary` | `Sum(F, G)` body | **gap** — Prism encodes sum focus but no `optic_case` |
 | introduction | `inl : A → A+B`, `inr : B → A+B` | **gap** — no functor injection | `backward` (implicit in Prism shape) |
+| bifunctor | `copar(f, g) : A+C → B+D` | `Sum` applied = `F(A)+G(A)` | `Optic.choice(other)` |
 | codiagonal | `merge(A) : A+A → A` | **gap** — implicit in `Sum` collapse | **gap** |
 | initial | `absurd : 0 → A` | `Zero` body | **gap** |
 

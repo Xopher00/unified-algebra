@@ -80,7 +80,7 @@ Two frozen-dataclass hierarchies: `MorphismExpr` (arrow expressions) and `PolyEx
 | `DistributeLeft(dom, cod)` | `distl : A × (B + C) → (A × B) + (A × C)` |
 | `DistributeRight(dom, cod)` | `distr : (A + B) × C → (A × C) + (B × C)` |
 | `MonadicEmbed(f, monad)` | `η ∘ f` — lift a plain morphism into a monad |
-| `ContextualBinary` | Base for `Compose`, `Parallel`, `Pair`, `Case` |
+| `ContextualBinary` | Base for `Compose`, `SharedCompose`, `Parallel`, `Coparallel`, `Pair`, `Case` |
 | `PolyFmap(body, f, ...)` | Deferred functor action `F(f)` |
 | `SelfRef(name, dom, cod)` | Self-reference inside a fixpoint equation |
 | `AlgExpr(name, body, dom, cod)` | Base for deferred recursive schemes |
@@ -120,6 +120,7 @@ prefix and monad wrapper from the raw type.
 ```python
 compose(f, g)              # f ; g  — requires f.cod() == g.dom()
 par(f, g)                  # f × g  — A×C → B×D
+copar(f, g)                # f + g  — A+C → B+D
 pair(f, g)                 # ⟨f,g⟩  — A → B×C, requires f.dom() == g.dom()
 case(f, g)                 # [f,g]  — A+B → C, requires f.cod() == g.cod()
 distribute_left(a, b, c)   # distl  — A×(B+C) → (A×B)+(A×C)
@@ -430,7 +431,7 @@ their `Primitive` objects before the outer reduction runs.
 ```python
 from unialg import (
     Morphism, Functor, Optic, recursive_carrier,
-    identity, compose, par, pair, case, fst, snd,
+    identity, compose, par, copar, pair, case, fst, snd,
     cata, ana, hylo,
     id_, const, sum_, prod,
     ProductType, SumType,

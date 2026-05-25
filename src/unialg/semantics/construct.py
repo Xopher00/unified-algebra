@@ -33,6 +33,7 @@ from .optics import (
     Optic, RecursiveCarrier, recursive_carrier,
     lens_optic, prism_optic, traversal_optic,
 )
+from unialg.objects import TypePair, TypeUnit, ProductType, SumType
 
 _FOCUS_CONSTRUCTORS: dict = {
     "lens":      lambda name, fwd, bwd, _ftr: lens_optic(name, fwd, bwd),
@@ -40,6 +41,58 @@ _FOCUS_CONSTRUCTORS: dict = {
     "traversal": lambda name, fwd, bwd, ftr:  traversal_optic(name, ftr, fwd, bwd),
     "optic":     lambda name, fwd, bwd, ftr:  traversal_optic(name, ftr, fwd, bwd),
 }
+
+
+def _parse_bool(text: str) -> bool:
+    if text == "true":
+        return True
+    if text == "false":
+        return False
+    raise MorphismError(f"construct: invalid BOOL literal {text!r}")
+
+
+def _parse_int(text: str) -> int:
+    if not re.fullmatch(r"[+-]?[0-9]+", text):
+        raise MorphismError(f"construct: invalid INT literal {text!r}")
+    return int(text, 10)
+
+
+def _parse_float(text: str) -> float:
+    if not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", text):
+        raise MorphismError(f"construct: invalid FLOAT literal {text!r}")
+    return float(text)
+
+
+_LITERAL_PARSERS: dict = {
+    LiteralType.STRING:  lambda text: text,
+    LiteralType.BOOLEAN: _parse_bool,
+    LiteralType.INTEGER: _parse_int,
+    LiteralType.FLOAT:   _parse_float,
+}
+
+
+def _parse_literal_value(text: str, expected) -> object:
+    """Convert a quoted literal string to its Python value given the expected type."""
+    if expected == TypeUnit():
+        raise MorphismError("construct: quoted literal cannot inhabit UNIT; use delete")
+    if not isinstance(expected, TypeLiteral):
+        raise MorphismError("construct: quoted literal requires a scalar receiving type")
+    kind = expected.value
+    if kind == LiteralType.BINARY:
+        raise MorphismError("construct: quoted literal cannot be used for BINARY input")
+    parser = _LITERAL_PARSERS.get(kind)
+    if parser is None:
+        raise MorphismError("construct: quoted literal requires INT, FLOAT, BOOL, or STRING input")
+    return parser(text)
+
+
+def _argument_types(dom, arity: int) -> tuple:
+    """Flatten a nested TypePair domain into a tuple of arity individual types."""
+    if arity == 1:
+        return (dom,)
+    if not isinstance(dom, TypePair):
+        raise MorphismError("construct: primitive argument domain does not match arity")
+    return _argument_types(dom.value.first, arity - 1) + (dom.value.second,)
 
 
 @dataclass(frozen=True)
@@ -280,8 +333,6 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
             _cx, _domain_data, _domain_context, expected_cod, bound_exprs,
         )
 
-    from unialg.objects import TypePair, TypeUnit, ProductType, SumType
-
     def _fresh():
         var, new_cx = Ty.fresh_variable_type(_cx[0])
         _cx[0] = new_cx
@@ -301,39 +352,6 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
             seen.add(n.name)
             n = bound_exprs[n.name]
         return n
-
-    def _literal_value(text: str, expected):
-        if expected == TypeUnit():
-            raise MorphismError("construct: quoted literal cannot inhabit UNIT; use delete")
-        if not isinstance(expected, TypeLiteral):
-            raise MorphismError("construct: quoted literal requires a scalar receiving type")
-        kind = expected.value
-        if kind == LiteralType.BINARY:
-            raise MorphismError("construct: quoted literal cannot be used for BINARY input")
-        if kind == LiteralType.STRING:
-            return text
-        if kind == LiteralType.BOOLEAN:
-            if text == "true":
-                return True
-            if text == "false":
-                return False
-            raise MorphismError(f"construct: invalid BOOL literal {text!r}")
-        if kind == LiteralType.INTEGER:
-            if not re.fullmatch(r"[+-]?[0-9]+", text):
-                raise MorphismError(f"construct: invalid INT literal {text!r}")
-            return int(text, 10)
-        if kind == LiteralType.FLOAT:
-            if not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", text):
-                raise MorphismError(f"construct: invalid FLOAT literal {text!r}")
-            return float(text)
-        raise MorphismError("construct: quoted literal requires INT, FLOAT, BOOL, or STRING input")
-
-    def _argument_types(dom, arity: int) -> tuple:
-        if arity == 1:
-            return (dom,)
-        if not isinstance(dom, TypePair):
-            raise MorphismError("construct: primitive argument domain does not match arity")
-        return _argument_types(dom.value.first, arity - 1) + (dom.value.second,)
 
     def _apply_parameterized_morphism(fun: expr.Ref, args: tuple[expr.MorphismExpr, ...]) -> Morphism:
         bodies = morphism_bodies or {}
@@ -427,7 +445,7 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
                 return ops.lit(value, cod, text)
             if _expected_cod is None:
                 raise MorphismError("construct: quoted literal requires a typed argument context")
-            return ops.lit(_literal_value(text, _expected_cod), _expected_cod, text)
+            return ops.lit(_parse_literal_value(text, _expected_cod), _expected_cod, text)
 
         case expr.First(ab):
             return ops._first(ab if ab != ProductType(TypeUnit(), TypeUnit()) else _fresh_pair())
@@ -486,6 +504,9 @@ def construct(node: expr.MorphismExpr, env: dict[str, Morphism],
 
         case expr.Parallel(f=f, g=g):
             return ops.par(_recurse(f), _recurse(g))
+
+        case expr.Coparallel(f=f, g=g):
+            return ops.copar(_recurse(f), _recurse(g))
 
         case expr.Case(f=f, g=g):
             return ops.case(

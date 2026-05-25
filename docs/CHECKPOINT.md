@@ -1,24 +1,34 @@
 # Checkpoint — Current State (2026-05-25)
 
-**Tests:** 524 passing, 6 skipped. Typed literal points, configured axis arguments, and coproduct bimap syntax/realization are covered across semantic, runtime, and tensor composition tests.
+**Tests:** 526 passing, 6 skipped.
 
 ---
 
 ## Recent changes (2026-05-25)
+
+**Hydra `LiteralType` API fix (hydra-kernel 0.15.0)**
+- `LiteralType` enum variants removed; replaced with `isinstance(typ.value, LiteralTypeBinary)` style checks.
+- `T.float64()`, `T.int32()`, `T.binary()`, `T.boolean()`, `T.string()` used for construction throughout `objects.py`, `boundary.py`, `codecs.py`, and `construct.py`.
+- `_LITERAL_CODERS` and `_LITERAL_PARSERS` dicts now keyed by `LiteralTypeFloat` etc. class objects; dispatch via `type(typ.value)`.
+
+**Parameterized morphism dependency fixes in `construct.py`**
+- `expanded_morphism_refs` added to `_construct_helpers.py`: follows `MorphismApp` calls into parameterized callee bodies to collect transitive deps, preventing wrong topo-ordering (e.g. `out = wrap(exp)` declared before `helper` which `wrap` closes over).
+- `_topo_order` and `morphism_env_for` updated to use `expanded_morphism_refs`.
+- `_apply_parameterized_morphism`: arg nodes now expanded through `bound_exprs` before being stored in `local_bound`, preventing self-referential cycles when a param name collides across nested parameterized calls (e.g. `outer(f) = inner(f)` where `inner` also declares `f`).
+- `TestParameterizedTransitiveDeps` regression tests added to `test_construct.py`.
 
 **Hydra dependency migrated to `hydra-kernel==0.15.0` (PyPI)**
 - `hatch_build.py` and its copy-from-local-clone hook removed.
 - `src/hydra/` removed from the source tree; `[tool.hatch.build.targets.wheel]` no longer lists it.
 - `hydra-kernel==0.15.0` added to `[project].dependencies`.
 - `hydra-python` must not be co-installed — it owns the same `hydra/` namespace directory and clobbers the kernel modules on install. Only `hydra-kernel` is needed.
-- The local clone at `/home/scanbot/hydra` (121 commits ahead of v0.15.0) is retained as a reference but is no longer part of the build.
 
 **`construct.py` literal parser refactor**
 - `_literal_value`, `_argument_types` extracted from inside `construct()` to module level.
 - `_parse_literal_value` rewritten as a dispatch via `_LITERAL_PARSERS` dict; per-type helpers `_parse_bool`, `_parse_int`, `_parse_float` extracted as named module-level functions.
 - `from unialg.objects import TypePair, TypeUnit, ProductType, SumType` hoisted from inside `construct()` to module level.
-- `Coparallel` match case added to the `construct()` dispatch (`ops.copar(_recurse(f), _recurse(g))`).
-- `construct` ruff C901: 71 → 56. `construct_program` C901(42) unchanged — requires the Tier 4 phase-based split.
+- `Coparallel` match case added to the `construct()` dispatch.
+- `construct` ruff C901: 71 → 56.
 
 ---
 

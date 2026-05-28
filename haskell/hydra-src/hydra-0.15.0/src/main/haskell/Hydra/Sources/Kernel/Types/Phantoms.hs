@@ -1,0 +1,56 @@
+module Hydra.Sources.Kernel.Types.Phantoms where
+
+-- Standard type-level kernel imports
+import           Hydra.Kernel
+import           Hydra.Dsl.Annotations (doc)
+import           Hydra.Dsl.Bootstrap
+import           Hydra.Dsl.Types ((>:), (@@), (~>))
+import qualified Hydra.Dsl.Types as T
+import qualified Hydra.Sources.Kernel.Types.Core as Core
+
+
+ns :: Namespace
+ns = Namespace "hydra.phantoms"
+
+define :: String -> Type -> Binding
+define = defineType ns
+
+module_ :: Module
+module_ = Module {
+            moduleNamespace = ns,
+            moduleDefinitions = (map toTypeDef definitions),
+            moduleTermDependencies = [Core.ns],
+            moduleTypeDependencies = [Core.ns],
+            moduleDescription = Just "Phantom types for use with Hydra DSLs"}
+  where
+    definitions = [
+      tBinding,
+      tTerm,
+      tTermDefinition]
+
+tBinding :: Binding
+tBinding = define "TBinding" $
+  doc "An association of a named term (element) with a phantom type" $
+  T.forAll "a" $ T.record [
+    "name">:
+      doc "The name of the term"
+      Core.name,
+    "term">:
+      doc "The term with its phantom type" $
+      tTerm @@ "a"]
+
+tTerm :: Binding
+tTerm = define "TTerm" $
+  doc "An association of a term with a phantom type" $
+  T.forAll "a" $ T.wrap Core.term
+
+tTermDefinition :: Binding
+tTermDefinition = define "TTermDefinition" $
+  doc "An association of a term definition with a phantom type" $
+  T.forAll "a" $ T.record [
+    "name">:
+      doc "The name of the term"
+      Core.name,
+    "term">:
+      doc "The term with its phantom type" $
+      tTerm @@ "a"]

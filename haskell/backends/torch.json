@@ -1,0 +1,63 @@
+{
+  "backend": "torch",
+  "structural": {
+    "expand_dims": "torch.unsqueeze",
+    "transpose": "torch.permute",
+    "take_diagonal": "torch.diagonal"
+  },
+  "ops": {
+    "add":              { "kind": "elementwise_binary", "path": "torch.add",              "arity": 2 },
+    "subtract":         { "kind": "elementwise_binary", "path": "torch.sub",              "arity": 2 },
+    "multiply":         { "kind": "elementwise_binary", "path": "torch.mul",              "arity": 2 },
+    "divide":           { "kind": "elementwise_binary", "path": "torch.div",              "arity": 2 },
+    "power":            { "kind": "elementwise_binary", "path": "torch.pow",              "arity": 2 },
+    "minimum":          { "kind": "elementwise_binary", "path": "torch.minimum",          "arity": 2 },
+    "maximum":          { "kind": "elementwise_binary", "path": "torch.maximum",          "arity": 2 },
+    "logaddexp":        { "kind": "elementwise_binary", "path": "torch.logaddexp",        "arity": 2 },
+    "equal":            { "kind": "elementwise_binary", "path": "torch.eq",               "arity": 2 },
+    "greater":          { "kind": "elementwise_binary", "path": "torch.gt",               "arity": 2 },
+    "less":             { "kind": "elementwise_binary", "path": "torch.lt",               "arity": 2 },
+    "and":              { "kind": "elementwise_binary", "path": "torch.logical_and",      "arity": 2 },
+    "or":               { "kind": "elementwise_binary", "path": "torch.logical_or",       "arity": 2 },
+
+    "tanh":             { "kind": "unary",  "path": "torch.tanh",                      "arity": 1 },
+    "exp":              { "kind": "unary",  "path": "torch.exp",                       "arity": 1 },
+    "log":              { "kind": "unary",  "path": "torch.log",                       "arity": 1 },
+    "log1p":            { "kind": "unary",  "path": "torch.log1p",                     "arity": 1 },
+    "sqrt":             { "kind": "unary",  "path": "torch.sqrt",                      "arity": 1 },
+    "abs":              { "kind": "unary",  "path": "torch.abs",                       "arity": 1 },
+    "reciprocal":       { "kind": "unary",  "path": "torch.reciprocal",                "arity": 1 },
+    "sign":             { "kind": "unary",  "path": "torch.sign",                      "arity": 1 },
+    "square":           { "kind": "unary",  "path": "torch.square",                    "arity": 1 },
+    "sin":              { "kind": "unary",  "path": "torch.sin",                       "arity": 1 },
+    "cos":              { "kind": "unary",  "path": "torch.cos",                       "arity": 1 },
+    "neg":              { "kind": "unary",  "path": "torch.neg",                       "arity": 1 },
+    "ceil":             { "kind": "unary",  "path": "torch.ceil",                      "arity": 1 },
+    "floor":            { "kind": "unary",  "path": "torch.floor",                     "arity": 1 },
+    "round":            { "kind": "unary",  "path": "torch.round",                     "arity": 1 },
+    "not":              { "kind": "unary",  "path": "torch.logical_not",               "arity": 1 },
+    "relu":             { "kind": "unary",  "path": "torch.relu",                      "arity": 1 },
+    "sigmoid":          { "kind": "unary",  "path": "torch.sigmoid",                   "arity": 1 },
+    "softmax":          { "kind": "unary",  "path": "torch.nn.functional.softmax",     "arity": 2 },
+    "softplus":         { "kind": "unary",  "path": "torch.nn.functional.softplus",    "arity": 1 },
+
+    "reduce.add":       { "kind": "reduce", "path": "torch.sum",                       "arity": 2 },
+    "reduce.multiply":  { "kind": "reduce", "path": "torch.prod",                      "arity": 2 },
+    "reduce.minimum":   { "kind": "reduce", "path": "torch.amin",                      "arity": 2 },
+    "reduce.maximum":   { "kind": "reduce", "path": "torch.amax",                      "arity": 2 },
+    "reduce.logaddexp": { "kind": "reduce", "path": "torch.logsumexp",                 "arity": 2 },
+    "reduce.and":       { "kind": "reduce", "path": "torch.all",                       "arity": 2 },
+    "reduce.or":        { "kind": "reduce", "path": "torch.any",                       "arity": 2 },
+
+    "structural.expand_dims":  { "kind": "structural", "path": "torch.unsqueeze",        "arity": 2 },
+    "structural.transpose":    { "kind": "structural", "path": "torch.permute",          "arity": 2 },
+    "structural.take_diagonal":{ "kind": "structural", "path": "torch.diagonal",         "arity": 3 },
+
+    "clip":             { "kind": "ternary",     "path": "torch.clamp",                "arity": 3 },
+    "where":            { "kind": "ternary",     "path": "torch.where",                "arity": 3 },
+    "matmul":           { "kind": "contraction",  "path": "torch.matmul",              "arity": 2 },
+    "norm":             { "kind": "reduce",       "path": "torch.linalg.norm",         "arity": 1 },
+    "mean":             { "kind": "reduce",       "path": "torch.mean",                "arity": 2 },
+    "std":              { "kind": "reduce",       "path": "torch.std",                 "arity": 2 }
+  }
+}

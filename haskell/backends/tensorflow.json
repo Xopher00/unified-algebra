@@ -1,0 +1,63 @@
+{
+  "backend": "tensorflow",
+  "structural": {
+    "expand_dims": "tensorflow.expand_dims",
+    "transpose": "tensorflow.transpose",
+    "take_diagonal": "tensorflow.experimental.numpy.diagonal"
+  },
+  "ops": {
+    "add":              { "kind": "elementwise_binary", "path": "tensorflow.math.add",              "arity": 2 },
+    "subtract":         { "kind": "elementwise_binary", "path": "tensorflow.math.subtract",         "arity": 2 },
+    "multiply":         { "kind": "elementwise_binary", "path": "tensorflow.math.multiply",         "arity": 2 },
+    "divide":           { "kind": "elementwise_binary", "path": "tensorflow.math.divide",           "arity": 2 },
+    "power":            { "kind": "elementwise_binary", "path": "tensorflow.math.pow",              "arity": 2 },
+    "minimum":          { "kind": "elementwise_binary", "path": "tensorflow.math.minimum",          "arity": 2 },
+    "maximum":          { "kind": "elementwise_binary", "path": "tensorflow.math.maximum",          "arity": 2 },
+    "logaddexp":        { "kind": "elementwise_binary", "path": "tensorflow.experimental.numpy.logaddexp", "arity": 2 },
+    "equal":            { "kind": "elementwise_binary", "path": "tensorflow.math.equal",            "arity": 2 },
+    "greater":          { "kind": "elementwise_binary", "path": "tensorflow.math.greater",          "arity": 2 },
+    "less":             { "kind": "elementwise_binary", "path": "tensorflow.math.less",             "arity": 2 },
+    "and":              { "kind": "elementwise_binary", "path": "tensorflow.math.logical_and",      "arity": 2 },
+    "or":               { "kind": "elementwise_binary", "path": "tensorflow.math.logical_or",       "arity": 2 },
+
+    "tanh":             { "kind": "unary",  "path": "tensorflow.math.tanh",              "arity": 1 },
+    "exp":              { "kind": "unary",  "path": "tensorflow.math.exp",               "arity": 1 },
+    "log":              { "kind": "unary",  "path": "tensorflow.math.log",               "arity": 1 },
+    "log1p":            { "kind": "unary",  "path": "tensorflow.math.log1p",             "arity": 1 },
+    "sqrt":             { "kind": "unary",  "path": "tensorflow.math.sqrt",              "arity": 1 },
+    "abs":              { "kind": "unary",  "path": "tensorflow.math.abs",               "arity": 1 },
+    "reciprocal":       { "kind": "unary",  "path": "tensorflow.math.reciprocal",        "arity": 1 },
+    "sign":             { "kind": "unary",  "path": "tensorflow.math.sign",              "arity": 1 },
+    "square":           { "kind": "unary",  "path": "tensorflow.math.square",            "arity": 1 },
+    "sin":              { "kind": "unary",  "path": "tensorflow.math.sin",               "arity": 1 },
+    "cos":              { "kind": "unary",  "path": "tensorflow.math.cos",               "arity": 1 },
+    "neg":              { "kind": "unary",  "path": "tensorflow.math.negative",          "arity": 1 },
+    "ceil":             { "kind": "unary",  "path": "tensorflow.math.ceil",              "arity": 1 },
+    "floor":            { "kind": "unary",  "path": "tensorflow.math.floor",             "arity": 1 },
+    "round":            { "kind": "unary",  "path": "tensorflow.math.round",             "arity": 1 },
+    "not":              { "kind": "unary",  "path": "tensorflow.math.logical_not",       "arity": 1 },
+    "relu":             { "kind": "unary",  "path": "tensorflow.nn.relu",                "arity": 1 },
+    "sigmoid":          { "kind": "unary",  "path": "tensorflow.nn.sigmoid",             "arity": 1 },
+    "softmax":          { "kind": "unary",  "path": "tensorflow.nn.softmax",             "arity": 2 },
+    "softplus":         { "kind": "unary",  "path": "tensorflow.nn.softplus",            "arity": 1 },
+
+    "reduce.add":       { "kind": "reduce", "path": "tensorflow.math.reduce_sum",        "arity": 2 },
+    "reduce.multiply":  { "kind": "reduce", "path": "tensorflow.math.reduce_prod",       "arity": 2 },
+    "reduce.minimum":   { "kind": "reduce", "path": "tensorflow.math.reduce_min",        "arity": 2 },
+    "reduce.maximum":   { "kind": "reduce", "path": "tensorflow.math.reduce_max",        "arity": 2 },
+    "reduce.logaddexp": { "kind": "reduce", "path": "tensorflow.math.reduce_logsumexp",  "arity": 2 },
+    "reduce.and":       { "kind": "reduce", "path": "tensorflow.math.reduce_all",        "arity": 2 },
+    "reduce.or":        { "kind": "reduce", "path": "tensorflow.math.reduce_any",        "arity": 2 },
+
+    "structural.expand_dims":  { "kind": "structural", "path": "tensorflow.expand_dims",                    "arity": 2 },
+    "structural.transpose":    { "kind": "structural", "path": "tensorflow.transpose",                      "arity": 2 },
+    "structural.take_diagonal":{ "kind": "structural", "path": "tensorflow.experimental.numpy.diagonal",    "arity": 3 },
+
+    "clip":             { "kind": "ternary",     "path": "tensorflow.clip_by_value",     "arity": 3 },
+    "where":            { "kind": "ternary",     "path": "tensorflow.where",             "arity": 3 },
+    "matmul":           { "kind": "contraction",  "path": "tensorflow.linalg.matmul",    "arity": 2 },
+    "norm":             { "kind": "reduce",       "path": "tensorflow.norm",             "arity": 1 },
+    "mean":             { "kind": "reduce",       "path": "tensorflow.math.reduce_mean", "arity": 2 },
+    "std":              { "kind": "reduce",       "path": "tensorflow.math.reduce_std",  "arity": 2 }
+  }
+}

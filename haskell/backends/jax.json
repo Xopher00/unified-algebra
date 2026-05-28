@@ -1,0 +1,63 @@
+{
+  "backend": "jax",
+  "structural": {
+    "expand_dims": "jax.numpy.expand_dims",
+    "transpose": "jax.numpy.transpose",
+    "take_diagonal": "jax.numpy.diagonal"
+  },
+  "ops": {
+    "add":              { "kind": "elementwise_binary", "path": "jax.numpy.add",              "arity": 2 },
+    "subtract":         { "kind": "elementwise_binary", "path": "jax.numpy.subtract",         "arity": 2 },
+    "multiply":         { "kind": "elementwise_binary", "path": "jax.numpy.multiply",         "arity": 2 },
+    "divide":           { "kind": "elementwise_binary", "path": "jax.numpy.divide",           "arity": 2 },
+    "power":            { "kind": "elementwise_binary", "path": "jax.numpy.power",            "arity": 2 },
+    "minimum":          { "kind": "elementwise_binary", "path": "jax.numpy.minimum",          "arity": 2 },
+    "maximum":          { "kind": "elementwise_binary", "path": "jax.numpy.maximum",          "arity": 2 },
+    "logaddexp":        { "kind": "elementwise_binary", "path": "jax.numpy.logaddexp",        "arity": 2 },
+    "equal":            { "kind": "elementwise_binary", "path": "jax.numpy.equal",            "arity": 2 },
+    "greater":          { "kind": "elementwise_binary", "path": "jax.numpy.greater",          "arity": 2 },
+    "less":             { "kind": "elementwise_binary", "path": "jax.numpy.less",             "arity": 2 },
+    "and":              { "kind": "elementwise_binary", "path": "jax.numpy.logical_and",      "arity": 2 },
+    "or":               { "kind": "elementwise_binary", "path": "jax.numpy.logical_or",       "arity": 2 },
+
+    "tanh":             { "kind": "unary",  "path": "jax.numpy.tanh",                  "arity": 1 },
+    "exp":              { "kind": "unary",  "path": "jax.numpy.exp",                   "arity": 1 },
+    "log":              { "kind": "unary",  "path": "jax.numpy.log",                   "arity": 1 },
+    "log1p":            { "kind": "unary",  "path": "jax.numpy.log1p",                 "arity": 1 },
+    "sqrt":             { "kind": "unary",  "path": "jax.numpy.sqrt",                  "arity": 1 },
+    "abs":              { "kind": "unary",  "path": "jax.numpy.abs",                   "arity": 1 },
+    "reciprocal":       { "kind": "unary",  "path": "jax.numpy.reciprocal",            "arity": 1 },
+    "sign":             { "kind": "unary",  "path": "jax.numpy.sign",                  "arity": 1 },
+    "square":           { "kind": "unary",  "path": "jax.numpy.square",                "arity": 1 },
+    "sin":              { "kind": "unary",  "path": "jax.numpy.sin",                   "arity": 1 },
+    "cos":              { "kind": "unary",  "path": "jax.numpy.cos",                   "arity": 1 },
+    "neg":              { "kind": "unary",  "path": "jax.numpy.negative",              "arity": 1 },
+    "ceil":             { "kind": "unary",  "path": "jax.numpy.ceil",                  "arity": 1 },
+    "floor":            { "kind": "unary",  "path": "jax.numpy.floor",                 "arity": 1 },
+    "round":            { "kind": "unary",  "path": "jax.numpy.round",                 "arity": 1 },
+    "not":              { "kind": "unary",  "path": "jax.numpy.logical_not",           "arity": 1 },
+    "relu":             { "kind": "unary",  "path": "jax.nn.relu",                     "arity": 1 },
+    "sigmoid":          { "kind": "unary",  "path": "jax.nn.sigmoid",                  "arity": 1 },
+    "softmax":          { "kind": "unary",  "path": "jax.nn.softmax",                  "arity": 2 },
+    "softplus":         { "kind": "unary",  "path": "jax.nn.softplus",                 "arity": 1 },
+
+    "reduce.add":       { "kind": "reduce", "path": "jax.numpy.sum",                   "arity": 2 },
+    "reduce.multiply":  { "kind": "reduce", "path": "jax.numpy.prod",                  "arity": 2 },
+    "reduce.minimum":   { "kind": "reduce", "path": "jax.numpy.min",                   "arity": 2 },
+    "reduce.maximum":   { "kind": "reduce", "path": "jax.numpy.max",                   "arity": 2 },
+    "reduce.logaddexp": { "kind": "reduce", "path": "jax.scipy.special.logsumexp",     "arity": 2 },
+    "reduce.and":       { "kind": "reduce", "path": "jax.numpy.all",                   "arity": 2 },
+    "reduce.or":        { "kind": "reduce", "path": "jax.numpy.any",                   "arity": 2 },
+
+    "structural.expand_dims":  { "kind": "structural", "path": "jax.numpy.expand_dims",  "arity": 2 },
+    "structural.transpose":    { "kind": "structural", "path": "jax.numpy.transpose",    "arity": 2 },
+    "structural.take_diagonal":{ "kind": "structural", "path": "jax.numpy.diagonal",     "arity": 3 },
+
+    "clip":             { "kind": "ternary",     "path": "jax.numpy.clip",              "arity": 3 },
+    "where":            { "kind": "ternary",     "path": "jax.numpy.where",             "arity": 3 },
+    "matmul":           { "kind": "contraction",  "path": "jax.numpy.matmul",           "arity": 2 },
+    "norm":             { "kind": "reduce",       "path": "jax.numpy.linalg.norm",      "arity": 1 },
+    "mean":             { "kind": "reduce",       "path": "jax.numpy.mean",             "arity": 2 },
+    "std":              { "kind": "reduce",       "path": "jax.numpy.std",              "arity": 2 }
+  }
+}

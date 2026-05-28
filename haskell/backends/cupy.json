@@ -1,0 +1,58 @@
+{
+  "backend": "cupy",
+  "structural": {
+    "expand_dims": "cupy.expand_dims",
+    "transpose": "cupy.transpose",
+    "take_diagonal": "cupy.diagonal"
+  },
+  "ops": {
+    "add":              { "kind": "elementwise_binary", "path": "cupy.add",              "arity": 2 },
+    "subtract":         { "kind": "elementwise_binary", "path": "cupy.subtract",         "arity": 2 },
+    "multiply":         { "kind": "elementwise_binary", "path": "cupy.multiply",         "arity": 2 },
+    "divide":           { "kind": "elementwise_binary", "path": "cupy.divide",           "arity": 2 },
+    "power":            { "kind": "elementwise_binary", "path": "cupy.power",            "arity": 2 },
+    "minimum":          { "kind": "elementwise_binary", "path": "cupy.minimum",          "arity": 2 },
+    "maximum":          { "kind": "elementwise_binary", "path": "cupy.maximum",          "arity": 2 },
+    "logaddexp":        { "kind": "elementwise_binary", "path": "cupy.logaddexp",        "arity": 2 },
+    "equal":            { "kind": "elementwise_binary", "path": "cupy.equal",            "arity": 2 },
+    "greater":          { "kind": "elementwise_binary", "path": "cupy.greater",          "arity": 2 },
+    "less":             { "kind": "elementwise_binary", "path": "cupy.less",             "arity": 2 },
+    "and":              { "kind": "elementwise_binary", "path": "cupy.logical_and",      "arity": 2 },
+    "or":               { "kind": "elementwise_binary", "path": "cupy.logical_or",       "arity": 2 },
+
+    "tanh":             { "kind": "unary",  "path": "cupy.tanh",              "arity": 1 },
+    "exp":              { "kind": "unary",  "path": "cupy.exp",               "arity": 1 },
+    "log":              { "kind": "unary",  "path": "cupy.log",               "arity": 1 },
+    "log1p":            { "kind": "unary",  "path": "cupy.log1p",             "arity": 1 },
+    "sqrt":             { "kind": "unary",  "path": "cupy.sqrt",              "arity": 1 },
+    "abs":              { "kind": "unary",  "path": "cupy.abs",               "arity": 1 },
+    "reciprocal":       { "kind": "unary",  "path": "cupy.reciprocal",        "arity": 1 },
+    "sign":             { "kind": "unary",  "path": "cupy.sign",              "arity": 1 },
+    "square":           { "kind": "unary",  "path": "cupy.square",            "arity": 1 },
+    "sin":              { "kind": "unary",  "path": "cupy.sin",               "arity": 1 },
+    "cos":              { "kind": "unary",  "path": "cupy.cos",               "arity": 1 },
+    "neg":              { "kind": "unary",  "path": "cupy.negative",          "arity": 1 },
+    "ceil":             { "kind": "unary",  "path": "cupy.ceil",              "arity": 1 },
+    "floor":            { "kind": "unary",  "path": "cupy.floor",             "arity": 1 },
+    "round":            { "kind": "unary",  "path": "cupy.round",             "arity": 1 },
+    "not":              { "kind": "unary",  "path": "cupy.logical_not",       "arity": 1 },
+
+    "reduce.add":       { "kind": "reduce", "path": "cupy.sum",               "arity": 2 },
+    "reduce.multiply":  { "kind": "reduce", "path": "cupy.prod",              "arity": 2 },
+    "reduce.minimum":   { "kind": "reduce", "path": "cupy.min",               "arity": 2 },
+    "reduce.maximum":   { "kind": "reduce", "path": "cupy.max",               "arity": 2 },
+    "reduce.and":       { "kind": "reduce", "path": "cupy.all",               "arity": 2 },
+    "reduce.or":        { "kind": "reduce", "path": "cupy.any",               "arity": 2 },
+
+    "structural.expand_dims":  { "kind": "structural", "path": "cupy.expand_dims",   "arity": 2 },
+    "structural.transpose":    { "kind": "structural", "path": "cupy.transpose",     "arity": 2 },
+    "structural.take_diagonal":{ "kind": "structural", "path": "cupy.diagonal",      "arity": 3 },
+
+    "clip":             { "kind": "ternary",     "path": "cupy.clip",          "arity": 3 },
+    "where":            { "kind": "ternary",     "path": "cupy.where",         "arity": 3 },
+    "matmul":           { "kind": "contraction",  "path": "cupy.matmul",       "arity": 2 },
+    "norm":             { "kind": "reduce",       "path": "cupy.linalg.norm",  "arity": 1 },
+    "mean":             { "kind": "reduce",       "path": "cupy.mean",         "arity": 2 },
+    "std":              { "kind": "reduce",       "path": "cupy.std",          "arity": 2 }
+  }
+}

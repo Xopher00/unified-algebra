@@ -1,0 +1,431 @@
+module Hydra.Sources.Haskell.Utils where
+
+-- Standard imports for term-level sources outside of the kernel
+import Hydra.Kernel
+import Hydra.Sources.Libraries
+import           Hydra.Dsl.Meta.Lib.Strings                as Strings
+import           Hydra.Dsl.Meta.Phantoms                   as Phantoms
+import qualified Hydra.Dsl.Annotations                     as Annotations
+import qualified Hydra.Dsl.Bootstrap                       as Bootstrap
+import qualified Hydra.Dsl.LiteralTypes                    as LiteralTypes
+import qualified Hydra.Dsl.Literals                        as Literals
+import qualified Hydra.Dsl.Paths                  as Paths
+import qualified Hydra.Dsl.Ast                        as Ast
+import qualified Hydra.Dsl.Meta.Base                       as MetaBase
+import qualified Hydra.Dsl.Coders                     as Coders
+import qualified Hydra.Dsl.Util                    as Util
+import qualified Hydra.Dsl.Meta.Core                       as Core
+import qualified Hydra.Dsl.Errors                     as Error
+import qualified Hydra.Dsl.Meta.Graph                      as Graph
+import qualified Hydra.Dsl.Json.Model                       as Json
+import qualified Hydra.Dsl.Meta.Lib.Chars                  as Chars
+import qualified Hydra.Dsl.Meta.Lib.Eithers                as Eithers
+import qualified Hydra.Dsl.Meta.Lib.Equality               as Equality
+import qualified Hydra.Dsl.Meta.Lib.Lists                  as Lists
+import qualified Hydra.Dsl.Meta.Lib.Literals               as Literals
+import qualified Hydra.Dsl.Meta.Lib.Logic                  as Logic
+import qualified Hydra.Dsl.Meta.Lib.Maps                   as Maps
+import qualified Hydra.Dsl.Meta.Lib.Math                   as Math
+import qualified Hydra.Dsl.Meta.Lib.Maybes                 as Maybes
+import qualified Hydra.Dsl.Meta.Lib.Pairs                  as Pairs
+import qualified Hydra.Dsl.Meta.Lib.Sets                   as Sets
+import qualified Hydra.Dsl.Packaging                     as Packaging
+import qualified Hydra.Dsl.Meta.Terms                      as MetaTerms
+import qualified Hydra.Dsl.Meta.Testing                    as Testing
+import qualified Hydra.Dsl.Topology                   as Topology
+import qualified Hydra.Dsl.Meta.Types                      as MetaTypes
+import qualified Hydra.Dsl.Typing                     as Typing
+import qualified Hydra.Dsl.Util                       as Util
+import qualified Hydra.Dsl.Meta.Variants                   as Variants
+import qualified Hydra.Dsl.Prims                           as Prims
+import qualified Hydra.Dsl.Meta.Tabular                         as Tabular
+import qualified Hydra.Dsl.Terms                           as Terms
+import qualified Hydra.Dsl.Tests                           as Tests
+import qualified Hydra.Dsl.Types                           as Types
+import qualified Hydra.Sources.Decode.Core                 as DecodeCore
+import qualified Hydra.Sources.Encode.Core                 as EncodeCore
+import qualified Hydra.Sources.Kernel.Terms.Adapt           as Adapt
+import qualified Hydra.Sources.Kernel.Terms.All            as KernelTerms
+import qualified Hydra.Sources.Kernel.Terms.Annotations    as Annotations
+import qualified Hydra.Sources.Kernel.Terms.Arity          as Arity
+import qualified Hydra.Sources.Kernel.Terms.Checking       as Checking
+import qualified Hydra.Sources.Kernel.Terms.Constants      as Constants
+import qualified Hydra.Sources.Kernel.Terms.Extract.Core   as ExtractCore
+import qualified Hydra.Sources.Kernel.Terms.Extract.Util   as ExtractUtil
+import qualified Hydra.Sources.Kernel.Terms.Formatting     as Formatting
+import qualified Hydra.Sources.Kernel.Terms.Inference      as Inference
+import qualified Hydra.Sources.Kernel.Terms.Languages      as Languages
+import qualified Hydra.Sources.Kernel.Terms.Lexical        as Lexical
+import qualified Hydra.Sources.Kernel.Terms.Literals       as Literals
+import qualified Hydra.Sources.Kernel.Terms.Names          as Names
+import qualified Hydra.Sources.Kernel.Terms.Reduction      as Reduction
+import qualified Hydra.Sources.Kernel.Terms.Reflect        as Reflect
+import qualified Hydra.Sources.Kernel.Terms.Strip          as Strip
+import qualified Hydra.Sources.Kernel.Terms.Analysis       as Analysis
+import qualified Hydra.Sources.Kernel.Terms.Serialization  as Serialization
+import qualified Hydra.Sources.Kernel.Terms.Show.Paths as ShowPaths
+import qualified Hydra.Sources.Kernel.Terms.Show.Core      as ShowCore
+import qualified Hydra.Sources.Kernel.Terms.Show.Graph     as ShowGraph
+import qualified Hydra.Sources.Kernel.Terms.Show.Variants      as ShowVariants
+import qualified Hydra.Sources.Kernel.Terms.Show.Typing    as ShowTyping
+import qualified Hydra.Sources.Kernel.Terms.Sorting        as Sorting
+import qualified Hydra.Sources.Kernel.Terms.Substitution   as Substitution
+import qualified Hydra.Sources.Kernel.Terms.Templates      as Templates
+import qualified Hydra.Sources.Kernel.Terms.Unification    as Unification
+import qualified Hydra.Sources.Kernel.Types.All            as KernelTypes
+import           Prelude hiding ((++))
+import qualified Data.Int                                  as I
+import qualified Data.List                                 as L
+import qualified Data.Map                                  as M
+import qualified Data.Set                                  as S
+import qualified Data.Maybe                                as Y
+
+-- Additional imports
+import qualified Hydra.Haskell.Syntax as H
+import qualified Hydra.Sources.Haskell.Syntax as HaskellSyntax
+import qualified Hydra.Sources.Haskell.Language as HaskellLanguage
+import qualified Hydra.Sources.Kernel.Terms.Formatting as Formatting
+
+
+type HaskellNamespaces = Namespaces H.ModuleName
+
+haskellUtilsDefinition :: String -> TTerm a -> TTermDefinition a
+haskellUtilsDefinition = definitionInModule module_
+
+ns :: Namespace
+ns = Namespace "hydra.haskell.utils"
+
+module_ :: Module
+module_ = Module {
+            moduleNamespace = ns,
+            moduleDefinitions = definitions,
+            moduleTermDependencies = [Analysis.ns, Formatting.ns, HaskellLanguage.ns, Names.ns],
+            moduleTypeDependencies = (HaskellSyntax.ns:KernelTypes.kernelTypesNamespaces),
+            moduleDescription = Just "Utilities for working with Haskell syntax trees"}
+  where
+    definitions = [
+      toDefinition applicationPattern,
+      toDefinition elementReference,
+      toDefinition hsapp,
+      toDefinition hslambda,
+      toDefinition hslit,
+      toDefinition hsvar,
+      toDefinition namespacesForModule,
+      toDefinition newtypeAccessorName,
+      toDefinition rawName,
+      toDefinition recordFieldReference,
+      toDefinition sanitizeHaskellName,
+      toDefinition simpleName,
+      toDefinition simpleValueBinding,
+      toDefinition toTypeApplication,
+      toDefinition typeNameForRecord,
+      toDefinition unionFieldReference,
+      toDefinition unpackForallType]
+
+applicationPattern :: TTermDefinition (H.Name -> [H.Pattern] -> H.Pattern)
+applicationPattern = haskellUtilsDefinition "applicationPattern" $
+  doc "Create an application pattern from a name and argument patterns" $
+  "name" ~> "args" ~>
+  inject H._Pattern H._Pattern_application $
+    record H._ApplicationPattern [
+      H._ApplicationPattern_name>>: var "name",
+      H._ApplicationPattern_args>>: var "args"]
+
+elementReference :: TTermDefinition (HaskellNamespaces -> Name -> H.Name)
+elementReference = haskellUtilsDefinition "elementReference" $
+  doc "Generate a Haskell name reference for a Hydra element" $
+  "namespaces" ~> "name" ~> lets [
+    "namespacePair">: Packaging.namespacesFocus $ var "namespaces",
+    "gname">: Pairs.first $ var "namespacePair",
+    "gmod">: unwrap H._ModuleName @@ (Pairs.second $ var "namespacePair"),
+    "namespacesMap">: Packaging.namespacesMapping $ var "namespaces",
+    "qname">: Names.qualifyName @@ var "name",
+    "local">: Packaging.qualifiedNameLocal $ var "qname",
+    "escLocal">: sanitizeHaskellName @@ var "local",
+    "mns">: Packaging.qualifiedNameNamespace $ var "qname"] $
+    Maybes.cases (Packaging.qualifiedNameNamespace $ var "qname")
+      (simpleName @@ var "local") $
+      "ns" ~>
+        Maybes.cases (Maps.lookup (var "ns") (var "namespacesMap"))
+          (simpleName @@ var "local") $
+          "mn" ~> lets [
+            "aliasStr">: unwrap H._ModuleName @@ var "mn"] $
+            Logic.ifElse (Equality.equal (var "ns") (var "gname"))
+              (simpleName @@ var "escLocal")
+              (rawName @@ (Strings.cat $ list [
+                var "aliasStr",
+                string ".",
+                sanitizeHaskellName @@ var "local"]))
+
+hsapp :: TTermDefinition (H.Expression -> H.Expression -> H.Expression)
+hsapp = haskellUtilsDefinition "hsapp" $
+  doc "Create a Haskell function application expression" $
+  "l" ~> "r" ~>
+    inject H._Expression H._Expression_application $
+      record H._ApplicationExpression [
+        H._ApplicationExpression_function>>: var "l",
+        H._ApplicationExpression_argument>>: var "r"]
+
+hslambda :: TTermDefinition (H.Name -> H.Expression -> H.Expression)
+hslambda = haskellUtilsDefinition "hslambda" $
+  doc "Create a Haskell lambda expression" $
+  "name" ~> "rhs" ~>
+    inject H._Expression H._Expression_lambda $
+      record H._LambdaExpression [
+        H._LambdaExpression_bindings>>: list [inject H._Pattern H._Pattern_name $ var "name"],
+        H._LambdaExpression_inner>>: var "rhs"]
+
+hslit :: TTermDefinition (H.Literal -> H.Expression)
+hslit = haskellUtilsDefinition "hslit" $
+  doc "Create a Haskell literal expression" $
+  "lit" ~>
+    inject H._Expression H._Expression_literal $ var "lit"
+
+hsvar :: TTermDefinition (String -> H.Expression)
+hsvar = haskellUtilsDefinition "hsvar" $
+  doc "Create a Haskell variable expression from a string" $
+  "s" ~>
+    inject H._Expression H._Expression_variable $ (rawName @@ var "s")
+
+namespacesForModule :: TTermDefinition (Module -> Context -> Graph -> Either Error HaskellNamespaces)
+namespacesForModule = haskellUtilsDefinition "namespacesForModule" $
+  doc "Compute the Haskell module namespaces for a Hydra module" $
+  "mod" ~> "cx" ~> "g" ~>
+    "nss" <<~ Analysis.moduleDependencyNamespaces @@ var "cx" @@ var "g" @@ true @@ true @@ true @@ true @@ var "mod" $
+    "ns" <~ (Packaging.moduleNamespace $ var "mod") $
+    "segmentsOf" <~ ("namespace" ~>
+      Strings.splitOn (string ".") (unwrap _Namespace @@ var "namespace")) $
+    -- Build an alias by taking the last `n` segments of `segs`, capitalizing each,
+    -- and concatenating. E.g. ["hydra","encode","core"] with n=2 becomes "EncodeCore".
+    "aliasFromSuffix" <~ ("segs" ~> "n" ~> lets [
+      "dropCount">: Math.sub (Lists.length $ var "segs") (var "n"),
+      "suffix">: Lists.drop (var "dropCount") (var "segs"),
+      "capitalizedSuffix">: Lists.map (Formatting.capitalize) (var "suffix")] $
+      wrap H._ModuleName $ Strings.cat $ var "capitalizedSuffix") $
+    "toModuleName" <~ ("namespace" ~>
+      var "aliasFromSuffix" @@ (var "segmentsOf" @@ var "namespace") @@ (int32 1)) $
+    "focusPair" <~ pair (var "ns") (var "toModuleName" @@ var "ns") $
+    "nssAsList" <~ (Sets.toList $ var "nss") $
+    "segsMap" <~ (Maps.fromList $ Lists.map
+      ("nm" ~> pair (var "nm") (var "segmentsOf" @@ var "nm"))
+      (var "nssAsList")) $
+    -- Maximum number of segments across all dependency namespaces; used as an
+    -- upper bound on how many disambiguation passes are needed. At least 1 so
+    -- the fold runs at least once even for single-namespace inputs.
+    "maxSegs" <~ Lists.foldl
+      ("a" ~> "b" ~> Logic.ifElse (Equality.gt (var "a") (var "b")) (var "a") (var "b"))
+      (int32 1)
+      (Lists.map ("nm" ~> Lists.length (var "segmentsOf" @@ var "nm")) (var "nssAsList")) $
+    -- Disambiguation state: Map Namespace Int, where the Int is the number of
+    -- trailing segments currently used to form the alias. Every namespace starts
+    -- at 1 (just the last segment, matching the legacy behavior).
+    "initialState" <~ (Maps.fromList $ Lists.map
+      ("nm" ~> pair (var "nm") (int32 1))
+      (var "nssAsList")) $
+    "segsFor" <~ ("nm" ~> Maybes.fromMaybe (list ([] :: [TTerm String])) (Maps.lookup (var "nm") (var "segsMap"))) $
+    "takenFor" <~ ("state" ~> "nm" ~> Maybes.fromMaybe (int32 1) (Maps.lookup (var "nm") (var "state"))) $
+    -- One pass of the fixed point: within each collision group (namespaces
+    -- currently sharing an alias), only namespaces with *more* segments than
+    -- the shortest in the group grow. This realizes the "shortest module
+    -- name gets the shortest alias" rule from issue #322: e.g. for
+    -- {hydra.core, hydra.extract.core}, hydra.core stays `Core` and
+    -- hydra.extract.core grows to `ExtractCore`.
+    "growStep" <~ ("state" ~> "_ign" ~> lets [
+      -- Parallel lists of (nm, segs, n, aliasStr, segCount) per namespace.
+      "aliasEntries">: Lists.map
+        ("nm" ~> lets [
+          "segs">: var "segsFor" @@ var "nm",
+          "n">: var "takenFor" @@ var "state" @@ var "nm",
+          "segCount">: Lists.length $ var "segs",
+          "aliasStr">: unwrap H._ModuleName @@ (var "aliasFromSuffix" @@ var "segs" @@ var "n")] $
+          pair (var "nm") (pair (var "n") (pair (var "segCount") (var "aliasStr"))))
+        (var "nssAsList"),
+      -- Map alias-string -> number of namespaces producing that alias.
+      "aliasCounts">: Lists.foldl
+        ("m" ~> "e" ~> lets [
+          "k">: Pairs.second $ Pairs.second $ Pairs.second $ var "e"] $
+          Maps.insert (var "k")
+            (Math.add (int32 1) (Maybes.fromMaybe (int32 0) (Maps.lookup (var "k") (var "m"))))
+            (var "m"))
+        Maps.empty
+        (var "aliasEntries"),
+      -- Map alias-string -> smallest total segment count among colliding namespaces.
+      -- Used to identify the "winner" (shortest name) in each collision group.
+      "aliasMinSegs">: Lists.foldl
+        ("m" ~> "e" ~> lets [
+          "segCount">: Pairs.first $ Pairs.second $ Pairs.second $ var "e",
+          "k">: Pairs.second $ Pairs.second $ Pairs.second $ var "e",
+          "existing">: Maps.lookup (var "k") (var "m")] $
+          Maps.insert (var "k")
+            (Maybes.cases (var "existing")
+              (var "segCount") $
+              "prev" ~> Logic.ifElse (Equality.lt (var "segCount") (var "prev")) (var "segCount") (var "prev"))
+            (var "m"))
+        Maps.empty
+        (var "aliasEntries")] $
+      -- Map alias-string -> number of colliding namespaces tied at the minimum
+      -- segment count. If >1, every tied-minimum member must grow too (no one
+      -- can unambiguously claim the shortest alias).
+      lets [
+        "aliasMinSegsCount">: Lists.foldl
+          ("m" ~> "e" ~> lets [
+            "segCount">: Pairs.first $ Pairs.second $ Pairs.second $ var "e",
+            "k">: Pairs.second $ Pairs.second $ Pairs.second $ var "e",
+            "minSegs">: Maybes.fromMaybe (var "segCount") (Maps.lookup (var "k") (var "aliasMinSegs"))] $
+            Logic.ifElse (Equality.equal (var "segCount") (var "minSegs"))
+              (Maps.insert (var "k")
+                (Math.add (int32 1) (Maybes.fromMaybe (int32 0) (Maps.lookup (var "k") (var "m"))))
+                (var "m"))
+              (var "m"))
+          Maps.empty
+          (var "aliasEntries")] $
+      Maps.fromList $ Lists.map
+        ("e" ~> lets [
+          "nm">: Pairs.first $ var "e",
+          "n">: Pairs.first $ Pairs.second $ var "e",
+          "segCount">: Pairs.first $ Pairs.second $ Pairs.second $ var "e",
+          "aliasStr">: Pairs.second $ Pairs.second $ Pairs.second $ var "e",
+          "count">: Maybes.fromMaybe (int32 0) (Maps.lookup (var "aliasStr") (var "aliasCounts")),
+          "minSegs">: Maybes.fromMaybe (var "segCount") (Maps.lookup (var "aliasStr") (var "aliasMinSegs")),
+          "minSegsCount">: Maybes.fromMaybe (int32 0) (Maps.lookup (var "aliasStr") (var "aliasMinSegsCount")),
+          -- A namespace grows iff (1) its alias currently collides, (2) it
+          -- still has room to grow, and (3) it is strictly longer than the
+          -- shortest in its group OR the shortest position is tied (in which
+          -- case no single winner exists and every tied-minimum must grow).
+          "canGrow">: Logic.and
+            (Equality.gt (var "count") (int32 1))
+            (Logic.and
+              (Equality.gt (var "segCount") (var "n"))
+              (Logic.or
+                (Equality.gt (var "segCount") (var "minSegs"))
+                (Equality.gt (var "minSegsCount") (int32 1)))),
+          "newN">: Logic.ifElse (var "canGrow") (Math.add (var "n") (int32 1)) (var "n")] $
+          pair (var "nm") (var "newN"))
+        (var "aliasEntries")) $
+    "finalState" <~ (Lists.foldl (var "growStep") (var "initialState") (Lists.replicate (var "maxSegs") unit)) $
+    "resultMap" <~ (Maps.fromList $ Lists.map
+      ("nm" ~> pair (var "nm")
+        (var "aliasFromSuffix" @@ (var "segsFor" @@ var "nm") @@ (var "takenFor" @@ var "finalState" @@ var "nm"))) $
+      (var "nssAsList")) $
+    right $ Packaging.namespaces (var "focusPair") (var "resultMap")
+
+newtypeAccessorName :: TTermDefinition (Name -> String)
+newtypeAccessorName = haskellUtilsDefinition "newtypeAccessorName" $
+  doc "Generate an accessor name for a newtype wrapper (e.g., 'unFoo' for Foo)" $
+  "name" ~>
+    Strings.cat2 (string "un") (Names.localNameOf @@ var "name")
+
+rawName :: TTermDefinition (String -> H.Name)
+rawName = haskellUtilsDefinition "rawName" $
+  doc "Create a raw Haskell name from a string without sanitization" $
+  "n" ~>
+    inject H._Name H._Name_normal $
+      record H._QualifiedName [
+        H._QualifiedName_qualifiers>>: list ([] :: [TTerm H.NamePart]),
+        H._QualifiedName_unqualified>>: wrap H._NamePart $ var "n"]
+
+recordFieldReference :: TTermDefinition (HaskellNamespaces -> Name -> Name -> H.Name)
+recordFieldReference = haskellUtilsDefinition "recordFieldReference" $
+  doc "Generate a Haskell name for a record field accessor" $
+  "namespaces" ~> "sname" ~> "fname" ~> lets [
+    "fnameStr">: unwrap _Name @@ var "fname",
+    "qname">: Names.qualifyName @@ var "sname",
+    "ns">: Packaging.qualifiedNameNamespace $ var "qname",
+    "typeNameStr">: typeNameForRecord @@ var "sname",
+    "decapitalized">: Formatting.decapitalize @@ var "typeNameStr",
+    "capitalized">: Formatting.capitalize @@ var "fnameStr",
+    "nm">: Strings.cat2 (var "decapitalized") (var "capitalized"),
+    "qualName">: record _QualifiedName [
+      _QualifiedName_namespace>>: var "ns",
+      _QualifiedName_local>>: var "nm"],
+    "unqualName">: Names.unqualifyName @@ var "qualName"] $
+    elementReference @@ var "namespaces" @@ var "unqualName"
+
+sanitizeHaskellName :: TTermDefinition (String -> String)
+sanitizeHaskellName = haskellUtilsDefinition "sanitizeHaskellName" $
+  doc "Sanitize a string to be a valid Haskell identifier, escaping reserved words" $
+  Formatting.sanitizeWithUnderscores @@ (HaskellLanguage.reservedWords)
+
+simpleName :: TTermDefinition (String -> H.Name)
+simpleName = haskellUtilsDefinition "simpleName" $
+  doc "Create a sanitized Haskell name from a string" $
+  compose (rawName) (sanitizeHaskellName)
+
+simpleValueBinding :: TTermDefinition (H.Name -> H.Expression -> Maybe H.LocalBindings -> H.ValueBinding)
+simpleValueBinding = haskellUtilsDefinition "simpleValueBinding" $
+  doc "Create a simple value binding (e.g., 'foo = expr' or 'foo = expr where ...')" $
+  "hname" ~> "rhs" ~> "bindings" ~> lets [
+    "pat">: inject H._Pattern H._Pattern_application $
+      record H._ApplicationPattern [
+        H._ApplicationPattern_name>>: var "hname",
+        H._ApplicationPattern_args>>: list ([] :: [TTerm H.Pattern])],
+    "rightHandSide">: wrap H._RightHandSide $ var "rhs"] $
+    inject H._ValueBinding H._ValueBinding_simple $
+      record H._SimpleValueBinding [
+        H._SimpleValueBinding_pattern>>: var "pat",
+        H._SimpleValueBinding_rhs>>: var "rightHandSide",
+        H._SimpleValueBinding_localBindings>>: var "bindings"]
+
+toTypeApplication :: TTermDefinition ([H.Type] -> H.Type)
+toTypeApplication = haskellUtilsDefinition "toTypeApplication" $
+  doc "Convert a list of types into a nested type application" $
+  "types" ~> lets [
+    "dummyType">: inject H._Type H._Type_variable $ inject H._Name H._Name_normal $
+      record H._QualifiedName [
+        H._QualifiedName_qualifiers>>: list ([] :: [TTerm H.NamePart]),
+        H._QualifiedName_unqualified>>: wrap H._NamePart $ string ""],
+    "app">: "l" ~>
+      Maybes.fromMaybe (var "dummyType")
+        (Maybes.map
+          ("p" ~> Logic.ifElse (Lists.null (Pairs.second (var "p")))
+            (Pairs.first (var "p"))
+            (inject H._Type H._Type_application $ record H._ApplicationType [
+              H._ApplicationType_context>>: var "app" @@ (Pairs.second (var "p")),
+              H._ApplicationType_argument>>: Pairs.first (var "p")]))
+          (Lists.uncons (var "l")))] $
+    var "app" @@ (Lists.reverse $ var "types")
+
+typeNameForRecord :: TTermDefinition (Name -> String)
+typeNameForRecord = haskellUtilsDefinition "typeNameForRecord" $
+  doc "Extract the local type name from a fully qualified record type name" $
+  "sname" ~> lets [
+    "snameStr">: Core.unName $ var "sname",
+    "parts">: Strings.splitOn (string ".") (var "snameStr")] $
+    Maybes.fromMaybe (var "snameStr") (Lists.maybeLast (var "parts"))
+
+unionFieldReference :: TTermDefinition (S.Set Name -> HaskellNamespaces -> Name -> Name -> H.Name)
+unionFieldReference = haskellUtilsDefinition "unionFieldReference" $
+  doc "Generate a Haskell name for a union variant constructor, with disambiguation" $
+  "boundNames" ~> "namespaces" ~> "sname" ~> "fname" ~> lets [
+    "fnameStr">: unwrap _Name @@ var "fname",
+    "qname">: Names.qualifyName @@ var "sname",
+    "ns">: Packaging.qualifiedNameNamespace $ var "qname",
+    "typeNameStr">: typeNameForRecord @@ var "sname",
+    "capitalizedTypeName">: Formatting.capitalize @@ var "typeNameStr",
+    "capitalizedFieldName">: Formatting.capitalize @@ var "fnameStr",
+    "deconflict">: "name" ~> lets [
+      "tname">: Names.unqualifyName @@ record _QualifiedName [
+        _QualifiedName_namespace>>: var "ns",
+        _QualifiedName_local>>: var "name"]] $
+      Logic.ifElse (Sets.member (var "tname") (var "boundNames"))
+        (var "deconflict" @@ Strings.cat2 (var "name") (string "_"))
+        (var "name"),
+    "nm">: var "deconflict" @@ Strings.cat2 (var "capitalizedTypeName") (var "capitalizedFieldName"),
+    "qualName">: record _QualifiedName [
+      _QualifiedName_namespace>>: var "ns",
+      _QualifiedName_local>>: var "nm"],
+    "unqualName">: Names.unqualifyName @@ var "qualName"] $
+    elementReference @@ var "namespaces" @@ var "unqualName"
+
+unpackForallType :: TTermDefinition (Type -> ([Name], Type))
+unpackForallType = haskellUtilsDefinition "unpackForallType" $
+  doc "Unpack nested forall types into a list of type variables and the inner type" $
+  "t" ~> cases _Type (Strip.deannotateType @@ var "t")
+    (Just $ pair (list ([] :: [TTerm Name])) (var "t")) [
+    _Type_forall>>: "fat" ~> lets [
+      "v">: Core.forallTypeParameter $ var "fat",
+      "tbody">: Core.forallTypeBody $ var "fat",
+      "recursiveResult">: unpackForallType @@ var "tbody",
+      "vars">: Pairs.first $ var "recursiveResult",
+      "finalType">: Pairs.second $ var "recursiveResult"] $
+      pair (Lists.cons (var "v") (var "vars")) (var "finalType")]

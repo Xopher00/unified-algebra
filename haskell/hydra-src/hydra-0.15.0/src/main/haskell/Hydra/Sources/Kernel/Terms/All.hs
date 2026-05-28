@@ -1,0 +1,202 @@
+-- | All of Hydra's term-level kernel modules
+module Hydra.Sources.Kernel.Terms.All where
+
+import Hydra.Kernel
+
+import qualified Hydra.Sources.Kernel.Terms.Adapt           as Adapt
+import qualified Hydra.Sources.Kernel.Terms.Analysis        as Analysis
+import qualified Hydra.Sources.Kernel.Terms.Annotations     as Annotations
+import qualified Hydra.Sources.Kernel.Terms.Arity           as Arity
+import qualified Hydra.Sources.Kernel.Terms.Checking        as Checking
+import qualified Hydra.Sources.Kernel.Terms.Generation      as Generation
+import qualified Hydra.Sources.Kernel.Terms.Constants       as Constants
+import qualified Hydra.Sources.Kernel.Terms.Decoding        as Decoding
+import qualified Hydra.Sources.Kernel.Terms.Dependencies    as Dependencies
+import qualified Hydra.Sources.Kernel.Terms.Differentiation as Differentiation
+import qualified Hydra.Sources.Kernel.Terms.Dsls            as Dsls
+import qualified Hydra.Sources.Kernel.Terms.Encoding        as Encoding
+import qualified Hydra.Sources.Kernel.Terms.Environment     as Environment
+import qualified Hydra.Sources.Kernel.Terms.Extract.Core    as ExtractCore
+import qualified Hydra.Sources.Kernel.Terms.Extract.Util    as ExtractUtil
+import qualified Hydra.Sources.Kernel.Terms.Formatting      as Formatting
+import qualified Hydra.Sources.Kernel.Terms.Hoisting        as Hoisting
+import qualified Hydra.Sources.Kernel.Terms.Inference       as Inference
+import qualified Hydra.Sources.Kernel.Terms.Languages       as Languages
+import qualified Hydra.Sources.Kernel.Terms.Lexical         as Lexical
+import qualified Hydra.Sources.Kernel.Terms.Literals        as Literals
+
+import qualified Hydra.Sources.Kernel.Lib.Names             as LibNames
+import qualified Hydra.Sources.Kernel.Terms.Names           as Names
+import qualified Hydra.Sources.Kernel.Terms.Parsers         as Parsers
+import qualified Hydra.Sources.Kernel.Terms.Predicates     as Predicates
+import qualified Hydra.Sources.Kernel.Terms.Reduction       as Reduction
+import qualified Hydra.Sources.Kernel.Terms.Reflect         as Reflect
+import qualified Hydra.Sources.Kernel.Terms.Resolution     as Resolution
+import qualified Hydra.Sources.Kernel.Terms.Rewriting       as Rewriting
+import qualified Hydra.Sources.Kernel.Terms.Scoping         as Scoping
+import qualified Hydra.Sources.Kernel.Terms.Serialization   as Serialization
+import qualified Hydra.Sources.Kernel.Terms.Strip           as Strip
+import qualified Hydra.Sources.Kernel.Terms.Show.Paths      as ShowPaths
+import qualified Hydra.Sources.Kernel.Terms.Show.Core       as ShowCore
+import qualified Hydra.Sources.Kernel.Terms.Show.Errors      as ShowErrors
+import qualified Hydra.Sources.Kernel.Terms.Show.Error.Core as ShowErrorCore
+import qualified Hydra.Sources.Kernel.Terms.Show.Graph      as ShowGraph
+import qualified Hydra.Sources.Kernel.Terms.Show.Variants       as ShowVariants
+import qualified Hydra.Sources.Kernel.Terms.Show.Typing     as ShowTyping
+import qualified Hydra.Sources.Kernel.Terms.Show.Util       as ShowUtil
+import qualified Hydra.Sources.Kernel.Terms.Sorting         as Sorting
+import qualified Hydra.Sources.Kernel.Terms.Substitution    as Substitution
+import qualified Hydra.Sources.Kernel.Terms.Templates       as Templates
+import qualified Hydra.Sources.Kernel.Terms.Unification     as Unification
+import qualified Hydra.Sources.Kernel.Terms.Validate.Core  as ValidateCore
+import qualified Hydra.Sources.Kernel.Terms.Variables       as Variables
+import qualified Hydra.Sources.Kernel.Terms.Validate.Packaging as ValidatePackaging
+
+-- Secondary, generated decoding modules
+import qualified Hydra.Sources.Decode.Paths          as DecodePaths
+import qualified Hydra.Sources.Decode.Ast           as DecodeAst
+import qualified Hydra.Sources.Decode.Classes       as DecodeClasses
+import qualified Hydra.Sources.Decode.Coders        as DecodeCoders
+import qualified Hydra.Sources.Decode.Context       as DecodeContext
+import qualified Hydra.Sources.Decode.Core          as DecodeCore
+import qualified Hydra.Sources.Decode.Errors         as DecodeErrors
+import qualified Hydra.Sources.Decode.Error.Checking as DecodeErrorChecking
+import qualified Hydra.Sources.Decode.Error.Core   as DecodeErrorCore
+import qualified Hydra.Sources.Decode.Json.Model    as DecodeJson
+import qualified Hydra.Sources.Decode.Packaging      as DecodeModule
+import qualified Hydra.Sources.Decode.Parsing       as DecodeParsing
+import qualified Hydra.Sources.Decode.Phantoms      as DecodePhantoms
+import qualified Hydra.Sources.Decode.Query         as DecodeQuery
+import qualified Hydra.Sources.Decode.Relational    as DecodeRelational
+import qualified Hydra.Sources.Decode.Tabular       as DecodeTabular
+import qualified Hydra.Sources.Decode.Testing       as DecodeTesting
+import qualified Hydra.Sources.Decode.Topology      as DecodeTopology
+import qualified Hydra.Sources.Decode.Typing        as DecodeTyping
+import qualified Hydra.Sources.Decode.Util          as DecodeUtil
+import qualified Hydra.Sources.Decode.Variants      as DecodeVariants
+
+-- Secondary, generated encoding modules
+import qualified Hydra.Sources.Encode.Paths          as EncodePaths
+import qualified Hydra.Sources.Encode.Ast           as EncodeAst
+import qualified Hydra.Sources.Encode.Classes       as EncodeClasses
+import qualified Hydra.Sources.Encode.Coders        as EncodeCoders
+import qualified Hydra.Sources.Encode.Context       as EncodeContext
+import qualified Hydra.Sources.Encode.Core          as EncodeCore
+import qualified Hydra.Sources.Encode.Errors         as EncodeErrors
+import qualified Hydra.Sources.Encode.Error.Checking as EncodeErrorChecking
+import qualified Hydra.Sources.Encode.Error.Core   as EncodeErrorCore
+import qualified Hydra.Sources.Encode.Json.Model    as EncodeJson
+import qualified Hydra.Sources.Encode.Packaging      as EncodeModule
+import qualified Hydra.Sources.Encode.Parsing       as EncodeParsing
+import qualified Hydra.Sources.Encode.Phantoms      as EncodePhantoms
+import qualified Hydra.Sources.Encode.Query         as EncodeQuery
+import qualified Hydra.Sources.Encode.Relational    as EncodeRelational
+import qualified Hydra.Sources.Encode.Tabular       as EncodeTabular
+import qualified Hydra.Sources.Encode.Testing       as EncodeTesting
+import qualified Hydra.Sources.Encode.Topology      as EncodeTopology
+import qualified Hydra.Sources.Encode.Typing        as EncodeTyping
+import qualified Hydra.Sources.Encode.Util          as EncodeUtil
+import qualified Hydra.Sources.Encode.Variants      as EncodeVariants
+
+
+kernelTermsModules :: [Module]
+kernelTermsModules = kernelPrimaryTermsModules ++ kernelDecodingModules ++ kernelEncodingModules
+
+kernelPrimaryTermsModules :: [Module]
+kernelPrimaryTermsModules = [
+  Adapt.module_,
+  Analysis.module_,
+  Annotations.module_,
+  Arity.module_,
+  Checking.module_,
+  Generation.module_,
+  Constants.module_,
+  Decoding.module_,
+  Dependencies.module_,
+  Differentiation.module_,
+--  Dsls.module_,
+  Encoding.module_,
+  Environment.module_,
+  ExtractCore.module_,
+  ExtractUtil.module_,
+  Formatting.module_,
+  Hoisting.module_,
+  Inference.module_,
+  Languages.module_,
+  Lexical.module_,
+  LibNames.module_,
+  Literals.module_,
+
+  Names.module_,
+  Parsers.module_,
+  Predicates.module_,
+  Reduction.module_,
+  Reflect.module_,
+  Resolution.module_,
+  Rewriting.module_,
+  Scoping.module_,
+  Serialization.module_,
+  Strip.module_,
+  ShowPaths.module_,
+  ShowCore.module_,
+  ShowErrors.module_,
+  ShowErrorCore.module_,
+  ShowGraph.module_,
+  ShowVariants.module_,
+  ShowTyping.module_,
+  ShowUtil.module_,
+  Sorting.module_,
+  Substitution.module_,
+  Templates.module_,
+  Unification.module_,
+  ValidateCore.module_,
+  ValidatePackaging.module_,
+  Variables.module_]
+
+kernelDecodingModules :: [Module]
+kernelDecodingModules = [
+  DecodePaths.module_,
+  DecodeAst.module_,
+  DecodeClasses.module_,
+  DecodeCoders.module_,
+  DecodeContext.module_,
+  DecodeCore.module_,
+  DecodeErrors.module_,
+  DecodeErrorChecking.module_,
+  DecodeErrorCore.module_,
+  DecodeJson.module_,
+  DecodeModule.module_,
+  DecodeParsing.module_,
+  DecodePhantoms.module_,
+  DecodeQuery.module_,
+  DecodeRelational.module_,
+  DecodeTabular.module_,
+    DecodeTesting.module_,
+  DecodeTopology.module_,
+  DecodeTyping.module_,
+  DecodeUtil.module_,
+  DecodeVariants.module_]
+
+kernelEncodingModules :: [Module]
+kernelEncodingModules = [
+  EncodePaths.module_,
+  EncodeAst.module_,
+  EncodeClasses.module_,
+  EncodeCoders.module_,
+  EncodeContext.module_,
+  EncodeCore.module_,
+  EncodeErrors.module_,
+  EncodeErrorChecking.module_,
+  EncodeErrorCore.module_,
+  EncodeJson.module_,
+  EncodeModule.module_,
+  EncodeParsing.module_,
+  EncodePhantoms.module_,
+  EncodeQuery.module_,
+  EncodeRelational.module_,
+  EncodeTabular.module_,
+    EncodeTesting.module_,
+  EncodeTopology.module_,
+  EncodeTyping.module_,
+  EncodeUtil.module_,
+  EncodeVariants.module_]

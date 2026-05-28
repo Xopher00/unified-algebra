@@ -1,0 +1,62 @@
+{
+  "backend": "numpy",
+  "structural": {
+    "expand_dims": "numpy.expand_dims",
+    "transpose": "numpy.transpose",
+    "take_diagonal": "numpy.diagonal"
+  },
+  "ops": {
+    "add":              { "kind": "elementwise_binary", "path": "numpy.add",              "arity": 2 },
+    "subtract":         { "kind": "elementwise_binary", "path": "numpy.subtract",         "arity": 2 },
+    "multiply":         { "kind": "elementwise_binary", "path": "numpy.multiply",         "arity": 2 },
+    "divide":           { "kind": "elementwise_binary", "path": "numpy.divide",           "arity": 2 },
+    "power":            { "kind": "elementwise_binary", "path": "numpy.power",            "arity": 2 },
+    "minimum":          { "kind": "elementwise_binary", "path": "numpy.minimum",          "arity": 2 },
+    "maximum":          { "kind": "elementwise_binary", "path": "numpy.maximum",          "arity": 2 },
+    "logaddexp":        { "kind": "elementwise_binary", "path": "numpy.logaddexp",        "arity": 2 },
+    "equal":            { "kind": "elementwise_binary", "path": "numpy.equal",            "arity": 2 },
+    "greater":          { "kind": "elementwise_binary", "path": "numpy.greater",          "arity": 2 },
+    "less":             { "kind": "elementwise_binary", "path": "numpy.less",             "arity": 2 },
+    "and":              { "kind": "elementwise_binary", "path": "numpy.logical_and",      "arity": 2 },
+    "or":               { "kind": "elementwise_binary", "path": "numpy.logical_or",       "arity": 2 },
+
+    "tanh":             { "kind": "unary",  "path": "numpy.tanh",             "arity": 1 },
+    "exp":              { "kind": "unary",  "path": "numpy.exp",              "arity": 1 },
+    "log":              { "kind": "unary",  "path": "numpy.log",              "arity": 1 },
+    "log1p":            { "kind": "unary",  "path": "numpy.log1p",            "arity": 1 },
+    "sqrt":             { "kind": "unary",  "path": "numpy.sqrt",             "arity": 1 },
+    "abs":              { "kind": "unary",  "path": "numpy.abs",              "arity": 1 },
+    "reciprocal":       { "kind": "unary",  "path": "numpy.reciprocal",       "arity": 1 },
+    "sign":             { "kind": "unary",  "path": "numpy.sign",             "arity": 1 },
+    "square":           { "kind": "unary",  "path": "numpy.square",           "arity": 1 },
+    "sin":              { "kind": "unary",  "path": "numpy.sin",              "arity": 1 },
+    "cos":              { "kind": "unary",  "path": "numpy.cos",              "arity": 1 },
+    "neg":              { "kind": "unary",  "path": "numpy.negative",         "arity": 1 },
+    "ceil":             { "kind": "unary",  "path": "numpy.ceil",             "arity": 1 },
+    "floor":            { "kind": "unary",  "path": "numpy.floor",            "arity": 1 },
+    "round":            { "kind": "unary",  "path": "numpy.round",            "arity": 1 },
+    "not":              { "kind": "unary",  "path": "numpy.logical_not",      "arity": 1 },
+    "sigmoid":          { "kind": "unary",  "path": "scipy.special.expit",    "arity": 1 },
+    "softmax":          { "kind": "unary",  "path": "scipy.special.softmax",  "arity": 2 },
+    "softplus":         { "kind": "unary",  "path": "scipy.special.softplus", "arity": 1 },
+
+    "reduce.add":       { "kind": "reduce", "path": "numpy.sum",              "arity": 2 },
+    "reduce.multiply":  { "kind": "reduce", "path": "numpy.prod",             "arity": 2 },
+    "reduce.minimum":   { "kind": "reduce", "path": "numpy.min",              "arity": 2 },
+    "reduce.maximum":   { "kind": "reduce", "path": "numpy.max",              "arity": 2 },
+    "reduce.logaddexp": { "kind": "reduce", "path": "scipy.special.logsumexp","arity": 2 },
+    "reduce.and":       { "kind": "reduce", "path": "numpy.all",              "arity": 2 },
+    "reduce.or":        { "kind": "reduce", "path": "numpy.any",              "arity": 2 },
+
+    "structural.expand_dims":  { "kind": "structural", "path": "numpy.expand_dims",  "arity": 2 },
+    "structural.transpose":    { "kind": "structural", "path": "numpy.transpose",    "arity": 2 },
+    "structural.take_diagonal":{ "kind": "structural", "path": "numpy.diagonal",     "arity": 3 },
+
+    "clip":             { "kind": "ternary",     "path": "numpy.clip",         "arity": 3 },
+    "where":            { "kind": "ternary",     "path": "numpy.where",        "arity": 3 },
+    "matmul":           { "kind": "contraction",  "path": "numpy.matmul",      "arity": 2 },
+    "norm":             { "kind": "reduce",       "path": "numpy.linalg.norm", "arity": 1 },
+    "mean":             { "kind": "reduce",       "path": "numpy.mean",        "arity": 2 },
+    "std":              { "kind": "reduce",       "path": "numpy.std",         "arity": 2 }
+  }
+}

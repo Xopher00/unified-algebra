@@ -7,6 +7,7 @@ import Prelude
 import qualified Prelude as P
 
 import UniAlg hiding ((++))
+import Explore.Archs
 
 
 -- ── Folding RNN ───────────────────────────────────────────────────────────────

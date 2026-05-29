@@ -1,53 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 {-|
-Tensor contraction DSL: Einstein notation, semirings, and codegen.
+Einstein-notation tensor contractions over semirings, compiled to Hydra IR.
 
-=== Semirings
-
-A 'Semiring' parameterises a contraction: @plus@ reduces over contracted axes,
-@times@ computes element-wise products, and @adjoint@ (optional) inverts
-@times@ for backward passes.
-
-Standard examples:
-
-@
-real     = Semiring \"add\"     \"multiply\" (Just \"divide\")
-tropical = Semiring \"minimum\" \"add\"      Nothing
-boolean  = Semiring \"maximum\" \"minimum\"  Nothing
-@
-
-=== Equations
-
-An 'Equation' is a parsed Einstein notation string:
-
-@
-\"ij,jk->ik\"   -- matrix multiply
-\"ij,j->i\"     -- matrix-vector multiply
-\"i,j->ij\"     -- outer product
-\"ij,ij->\"     -- Frobenius inner product (full trace)
-@
-
-'parseEquation' validates the string and returns an 'Equation' recording
-the input index sets, output labels, and reduced (contracted) indices.
-
-'fuseEquation' composes two equations by substituting one equation's output
-into a slot of another — enabling multi-operand contractions like
-@ij,jk,kl->il@ to be expressed as two fused binary contractions.
-
-=== Code generation
-
-'applyEquation' is the main entry point: given an orientation, a semiring,
-a parsed equation, and a list of input 'TTerm' tensors, it returns a 'TTerm'
-representing the contraction.  The generated Hydra IR is lowered to calls
-like @numpy.sum(numpy.multiply(...))@ after backend substitution.
-
-'tensorOp', 'equationModule', and 'tensorOpModule' wrap these into 'Module'
-builders for use with 'writePythonWithBackend'.
-
-=== Op resolution
-
-Backend ops are resolved through the registry in "UniAlg.Core.Ops".
+Parse an equation string with 'parseEquation', compose equations with
+'fuseEquation' or a 'FusionTree', then compile to a 'TTerm' with
+'applyEquation' \/ 'applyTree', or to a codegen 'Module' with
+'equationModule' \/ 'treeModule'.
 -}
 module UniAlg.Domain.Tensors
   ( Tensor
@@ -55,29 +14,26 @@ module UniAlg.Domain.Tensors
   , Orientation(..)
   , Semiring(..)
   , Equation(..)
-  , AlignmentPlan(..)
   , FusionTree
   , parseEquation
   , fuseEquation
   , fusionLeaf
   , fusionNode
   , fuseTree
-  , alignmentPlan
-  , alignmentPlans
-  , reducedAxes
-  , targetVars
   , contract
   , adjointContract
   , compileEquation
   , applyEquation
+  , compileTree
+  , applyTree
+  , treeModule
   , contractModule
-  , tensorOp
   , equationModule
-  , tensorOpModule
   ) where
 
-import Data.List (elemIndex, isInfixOf, nub)
-import Data.Maybe (fromMaybe)
+import Data.List (isInfixOf, nub)
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 import Hydra.Kernel
   ( Definition(..)
@@ -165,14 +121,6 @@ data Equation = Equation
   } deriving (Eq, Show)
 
 
--- | The unsqueeze and transpose plan for aligning one input operand to the
--- shared broadcast shape before element-wise multiplication.
-data AlignmentPlan = AlignmentPlan
-  { unsqueezeAxes :: [Int]  -- ^ Axes to insert via @expand_dims@.
-  , perm          :: [Int]  -- ^ Transpose permutation to apply after unsqueezing.
-  } deriving (Eq, Show)
-
-
 -- | Parse an Einstein notation string into an 'Equation'.
 --
 -- Returns @'Left' err@ if the string is malformed (missing arrow, duplicate
@@ -185,15 +133,17 @@ data AlignmentPlan = AlignmentPlan
 parseEquation :: String -> Either String Equation
 parseEquation raw = do
   (lhs, rhs) <- splitArrow (filter (/= ' ') raw)
-  let inputs = (fmap . fmap) Index (splitOn ',' lhs)
-      output = fmap Index rhs
-      allIn  = nub (concat inputs)
-  check (nub output == output) "output labels must be unique"
-  check (all (`elem` allIn) output) "output labels not in any input"
+  let inputs     = (fmap . fmap) Index (splitOn ',' lhs)
+      output     = fmap Index rhs
+      distinctIn = nub (concat inputs)
+      inSet      = Set.fromList distinctIn
+      outSet     = Set.fromList output
+  check (Set.size outSet == length output) "output labels must be unique"
+  check (outSet `Set.isSubsetOf` inSet)    "output labels not in any input"
   pure Equation
     { eqInputs  = inputs
     , eqOutput  = output
-    , eqReduced = filter (`notElem` output) allIn
+    , eqReduced = filter (`Set.notMember` outSet) distinctIn
     }
 
 
@@ -207,10 +157,6 @@ splitArrow s
 check :: Bool -> String -> Either String ()
 check True  _ = pure ()
 check False e = Left e
-
-
-targetVars :: Equation -> [Index]
-targetVars eq = eqOutput eq ++ eqReduced eq
 
 
 -- | Fuse an inner equation into one slot of an outer equation.
@@ -229,17 +175,18 @@ fuseEquation outer slot inner = do
       <> show (length (eqInputs outer)) <> " inputs")
   check (eqOutput inner == eqInputs outer !! slot)
     "inner output labels must match the replaced outer input"
-  let inputs  = take slot (eqInputs outer)
-             ++ eqInputs inner
-             ++ drop (slot + 1) (eqInputs outer)
-      allIn   = nub (concat inputs)
-      outSet  = eqOutput outer
-      reduced = filter (`notElem` outSet) $
-                  nub (eqReduced inner ++ eqReduced outer)
+  let inputs    = take slot (eqInputs outer)
+               ++ eqInputs inner
+               ++ drop (slot + 1) (eqInputs outer)
+      allInSet  = Set.fromList (concat inputs)
+      outLbls   = eqOutput outer
+      outLblSet = Set.fromList outLbls
+      reduced   = filter (`Set.notMember` outLblSet) $
+                    nub (eqReduced inner ++ eqReduced outer)
   pure Equation
     { eqInputs  = inputs
-    , eqOutput  = outSet
-    , eqReduced = filter (`elem` allIn) reduced
+    , eqOutput  = outLbls
+    , eqReduced = filter (`Set.member` allInSet) reduced
     }
 
 
@@ -272,7 +219,7 @@ fuseTree = cata algebra
     algebra (Pair (Const eq) childResults) =
       -- Highest slot first: keeps lower slot indices stable as each fusion
       -- prepends inner inputs at the targeted position.
-      foldr step (Right eq) (reverse (zip [0..] childResults))
+      foldr step (Right eq) (zip [0..] childResults)
 
     step :: (Int, Either String Equation) -> Either String Equation -> Either String Equation
     step (slot, child) acc = do
@@ -281,35 +228,9 @@ fuseTree = cata algebra
       fuseEquation a slot c
 
 
-alignmentPlan :: Equation -> Int -> AlignmentPlan
-alignmentPlan eq i = AlignmentPlan
-  { unsqueezeAxes = [length inp .. length expanded - 1]
-  , perm          = fmap (\v -> fromMaybe 0 (elemIndex v expanded)) target
-  }
-  where
-    inp      = eqInputs eq !! i
-    target   = targetVars eq
-    existing = nub inp
-    expanded = inp ++ filter (`notElem` existing) target
-
-
-alignmentPlans :: Equation -> [AlignmentPlan]
-alignmentPlans eq = fmap (alignmentPlan eq) [0 .. length (eqInputs eq) - 1]
-
-
-reducedAxes :: Equation -> [Int]
-reducedAxes eq =
-  [length (eqOutput eq) .. length (targetVars eq) - 1]
-
-
-
 -- ── Simple contractions (no equation, arity-inferred reduce) ─────────────────
 
 -- | Curried binary contraction over the given semiring.
---
--- @contract sr@ produces @plus(times(x, y))@ — element product then
--- full reduction.  No alignment or permutation; inputs must have the same
--- shape.
 contract :: Semiring -> TTerm (Tensor -> Tensor -> Tensor)
 contract sr =
   reify2 $ \x y ->
@@ -328,38 +249,29 @@ adjointContract sr =
 
 -- ── Equation-aware contractions ──────────────────────────────────────────────
 
-align :: AlignmentPlan -> TTerm a -> TTerm a
-align plan t = transpose_ (unsqueeze_ t)
-  where
-    unsqueeze_ t' =
-      foldl (\acc ax -> op "structural.expand_dims" @@ acc @@ TTerm (Terms.int32 ax))
-            t' (unsqueezeAxes plan)
-    transpose_ t' =
-      op "structural.transpose" @@ t' @@ TTerm (Terms.list (fmap Terms.int32 (perm plan)))
-
-
-orientedOps :: Orientation -> Semiring -> Either String (String, String)
-orientedOps Forward sr = pure (semiringTimes sr, "reduce." <> semiringPlus sr)
-orientedOps Adjoint sr =
-  case semiringAdjoint sr of
-    Nothing  -> Left "Adjoint orientation requires a semiring with an adjoint"
-    Just adj -> pure (adj, "reduce." <> semiringTimes sr)
-
-
--- | Compile an 'Equation' to a curried 'TTerm' function.
---
--- Produces a lambda over all input operands that aligns each input (via
--- @expand_dims@ and @transpose@), computes element-wise products, and
--- reduces over the contracted axes.  The result is still Hydra IR using
--- symbolic backend names; lowering resolves those to backend paths.
+-- | Compile an 'Equation' to a curried 'TTerm' lambda.
 compileEquation :: Orientation -> Semiring -> Equation -> Either String (TTerm a)
 compileEquation orientation sr eq = do
-  (timesKey, reduceKey) <- orientedOps orientation sr
-  let params   = ["t" <> show i | i <- [0 .. length (eqInputs eq) - 1]]
-      aligned  = zipWith (\plan p -> align plan (var p)) (alignmentPlans eq) params
+  (timesKey, reduceKey) <- case (orientation, semiringAdjoint sr) of
+    (Forward, _)        -> pure (semiringTimes sr, "reduce." <> semiringPlus sr)
+    (Adjoint, Just adj) -> pure (adj,              "reduce." <> semiringTimes sr)
+    (Adjoint, Nothing)  -> Left "Adjoint orientation requires a semiring with an adjoint"
+  let target   = eqOutput eq ++ eqReduced eq
+      alignOp inp t =
+        let existing    = Set.fromList inp
+            expanded    = inp ++ filter (`Set.notMember` existing) target
+            posOf       = Map.fromList (zip expanded [0..])
+            axes        = [length inp .. length expanded - 1]
+            permutation = fmap (\v -> Map.findWithDefault 0 v posOf) target
+            unsqueezed  = foldl (\acc ax -> op "structural.expand_dims" @@ acc @@
+                                   TTerm (Terms.int32 ax)) t axes
+        in  op "structural.transpose" @@ unsqueezed @@
+              TTerm (Terms.list (fmap Terms.int32 permutation))
+      params   = ["t" <> show i | i <- [0 .. length (eqInputs eq) - 1]]
+      aligned  = zipWith (\inp p -> alignOp inp (var p)) (eqInputs eq) params
       product_ = foldl1 (\a b -> op timesKey @@ a @@ b) aligned
       body     = foldl (\acc ax -> op reduceKey @@ acc @@ TTerm (Terms.int32 ax))
-                       product_ (reducedAxes eq)
+                       product_ [length (eqOutput eq) .. length target - 1]
   pure (TTerm (Terms.lambdas params (unTTerm body)))
 
 
@@ -381,17 +293,6 @@ contractModule :: String -> Semiring -> Module
 contractModule defName sr = moduleFromTerm "unialg.tensors" defName [] (contract sr)
 
 
--- | Parse an equation string and compile it to a composable 'TTerm'.
---
--- The result can be applied with @('@@')@, passed as a leaf into
--- recursion-scheme algebras, or composed with other 'TTerm' functions.
--- Returns @'Left' err@ on a parse or orientation error.
-tensorOp :: Semiring -> String -> Orientation -> Either String (TTerm a)
-tensorOp sr eqStr orient = do
-  eq <- parseEquation eqStr
-  compileEquation orient sr eq
-
-
 -- | Build a codegen-ready 'Module' from a pre-parsed 'Equation'.
 equationModule :: String -> String -> [Namespace] -> Semiring -> Equation -> Orientation -> Either String Module
 equationModule ns name deps sr eq orient = do
@@ -399,14 +300,26 @@ equationModule ns name deps sr eq orient = do
   pure (moduleFromTerm ns name deps t)
 
 
--- | Parse an equation string and build a codegen-ready 'Module'.
+-- | Collapse a 'FusionTree', then compile the resulting flat 'Equation'.
 --
--- Convenience wrapper combining 'parseEquation', 'compileEquation', and
--- 'moduleFromTerm'.
-tensorOpModule :: String -> String -> [Namespace] -> Semiring -> String -> Orientation -> Either String Module
-tensorOpModule ns name deps sr eqStr orient = do
-  t <- tensorOp sr eqStr orient
-  pure (moduleFromTerm ns name deps t)
+-- Fuses child equations automatically via 'fuseTree', then delegates to
+-- 'compileEquation'.  Returns @'Left' err@ on any fusion or orientation error.
+compileTree :: Orientation -> Semiring -> FusionTree -> Either String (TTerm a)
+compileTree orientation sr tree = fuseTree tree >>= compileEquation orientation sr
+
+
+-- | Collapse a 'FusionTree', compile, and immediately apply to input tensors.
+applyTree :: Orientation -> Semiring -> FusionTree -> [TTerm Tensor]
+          -> Either String (TTerm Tensor)
+applyTree orientation sr tree args =
+  fuseTree tree >>= \eq -> applyEquation orientation sr eq args
+
+
+-- | Collapse a 'FusionTree' and build a codegen-ready 'Module'.
+treeModule :: String -> String -> [Namespace] -> Semiring -> FusionTree -> Orientation
+           -> Either String Module
+treeModule ns name deps sr tree orient =
+  fuseTree tree >>= \eq -> equationModule ns name deps sr eq orient
 
 
 moduleFromTerm :: String -> String -> [Namespace] -> TTerm a -> Module

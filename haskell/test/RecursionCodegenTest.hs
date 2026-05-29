@@ -18,6 +18,7 @@ import UniAlg.Pipeline.Lowering (lowerModule)
 
 import Prelude hiding (fst, snd, either, left, right)
 import UniAlg
+import Explore.Archs
 
 import TestUtils
   ( assertBool

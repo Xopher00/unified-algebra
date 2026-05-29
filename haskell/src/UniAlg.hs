@@ -42,7 +42,8 @@ writePythonWithBackend context outputDir [attnMod] [attnMod]
 
 * "UniAlg.Semantics.Arrows"   — 'TArr': the core morphism type.
 * "UniAlg.Semantics.Category" — structural morphisms and operator aliases.
-* "UniAlg.Semantics.Functors" — 'TFunctor', polynomial functor atoms and aliases.
+* "UniAlg.Semantics.Functors" — 'TFunctor', polynomial functor atoms ('Identity', 'Const', 'Product', 'Sum', 'Exp').
+  Architecture aliases ('SeqF', 'RTreeF', 'StreamF', 'MooreF') live in "Explore.Archs".
 * "UniAlg.Semantics.Recursion"— 'cataT', 'anaT', 'hyloT', 'withSelf'.
 * "UniAlg.Semantics.Optics"   — van Laarhoven optics over 'TTerm' values.
 * "UniAlg.Domain.Tensors"     — Einstein notation, semirings, tensor contraction.

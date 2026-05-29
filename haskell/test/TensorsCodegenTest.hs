@@ -98,13 +98,16 @@ main = do
   assertBool "adj: calls numpy.divide" ("numpy.divide" `isInfixOf` adj)
   assertBool "adj: calls numpy.prod" ("numpy.prod" `isInfixOf` adj)
 
-  -- ── Fused three-way equation ─────────────────────────────
-  let Right inner = parseEquation "ij,jk->ik"
+  -- ── Fused three-way equation (via fusion tree) ───────────
+  let Right inner  = parseEquation "ij,jk->ik"
       Right outer_ = parseEquation "ik,kl->il"
-      Right fused = fuseEquation outer_ 0 inner
+      tree = fusionNode outer_ [fusionLeaf inner]
 
   putStrLn "\n=== fused (ij,jk,kl->il) ==="
-  fusedPy <- generate "/tmp/unialg-codegen-fused" (mkModule "chain_fused" sr fused Forward)
+  fusedPy <- generate "/tmp/unialg-codegen-fused"
+    (case treeModule "unialg.tensors" "chain_fused" deps sr tree Forward of
+       Left err -> error err
+       Right m   -> m { moduleDescription = Just "Tensor codegen test" })
   putStrLn fusedPy
 
   assertBool "fused: calls numpy.multiply" ("numpy.multiply" `isInfixOf` fusedPy)

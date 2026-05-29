@@ -8,43 +8,18 @@
 {-|
 Python code generation pipeline.
 
-Ties together backend loading, lowering, and Hydra's Python coder into a
-single workflow:
+Workflow:
 
 1. Load a backend JSON spec ('loadBackendContext').
-2. Lower symbolic @unialg.backend.*@ names to backend paths ('lowerModule').
+2. Lower symbolic @unialg.backend.*@ names to concrete paths ('lowerModule').
 3. Inject eta-expanded external module declarations ('backendExternalModules').
 4. Call Hydra's Python coder (@Hydra.Python.Coder.moduleToPython@).
 
-=== Module builders
-
-For non-recursive definitions, use 'generatePythonTerms' (or build 'Module'
-values manually and pass them to 'writePythonWithBackend').
-
-For recursive definitions, use the recursion-scheme aware builders:
-
-* 'recDef' / 'recModule' — recommended.  The functor @f@ is selected via
-  @\@f@ type application; the outer argument names become real bound 'TTerm'
-  values via a @\\[w, s0] -> (coalg, alg)@ lambda, eliminating string
-  re-typing.  Pass @id@ as the coalgebra for a pure catamorphism.
-  'withSelf', partial self-application, and the 'polyFnScheme' annotation
-  are all handled automatically — spec authors never touch them.
-
-@
-recModule \@(SeqF Tensor) ns \"fold_rnn\" [Namespace \"numpy\"] [\"w\", \"s0\"] $ \\[w, s0] ->
-  ( id
-  , \\case InL (Const ())                    -> s0
-          InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
-@
-
-To write a bare @\@MyF@ without a type argument, declare a saturated synonym:
-@type MySeq = SeqF Tensor@ — then @recModule \@MySeq ...@.
-
-=== Evaluation helpers
-
-'generatePythonString' generates Python as an in-memory @('FilePath', 'String')@
-list without touching the filesystem.  'evalPython' pipes a generated module
-directly into a Python subprocess for quick testing.
+For non-recursive definitions use 'writePythonWithBackend' or 'generatePythonTerms'.
+For recursive definitions use 'recModule' \/ 'recDef' with a @\@f@ type application;
+pass @id@ as the coalgebra for a pure catamorphism.
+To apply an unsaturated type constructor, declare a type synonym: @type MySeq = SeqF Tensor@.
+'generatePythonString' generates Python in-memory; 'evalPython' pipes it straight to the interpreter.
 -}
 module UniAlg.Pipeline.Codegen
   ( writePythonWithBackend
@@ -139,117 +114,55 @@ import UniAlg.Core.Reduce
   )
 
 
--- | Generate Python files for a set of modules using a loaded backend.
---
--- @universeModules@ are available to the Hydra type system but are not
--- themselves generated.  @modulesToGenerate@ are lowered and emitted as
--- Python files under @outputDir@.  Returns the number of files written.
-writePythonWithBackend
-  :: BackendContext
-  -> FilePath   -- ^ Output directory for generated @.py@ files.
-  -> [Module]   -- ^ Universe modules (used for name resolution only).
-  -> [Module]   -- ^ Modules to lower and generate.
-  -> IO Int
-writePythonWithBackend context outputDir universeModules modulesToGenerate =
+-- Private worker: inferTypes=True for flat definitions, False for recursive ones
+-- (recursive modules carry a polyFnScheme annotation so Hydra skips inference).
+writePython' :: Bool -> BackendContext -> FilePath -> [Module] -> [Module] -> IO Int
+writePython' inferTypes context outputDir universeModules modulesToGenerate =
   generateSources
-    PythonCoder.moduleToPython
-    hydraLanguage
-    True
-    True
-    True
-    True
-    outputDir
-    fullUniverse
-    adaptedTargets
+    PythonCoder.moduleToPython hydraLanguage
+    inferTypes True True True
+    outputDir fullUniverse adaptedTargets
   where
-    spec =
-      backendContextSpec context
-
-    adaptedUniverse =
-      fmap (lowerModule spec) universeModules
-
-    adaptedTargets =
-      fmap (lowerModule spec) modulesToGenerate
-
-    fullUniverse =
-      backendExternalModules spec <> adaptedUniverse
-
-
--- | Load a backend by name and generate Python files.
---
--- Convenience wrapper around 'loadBackendContext' and
--- 'writePythonWithBackend'.  Returns @'Left' err@ if the backend JSON
--- cannot be loaded.
-loadBackendAndWritePython
-  :: FilePath         -- ^ Directory containing backend JSON files.
-  -> Text             -- ^ Backend name (e.g. @\"numpy\"@).
-  -> FilePath         -- ^ Output directory for generated @.py@ files.
-  -> [Module]         -- ^ Universe modules.
-  -> [Module]         -- ^ Modules to generate.
-  -> IO (Either String Int)
-loadBackendAndWritePython backendDir backendName outputDir universeModules modulesToGenerate = do
-  loaded <- loadBackendContext backendDir backendName
-
-  case loaded of
-    Left err ->
-      pure (Left err)
-
-    Right context ->
-      Right <$>
-        writePythonWithBackend
-          context
-          outputDir
-          universeModules
-          modulesToGenerate
-
-
--- | Like 'writePythonWithBackend' but skips Hydra type inference.
---
--- Use this for modules containing recursive definitions built with
--- 'recModule' or 'recDef'.  Hydra's inference pass triggers an
--- occurs-check on equi-recursive type schemes even when a 'polyFnScheme'
--- annotation is already attached; skipping inference avoids the error
--- while producing semantically identical Python output.
-writePythonWithBackendRec
-  :: BackendContext
-  -> FilePath
-  -> [Module]
-  -> [Module]
-  -> IO Int
-writePythonWithBackendRec context outputDir universeModules modulesToGenerate =
-  generateSources
-    PythonCoder.moduleToPython
-    hydraLanguage
-    False
-    True
-    True
-    True
-    outputDir
-    fullUniverse
-    adaptedTargets
-  where
-    spec           = backendContextSpec context
+    spec            = backendContextSpec context
     adaptedUniverse = fmap (lowerModule spec) universeModules
     adaptedTargets  = fmap (lowerModule spec) modulesToGenerate
     fullUniverse    = backendExternalModules spec <> adaptedUniverse
 
 
--- | Like 'loadBackendAndWritePython' but skips Hydra type inference.
+-- | Generate Python files for a set of modules using a loaded backend.
+--
+-- @universeModules@ are available to the Hydra type system but not generated.
+-- @modulesToGenerate@ are lowered and emitted as @.py@ files under @outputDir@.
+-- Returns the number of files written.
+writePythonWithBackend :: BackendContext -> FilePath -> [Module] -> [Module] -> IO Int
+writePythonWithBackend = writePython' True
+
+
+-- | Like 'writePythonWithBackend' but skips Hydra type inference.
 -- Use for modules built with 'recModule' or 'recDef'.
-loadBackendAndWritePythonRec
-  :: FilePath
-  -> Text
-  -> FilePath
-  -> [Module]
-  -> [Module]
-  -> IO (Either String Int)
-loadBackendAndWritePythonRec backendDir backendName outputDir universeModules modulesToGenerate = do
+writePythonWithBackendRec :: BackendContext -> FilePath -> [Module] -> [Module] -> IO Int
+writePythonWithBackendRec = writePython' False
+
+
+-- Private worker: load backend then call writePython'.
+loadAndWrite' :: Bool -> FilePath -> Text -> FilePath -> [Module] -> [Module] -> IO (Either String Int)
+loadAndWrite' inferTypes backendDir backendName outputDir us ms = do
   loaded <- loadBackendContext backendDir backendName
   case loaded of
-    Left err -> pure (Left err)
-    Right context ->
-      Right <$>
-        writePythonWithBackendRec context outputDir universeModules modulesToGenerate
+    Left err      -> pure (Left err)
+    Right context -> Right <$> writePython' inferTypes context outputDir us ms
+
+
+-- | Load a backend by name and generate Python files.
+-- Returns @'Left' err@ if the backend JSON cannot be loaded.
+loadBackendAndWritePython :: FilePath -> Text -> FilePath -> [Module] -> [Module] -> IO (Either String Int)
+loadBackendAndWritePython = loadAndWrite' True
+
+
+-- | Like 'loadBackendAndWritePython' but skips Hydra type inference.
+-- Use for modules built with 'recModule' or 'recDef'.
+loadBackendAndWritePythonRec :: FilePath -> Text -> FilePath -> [Module] -> [Module] -> IO (Either String Int)
+loadBackendAndWritePythonRec = loadAndWrite' False
 
 
 -- | Generate Python for a flat list of named 'TTerm' definitions.
@@ -309,17 +222,6 @@ definitionFromTTerm moduleName (localName, term) =
       }
 
 
--- Private helper: build a TermDefinition from a pre-formed body TTerm.
--- Used by recDef, which wraps the result with a polyFnScheme type annotation.
-recursiveDef :: String -> String -> TTerm a -> TermDefinition
-recursiveDef ns defName body = TermDefinition
-  { termDefinitionName       = Name qualName
-  , termDefinitionTerm       = reduceTerm (unTTerm body)
-  , termDefinitionTypeScheme = Nothing
-  }
-  where qualName = ns <> "." <> defName
-
-
 -- ── Recursion-scheme aware builders ──────────────────────────────────────────
 
 -- Builds forall _a0 .. _a(n-1). _a0 -> .. -> _a(n-1).
@@ -338,9 +240,7 @@ polyFnScheme n = TypeScheme
     step a b = TypeFunction FunctionType
                  { functionTypeDomain   = a
                  , functionTypeCodomain = b }
--- These become the leading lambda parameters of the generated Python function.
--- The outer-arg names are bound once; the builder receives them as real TTerm
--- values so the algebra can reference them directly without var "name" strings.
+
 
 -- | Build a 'TermDefinition' for a hylomorphism with shared outer parameters.
 --
@@ -370,10 +270,11 @@ recDef :: forall f a. TFunctor f
        -> ([TTerm a] -> ( TTerm a -> TTerm a        -- ^ coalgebra
                         , f (TTerm a) -> TTerm a ))  -- ^ algebra
        -> TermDefinition
-recDef ns name outerArgNames k =
-  (recursiveDef ns name $
-    foldr (~>) innerTerm outerArgNames)
-    { termDefinitionTypeScheme = Just (polyFnScheme (length outerArgNames + 2)) }
+recDef ns name outerArgNames k = TermDefinition
+  { termDefinitionName       = Name (ns <> "." <> name)
+  , termDefinitionTerm       = reduceTerm $ unTTerm $ foldr (~>) innerTerm outerArgNames
+  , termDefinitionTypeScheme = Just (polyFnScheme (length outerArgNames + 2))
+  }
   where
     vars        = map var outerArgNames
     (coalg,alg) = k vars

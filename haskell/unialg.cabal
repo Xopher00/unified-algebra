@@ -34,6 +34,29 @@ library
     text
   default-language: Haskell2010
 
+library explore
+  visibility:       public
+  hs-source-dirs:   explore
+  exposed-modules:
+    Explore.Archs
+    Explore.Generate
+    Explore.Grammar
+    Explore.Laws
+    Explore.Seed
+  build-depends:
+    base    >= 4.18,
+    hydra,
+    unialg
+  default-language: Haskell2010
+
+test-suite explore-test
+  type:             exitcode-stdio-1.0
+  main-is:          ExploreTest.hs
+  hs-source-dirs:   explore/test, test
+  build-depends:
+    base, unialg, explore, hydra, text, process, directory, filepath, test-utils
+  default-language: Haskell2010
+
 library test-utils
   visibility:       private
   hs-source-dirs:   test
@@ -115,7 +138,7 @@ test-suite recursion-codegen-test
   type:             exitcode-stdio-1.0
   main-is:          RecursionCodegenTest.hs
   hs-source-dirs:   test
-  build-depends:    base, unialg, hydra, text, process, directory, filepath, test-utils
+  build-depends:    base, unialg, explore, hydra, text, process, directory, filepath, test-utils
   default-language: Haskell2010
 
 test-suite op-arity-test
@@ -129,5 +152,5 @@ executable neural-recursion-schemes
   main-is:          GenerateNeuralRecursionSchemes.hs
   hs-source-dirs:   test
   ghc-options:      -main-is NeuralRecursionSchemes
-  build-depends:    base, unialg
+  build-depends:    base, unialg, explore
   default-language: Haskell2010

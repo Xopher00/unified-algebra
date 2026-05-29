@@ -62,10 +62,9 @@ module UniAlg.Semantics.Functors
   , RoseF
   , TreeF
 
-    -- * Functor aliases — neural architectures
-  , SeqF
-  , RTreeF
-  , StreamF
+    -- * Exponential / Reader functor
+  , Exp(..)
+
   ) where
 
 import Data.Coerce            ( coerce )
@@ -176,6 +175,34 @@ instance TFunctor [] where
     error "TFunctor []: foldToTerm not supported"
 
 
+-- | Reader / exponential functor @(I→−)@.
+--
+-- @Exp (TTerm i) a@ wraps a Haskell function from @'TTerm' i@ to @a@.
+-- The 'TFunctor' instance treats the held 'TTerm' as a symbolic function-typed
+-- term: 'applyAlg' wraps it so algebras can call 'runExp' with a 'TTerm' input,
+-- and 'foldToTerm' emits a lambda.
+--
+-- Primary use: 'MooreF'.
+newtype Exp r a = Exp { runExp :: r -> a }
+
+instance Functor (Exp r) where
+  fmap f (Exp g) = Exp (f . g)
+
+-- The held TTerm is treated as a function-typed term (kind @i → s@).
+-- 'applyAlg' wraps it so the algebra receives a Haskell @Exp (TTerm i) (TTerm s)@
+-- and can call 'runExp' with concrete 'TTerm i' inputs.
+-- 'foldToTerm' emits a fresh lambda binding @"inp"@.
+instance TFunctor (Exp (TTerm i)) where
+  tfmap recCall x =
+    tLam "inp" (tApp recCall (tApp x (tVar "inp")))
+
+  applyAlg alg x =
+    alg (Exp (\inp -> coerce (tApp (coerce x :: TTerm i) inp)))
+
+  foldToTerm (Exp g) =
+    tLam "inp" (g (tVar "inp"))
+
+
 -- ── Private type-erased helpers ──────────────────────────────────────────────
 
 tApp :: TTerm a -> TTerm a -> TTerm a
@@ -223,21 +250,3 @@ type RoseF  f = Product f []
 type TreeF  f = Sum (Const ()) (RoseF f)
 
 
--- ── Functor aliases — neural architectures ───────────────────────────────────
-
--- | @F(X) = 1 + (a × X)@  — sequence, RNN layer, or transformer block.
--- The base case @InL (Const ())@ is the empty sequence; the recursive case
--- @InR (Pair (Const layer) (Identity rest))@ carries one layer ('TTerm' @a@)
--- and the tail.
-type SeqF a = Sum (Const ()) (Product (Const (TTerm a)) Identity)
-
--- | @F(X) = a + (X × X)@  — binary tree with data at leaves.
--- @InL (Const a)@ is a leaf carrying @'TTerm' a@; @InR (Pair l r)@ is an
--- internal node with two recursive subtrees.
-type RTreeF a = Sum (Const (TTerm a)) (Product Identity Identity)
-
--- | @F(X) = o × X@  — stream or unfolding RNN.
--- Each step emits an output (@'TTerm' o@) and continues with the next state.
--- The anamorphism 'anaT' over this functor generates a corecursive Python
--- function.
-type StreamF o = Product (Const (TTerm o)) Identity

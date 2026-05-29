@@ -124,20 +124,6 @@ main = do
   assertBool "duplicate output label is error"
     (case parseEquation "i->ii" of Left e -> "unique" `isInfixOf` e; _ -> False)
 
-  -- ── Alignment plans ──────────────────────────────────────
-  let plan0 = alignmentPlan matmul 0
-
-  assertEqual "matmul operand 0 unsqueeze" [2] (unsqueezeAxes plan0)
-  assertEqual "matmul operand 0 perm" [0, 2, 1] (perm plan0)
-
-  let plan1 = alignmentPlan matmul 1
-
-  assertEqual "matmul operand 1 unsqueeze" [2] (unsqueezeAxes plan1)
-  assertEqual "matmul operand 1 perm" [2, 1, 0] (perm plan1)
-
-  assertEqual "matmul reduced axes" [2] (reducedAxes matmul)
-  assertEqual "outer product reduced axes" [] (reducedAxes outer)
-
   -- ── Orientation ──────────────────────────────────────────
   assertEqual "forward orientation" Forward Forward
   assertEqual "adjoint orientation" Adjoint Adjoint
@@ -211,3 +197,36 @@ main = do
   assertBool "mismatched inner output is error"
     (case fuseEquation outer_ 0 (let Right e = parseEquation "ab,bc->ac" in e)
      of Left _ -> True; _ -> False)
+
+  -- ── FusionTree ────────────────────────────────────────────
+  assertEqual "fuseTree single-child equals fuseEquation outer_ 0 inner"
+    (fuseEquation outer_ 0 inner)
+    (fuseTree (fusionNode outer_ [fusionLeaf inner]))
+
+  -- Multi-child ordering: parent ab,cd->ad; child0 ax,xb->ab at slot 0;
+  -- child1 cy,yd->cd at slot 1. Returns Left under the old reverse, Right here.
+  let Right parent2 = parseEquation "ab,cd->ad"
+      Right child0  = parseEquation "ax,xb->ab"
+      Right child1  = parseEquation "cy,yd->cd"
+      Right multi   = fuseTree (fusionNode parent2 [fusionLeaf child0, fusionLeaf child1])
+  assertEqual "fuseTree multi-child inputs"
+    [[ix 'a', ix 'x'], [ix 'x', ix 'b'], [ix 'c', ix 'y'], [ix 'y', ix 'd']]
+    (eqInputs multi)
+  assertEqual "fuseTree multi-child output" [ix 'a', ix 'd'] (eqOutput multi)
+
+  let Right cTree = compileTree Forward sr (fusionNode outer_ [fusionLeaf inner])
+  assertBool "compileTree references multiply"
+    (containsName "unialg.backend.multiply" cTree)
+  assertBool "compileTree references reduce.add"
+    (containsName "unialg.backend.reduce.add" cTree)
+
+  let ta = TTerm (TermVariable (Name "unialg.backend.ta")) :: TTerm Tensor
+      tb = TTerm (TermVariable (Name "unialg.backend.tb")) :: TTerm Tensor
+      tc = TTerm (TermVariable (Name "unialg.backend.tc")) :: TTerm Tensor
+      Right aTree = applyTree Forward sr (fusionNode outer_ [fusionLeaf inner]) [ta, tb, tc]
+  assertBool "applyTree references multiply"
+    (containsName "unialg.backend.multiply" aTree)
+  assertBool "applyTree references reduce.add"
+    (containsName "unialg.backend.reduce.add" aTree)
+  assertBool "applyTree references ta"
+    (containsName "unialg.backend.ta" aTree)

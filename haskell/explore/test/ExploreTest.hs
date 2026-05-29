@@ -99,10 +99,12 @@ testLaws = do
 
 testHarness :: IO ()
 testHarness = do
-  let tfDir    = "explore/generated/tf"
+  let npDir    = "explore/generated/numpy"
+      tfDir    = "explore/generated/tf"
       torchDir = "explore/generated/torch"
 
   putStrLn "\n=== Arm B: generating per-backend modules ==="
+  mapM_ (\e -> writeModuleForBackend "numpy" npDir (seedModule e)) seeds
   mapM_ (\e -> writeModuleForBackend "tensorflow" tfDir (seedModule e)) seeds
   writeModuleForBackend "torch" torchDir (seedModule seqCataTanh)
   mapM_ (\e -> writeModuleForBackend "torch" torchDir (seedModule e))

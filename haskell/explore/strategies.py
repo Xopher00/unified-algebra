@@ -19,13 +19,13 @@ HIDDEN_DIMS = [1, 2, 4]
 
 
 @st.composite
-def seq_inputs(draw, backend, max_len=5):
+def seq_inputs(draw, backend, add_id=0.0, max_len=5):
     """Generate (wIn, wRec, b, s0, elements, seq) for the general RNN cell.
 
     wIn:      [hidden, input] matrix
     wRec:     [hidden, hidden] matrix
     b:        [hidden] vector
-    s0:       [hidden] vector (zeros)
+    s0:       [hidden] vector filled with additive identity
     elements: list of [input] vectors
     """
     input_dim = draw(st.sampled_from(INPUT_DIMS))
@@ -34,7 +34,7 @@ def seq_inputs(draw, backend, max_len=5):
     wIn = backend.random_matrix(draw, hidden_dim, input_dim)
     wRec = backend.random_matrix(draw, hidden_dim, hidden_dim)
     b = backend.random_vector(draw, hidden_dim)
-    s0 = backend.zeros_vector(hidden_dim)
+    s0 = backend.fill_vector(hidden_dim, add_id)
 
     n = draw(st.integers(1, max_len))
     elements = [backend.random_vector(draw, input_dim) for _ in range(n)]

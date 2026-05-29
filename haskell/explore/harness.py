@@ -48,7 +48,7 @@ class TestSeqCata:
     @settings(max_examples=50, **HYPO)
     def test_rnn_cell(self, backend, data):
         wIn, wRec, b, s0, elements, seq, input_dim, hidden_dim = \
-            data.draw(seq_inputs(backend))
+            data.draw(seq_inputs(backend, add_id=0.0))
         fold = backend.load_fold_seq()
         gen = fold(wIn, wRec, b, s0, seq)
         ref = backend.run_reference_rnn(wIn, wRec, b, s0, elements,

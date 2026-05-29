@@ -32,8 +32,8 @@ class Backend(ABC):
         """Random matrix of shape (rows, cols)."""
 
     @abstractmethod
-    def zeros_vector(self, dim):
-        """Zero vector of shape (dim,)."""
+    def fill_vector(self, dim, value):
+        """Constant-fill vector with the given identity value."""
 
     @abstractmethod
     def allclose(self, a, b, atol=1e-5):
@@ -69,9 +69,9 @@ class TFBackend(Backend):
         return np.array([[draw(_floats) for _ in range(cols)]
                          for _ in range(rows)], dtype=np.float64)
 
-    def zeros_vector(self, dim):
+    def fill_vector(self, dim, value):
         import numpy as np
-        return np.zeros(dim, dtype=np.float64)
+        return np.full(dim, value, dtype=np.float64)
 
     def allclose(self, a, b, atol=1e-5):
         import numpy as np
@@ -128,9 +128,9 @@ class TorchBackend(Backend):
         return torch.tensor([[draw(_floats) for _ in range(cols)]
                              for _ in range(rows)], dtype=torch.float64)
 
-    def zeros_vector(self, dim):
+    def fill_vector(self, dim, value):
         import torch
-        return torch.zeros(dim, dtype=torch.float64)
+        return torch.full((dim,), value, dtype=torch.float64)
 
     def allclose(self, a, b, atol=1e-5):
         import torch

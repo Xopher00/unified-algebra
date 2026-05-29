@@ -1,3 +1,21 @@
+{-|
+Hydra IR simplification via term reduction.
+
+'reduceTerm' performs a small set of rewrite rules on Hydra 'Term' values
+before they are passed to the Python coder.  The rewrites are purely
+structural — they do not change semantics — but they eliminate redundant
+intermediate nodes that arise from 'TFunctor' and 'cataT'/'anaT' machinery:
+
+* __Beta reduction__: @(λx. body)(arg)@ → @body[x := arg]@.
+* __Pair projection__: @first(pair(a, b))@ → @a@, @second(pair(a, b))@ → @b@.
+* __Either fusion__: collapses nested @either@ calls when the outer left
+  branch is the identity injection, producing a single dispatch instead of
+  two.
+
+These simplifications prevent the Python coder from emitting gratuitous
+@(lambda x: x)@ wrappers and redundant pair-then-project patterns that
+originate in 'TFunctor' instances.
+-}
 module UniAlg.Core.Reduce
   ( reduceTerm
   ) where
@@ -24,6 +42,12 @@ secondPrim = Name "hydra.lib.pairs.second"
 
 -- ── Top-level reducer ───────────────────────────────────────────────────────
 
+-- | Simplify a Hydra 'Term' by applying beta reduction, pair projections,
+-- and @either@ fusion.
+--
+-- Applied automatically by 'recursiveDef' and 'recDef'.  Call it explicitly
+-- when constructing 'TTerm' values outside those builders if the generated
+-- Python is noisier than expected.
 reduceTerm :: Term -> Term
 reduceTerm = go
   where

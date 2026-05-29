@@ -1,5 +1,56 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+{-|
+Tensor contraction DSL: Einstein notation, semirings, and codegen.
+
+=== Semirings
+
+A 'Semiring' parameterises a contraction: @plus@ reduces over contracted axes,
+@times@ computes element-wise products, and @adjoint@ (optional) inverts
+@times@ for backward passes.
+
+Standard examples:
+
+@
+real     = Semiring \"add\"     \"multiply\" (Just \"divide\")
+tropical = Semiring \"minimum\" \"add\"      Nothing
+boolean  = Semiring \"maximum\" \"minimum\"  Nothing
+@
+
+=== Equations
+
+An 'Equation' is a parsed Einstein notation string:
+
+@
+\"ij,jk->ik\"   -- matrix multiply
+\"ij,j->i\"     -- matrix-vector multiply
+\"i,j->ij\"     -- outer product
+\"ij,ij->\"     -- Frobenius inner product (full trace)
+@
+
+'parseEquation' validates the string and returns an 'Equation' recording
+the input index sets, output labels, and reduced (contracted) indices.
+
+'fuseEquation' composes two equations by substituting one equation's output
+into a slot of another — enabling multi-operand contractions like
+@ij,jk,kl->il@ to be expressed as two fused binary contractions.
+
+=== Code generation
+
+'applyEquation' is the main entry point: given an orientation, a semiring,
+a parsed equation, and a list of input 'TTerm' tensors, it returns a 'TTerm'
+representing the contraction.  The generated Hydra IR is lowered to calls
+like @numpy.sum(numpy.multiply(...))@ after backend substitution.
+
+'tensorOp', 'equationModule', and 'tensorOpModule' wrap these into 'Module'
+builders for use with 'writePythonWithBackend'.
+
+=== Op helpers
+
+'op1', 'op2', 'op3' lift named backend ops to typed Haskell functions over
+'TTerm' values.  'backendOp', 'reduceOp', and 'structuralOp' construct the
+symbolic 'TTerm' references that the lowering pass resolves to backend paths.
+-}
 module UniAlg.Domain.Tensors
   ( Tensor
   , Index(..)
@@ -75,41 +126,66 @@ import UniAlg.Semantics.Recursion
   )
 
 
+-- | Phantom type tag for tensor-typed 'TTerm' values.
 data Tensor
 
 
+-- | A single Einstein index label (a single character, e.g. @\'i\'@, @\'j\'@).
 newtype Index = Index Char
   deriving (Eq, Ord, Show)
 
 
+-- | Whether to use the forward or adjoint semiring operations.
+--
+-- 'Forward' uses @times@ for element products and @plus@ for reduction.
+-- 'Adjoint' uses @adjoint@ for element products and @times@ for reduction
+-- (i.e. the dual contraction for backward passes).
 data Orientation
   = Forward
   | Adjoint
   deriving (Eq, Show)
 
 
+-- | An algebraic structure parameterising tensor contractions.
+--
+-- @
+-- real     = Semiring \"add\"     \"multiply\" (Just \"divide\")
+-- tropical = Semiring \"minimum\" \"add\"      Nothing
+-- @
 data Semiring = Semiring
-  { semiringPlus    :: String
-  , semiringTimes   :: String
-  , semiringAdjoint :: Maybe String
+  { semiringPlus    :: String        -- ^ Op key for reduction (e.g. @\"add\"@).
+  , semiringTimes   :: String        -- ^ Op key for element products (e.g. @\"multiply\"@).
+  , semiringAdjoint :: Maybe String  -- ^ Op key for the adjoint of @times@ (e.g. @\"divide\"@), if any.
   } deriving (Eq, Show)
 
 
 -- ── Equation ─────────────────────────────────────────────────────────────────
 
+-- | A parsed Einstein notation equation.
 data Equation = Equation
-  { eqInputs  :: [[Index]]
-  , eqOutput  :: [Index]
-  , eqReduced :: [Index]
+  { eqInputs  :: [[Index]]  -- ^ Index set for each input operand.
+  , eqOutput  :: [Index]    -- ^ Output index labels.
+  , eqReduced :: [Index]    -- ^ Indices that are summed over (contracted).
   } deriving (Eq, Show)
 
 
+-- | The unsqueeze and transpose plan for aligning one input operand to the
+-- shared broadcast shape before element-wise multiplication.
 data AlignmentPlan = AlignmentPlan
-  { unsqueezeAxes :: [Int]
-  , perm          :: [Int]
+  { unsqueezeAxes :: [Int]  -- ^ Axes to insert via @expand_dims@.
+  , perm          :: [Int]  -- ^ Transpose permutation to apply after unsqueezing.
   } deriving (Eq, Show)
 
 
+-- | Parse an Einstein notation string into an 'Equation'.
+--
+-- Returns @'Left' err@ if the string is malformed (missing arrow, duplicate
+-- output labels, output labels absent from all inputs).
+--
+-- @
+-- parseEquation \"ij,jk->ik\"  -- matrix multiply: reduces j
+-- parseEquation \"i,j->ij\"    -- outer product: no reduction
+-- @
 parseEquation :: String -> Either String Equation
 parseEquation raw = do
   (lhs, rhs) <- splitArrow (filter (/= ' ') raw)
@@ -141,6 +217,15 @@ targetVars :: Equation -> [Index]
 targetVars eq = eqOutput eq ++ eqReduced eq
 
 
+-- | Fuse an inner equation into one slot of an outer equation.
+--
+-- Substitutes the output of @inner@ for the @slot@-th input of @outer@,
+-- producing a combined equation over all inputs of both.  The inner
+-- output labels must exactly match the replaced outer input labels.
+--
+-- @
+-- -- ij,jk->ik  fused with  kl,lm->km  at slot 1 gives  ij,kl,lm->im
+-- @
 fuseEquation :: Equation -> Int -> Equation -> Either String Equation
 fuseEquation outer slot inner = do
   check (slot >= 0 && slot < length (eqInputs outer))
@@ -163,23 +248,27 @@ fuseEquation outer slot inner = do
 
 
 -- ── Fusion tree ──────────────────────────────────────────────────────────────
--- RoseF (Const Equation) = Product (Const Equation) []
--- Every node carries an Equation + list of child sub-trees.
--- A leaf is a node with no children.
--- Catamorphism fuses children into parent slots at build time;
--- the result is a flat Equation passed to compileEquation.
 
+-- | A rose tree of 'Equation's to be fused by catamorphism.
+--
+-- Each node carries a parent 'Equation' and zero or more child sub-trees.
+-- 'fuseTree' collapses the tree into a single flat 'Equation' by fusing
+-- children into their parent's input slots from deepest to shallowest.
 type FusionTree = Fix (RoseF (Const Equation))
 
 
+-- | A leaf node — a single 'Equation' with no children to fuse.
 fusionLeaf :: Equation -> FusionTree
 fusionLeaf eq = Fix (Pair (Const eq) [])
 
 
+-- | An internal node whose children are fused into the parent equation's
+-- corresponding input slots (in order, highest slot first for index stability).
 fusionNode :: Equation -> [FusionTree] -> FusionTree
 fusionNode eq children = Fix (Pair (Const eq) children)
 
 
+-- | Collapse a 'FusionTree' into a single 'Equation' by catamorphism.
 fuseTree :: FusionTree -> Either String Equation
 fuseTree = cata algebra
   where
@@ -219,39 +308,50 @@ reducedAxes eq =
 
 -- ── Backend op references ────────────────────────────────────────────────────
 
+-- | Symbolic 'TTerm' reference to a backend element-wise op.
+-- The name @unialg.backend.\<key\>@ is rewritten to e.g. @numpy.multiply@
+-- by the lowering pass.
 backendOp :: String -> TTerm a
 backendOp key = var ("unialg.backend." <> key)
 
-
+-- | Symbolic 'TTerm' reference to a backend reduction op (e.g. @numpy.sum@).
 reduceOp :: String -> TTerm a
 reduceOp key = var ("unialg.backend.reduce." <> key)
 
-
+-- | Symbolic 'TTerm' reference to a structural shape op
+-- (e.g. @numpy.expand_dims@, @numpy.transpose@).
 structuralOp :: String -> TTerm a
 structuralOp key = var ("unialg.backend.structural." <> key)
 
 
--- | Lift a named backend op to a unary Haskell function.
+-- | Apply a named backend op to one tensor argument.
 op1 :: String -> TTerm Tensor -> TTerm Tensor
 op1 key a = backendOp key @@ a
 
--- | Lift a named backend op to a binary Haskell function.
+-- | Apply a named backend op to two tensor arguments.
 op2 :: String -> TTerm Tensor -> TTerm Tensor -> TTerm Tensor
 op2 key a b = backendOp key @@ a @@ b
 
--- | Lift a named backend op to a ternary Haskell function.
+-- | Apply a named backend op to three tensor arguments.
 op3 :: String -> TTerm Tensor -> TTerm Tensor -> TTerm Tensor -> TTerm Tensor
 op3 key a b c = backendOp key @@ a @@ b @@ c
 
 
 -- ── Simple contractions (no equation, arity-inferred reduce) ─────────────────
 
+-- | Curried binary contraction over the given semiring.
+--
+-- @contract sr@ produces @plus(times(x, y))@ — element product then
+-- full reduction.  No alignment or permutation; inputs must have the same
+-- shape.
 contract :: Semiring -> TTerm (Tensor -> Tensor -> Tensor)
 contract sr =
   reify2 $ \x y ->
     reduceOp (semiringPlus sr) @@ op2 (semiringTimes sr) x y
 
 
+-- | Adjoint contraction: uses @adjoint@ for element product and @times@
+-- for reduction.  Fails at runtime if the semiring has no adjoint.
 adjointContract :: Semiring -> TTerm (Tensor -> Tensor -> Tensor)
 adjointContract sr =
   case semiringAdjoint sr of
@@ -280,6 +380,12 @@ orientedOps Adjoint sr =
     Just adj -> pure (adj, "reduce." <> semiringTimes sr)
 
 
+-- | Compile an 'Equation' to a curried 'TTerm' function.
+--
+-- Produces a lambda over all input operands that aligns each input (via
+-- @expand_dims@ and @transpose@), computes element-wise products, and
+-- reduces over the contracted axes.  The result is still Hydra IR using
+-- symbolic backend names; lowering resolves those to backend paths.
 compileEquation :: Orientation -> Semiring -> Equation -> Either String (TTerm a)
 compileEquation orientation sr eq = do
   (timesKey, reduceKey) <- orientedOps orientation sr
@@ -291,6 +397,12 @@ compileEquation orientation sr eq = do
   pure (TTerm (Terms.lambdas params (unTTerm body)))
 
 
+-- | Compile an 'Equation' and immediately apply it to input tensors.
+--
+-- Equivalent to @'compileEquation'@ followed by partial application of
+-- @args@, with 'reduceTerm' applied to beta-reduce the result.
+-- This is the main entry point for constructing tensor contraction terms
+-- to embed in algebras or pass directly to 'writePythonWithBackend'.
 applyEquation :: Orientation -> Semiring -> Equation -> [TTerm Tensor] -> Either String (TTerm Tensor)
 applyEquation orientation sr eq args = do
   compiled <- compileEquation orientation sr eq
@@ -303,23 +415,28 @@ contractModule :: String -> Semiring -> Module
 contractModule defName sr = moduleFromTerm "unialg.tensors" defName [] (contract sr)
 
 
--- | Compile a tensor equation to a composable TTerm value.
--- The result can be applied with (@@), passed as a leaf into algebras,
--- or composed with other TTerm functions.
+-- | Parse an equation string and compile it to a composable 'TTerm'.
+--
+-- The result can be applied with @('@@')@, passed as a leaf into
+-- recursion-scheme algebras, or composed with other 'TTerm' functions.
+-- Returns @'Left' err@ on a parse or orientation error.
 tensorOp :: Semiring -> String -> Orientation -> Either String (TTerm a)
 tensorOp sr eqStr orient = do
   eq <- parseEquation eqStr
   compileEquation orient sr eq
 
 
--- | Build a codegen-ready Module from a pre-parsed Equation.
+-- | Build a codegen-ready 'Module' from a pre-parsed 'Equation'.
 equationModule :: String -> String -> [Namespace] -> Semiring -> Equation -> Orientation -> Either String Module
 equationModule ns name deps sr eq orient = do
   t <- compileEquation orient sr eq
   pure (moduleFromTerm ns name deps t)
 
 
--- | Build a codegen-ready Module from a tensor equation string.
+-- | Parse an equation string and build a codegen-ready 'Module'.
+--
+-- Convenience wrapper combining 'parseEquation', 'compileEquation', and
+-- 'moduleFromTerm'.
 tensorOpModule :: String -> String -> [Namespace] -> Semiring -> String -> Orientation -> Either String Module
 tensorOpModule ns name deps sr eqStr orient = do
   t <- tensorOp sr eqStr orient

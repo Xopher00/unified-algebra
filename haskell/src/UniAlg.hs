@@ -3,11 +3,60 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+{-|
+UniAlg — algebraic neural architecture DSL.
+
+A mathematician writes a program in ordinary Haskell using the combinators
+exported here.  GHC type-checks it.  When evaluated, the Haskell expressions
+silently build Hydra IR (@'TTerm'@ / @'Term'@ nodes).  The resulting IR is
+then lowered through a backend spec (e.g. @numpy.json@) and rendered to
+Python source by Hydra's Python coder.
+
+The generated Python is semantically equivalent to the same computation
+expressed in a canonical ML library — numerical agreement has been verified
+against NumPy and TensorFlow.
+
+=== Workflow
+
+@
+-- 1. Define morphisms using standard categorical combinators:
+proj w x = let Right t = applyEquation Forward real matvecEq [w, x] in t
+
+-- 2. Compose recursion schemes for sequential or tree structure:
+-- Pure catamorphism (coalg = id):
+archMod = recModule \@(SeqF Layer)
+            \"transformer\" \"stack\"
+            [Namespace \"numpy\"] [\"x\", \"tokens\"]
+            id stackAlg
+-- Hylomorphism (explicit coalgebra):
+archMod = recModule \@MyF
+            \"neural\" \"arch\"
+            [Namespace \"numpy\"] [\"w\"]
+            myCoalg myAlg
+
+-- 3. Generate Python:
+writePythonWithBackend context outputDir [attnMod] [attnMod]
+@
+
+=== Module map
+
+* "UniAlg.Semantics.Arrows"   — 'TArr': the core morphism type.
+* "UniAlg.Semantics.Category" — structural morphisms and operator aliases.
+* "UniAlg.Semantics.Functors" — 'TFunctor', polynomial functor atoms and aliases.
+* "UniAlg.Semantics.Recursion"— 'cataT', 'anaT', 'hyloT', 'withSelf'.
+* "UniAlg.Semantics.Optics"   — van Laarhoven optics over 'TTerm' values.
+* "UniAlg.Domain.Tensors"     — Einstein notation, semirings, tensor contraction.
+* "UniAlg.Pipeline.Codegen"   — 'recModule', 'writePythonWithBackend', 'evalPython'.
+* "UniAlg.Pipeline.Backend"   — backend spec loading and op resolution.
+* "UniAlg.Pipeline.Lowering"  — Hydra IR rewriting.
+* "UniAlg.Core.Reduce"        — Hydra IR simplification.
+-}
 module UniAlg
   ( -- * Hydra phantom DSL surface
     module Hydra.Dsl.Meta.Phantoms
   , module Hydra.Phantoms
   , Name(..)
+  , Namespace(..)
   , varPhantom
 
     -- * UniAlg symbolic architecture surface
@@ -34,16 +83,17 @@ module UniAlg
 
     -- * Backend-aware Hydra generation
   , writePythonWithBackend
+  , writePythonWithBackendRec
   , loadBackendAndWritePython
+  , loadBackendAndWritePythonRec
   , generatePython
-  , recursiveDef
-  , recursiveModule
   , recDef
   , recModule
   ) where
 
 import Hydra.Kernel
   ( Name(..)
+  , Namespace(..)
   )
 
 import Hydra.Dsl.Meta.Phantoms hiding
@@ -63,9 +113,9 @@ import Hydra.Phantoms
 import UniAlg.Pipeline.Codegen
   ( generatePythonTerms
   , loadBackendAndWritePython
+  , loadBackendAndWritePythonRec
   , writePythonWithBackend
-  , recursiveDef
-  , recursiveModule
+  , writePythonWithBackendRec
   , recDef
   , recModule
   )
@@ -86,11 +136,17 @@ import UniAlg.Semantics.Recursion
 import UniAlg.Semantics.Optics
 
 
+-- | Reference a named backend op as a 'TTerm'.
+--
+-- Equivalent to 'varPhantom': produces a symbolic name that the lowering
+-- pass resolves to a backend-specific path.
 op :: String -> TTerm a
 op =
   varPhantom
 
 
+-- | Generate Python for a flat list of named definitions.  Alias for
+-- 'generatePythonTerms'.
 generatePython :: FilePath -> FilePath -> String -> [(String, TTerm a)] -> IO ()
 generatePython =
   generatePythonTerms

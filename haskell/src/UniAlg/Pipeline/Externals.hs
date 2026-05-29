@@ -1,5 +1,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+{-|
+External module declarations for backend symbols.
+
+Hydra's Python coder requires every name referenced in a generated module to
+be declared somewhere in the universe.  Backend ops such as @numpy.matmul@
+are external to the Hydra universe, so they must be declared as universe-only
+modules that provide type information without emitting Python code themselves.
+
+'backendExternalModules' reads the backend spec and produces one 'Module' per
+backend namespace (e.g. one for @numpy.*@, one for @scipy.special.*@).  Each
+module contains eta-expanded stub definitions at the correct arity:
+
+@
+numpy.matmul = \\x1 x2 -> numpy.matmul x1 x2
+@
+
+These stubs give Hydra the correct application shape for type inference and
+prevent @\"missing binding\"@ errors from the Python coder.  They are passed
+as part of the @universe@ list to 'writePythonWithBackend' but are /not/
+included in @modulesToGenerate@, so they do not appear in generated output.
+-}
 module UniAlg.Pipeline.Externals
   ( backendExternalModules
   ) where

@@ -1,6 +1,30 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+{-|
+Backend specification loading and symbolic op resolution.
+
+A /backend/ is a JSON file (e.g. @numpy.json@, @jax.json@) that maps
+logical UniAlg op keys to backend-specific qualified paths:
+
+@
+{ "backend": "numpy",
+  "ops": {
+    "matmul":       { "path": "numpy.matmul",       "arity": 2 },
+    "reduce.add":   { "path": "numpy.sum",           "arity": 2 },
+    "structural.expand_dims": { "path": "numpy.expand_dims", "arity": 2 }
+  }
+}
+@
+
+At DSL-definition time, morphisms reference ops symbolically as
+@unialg.backend.matmul@.  The lowering pass (see "UniAlg.Pipeline.Lowering")
+rewrites these names to their backend-specific equivalents (@numpy.matmul@)
+before Hydra generates Python source.
+
+'BackendOp' and 'call' are the construction side; the @resolve*@ and @lookup*@
+functions are the query side used by lowering.
+-}
 module UniAlg.Pipeline.Backend
   ( BackendOp
   , backendOp
@@ -37,25 +61,35 @@ import Hydra.Kernel
 import qualified Hydra.Dsl.Terms as Terms
 
 
+-- | A symbolic reference to a backend operation.
+--
+-- Stores the logical op name (e.g. @\"whatever.the.loaded.backend.supports\"@).
+-- The actual backend path (e.g. @numpy.matmul@) is resolved later by
+-- 'resolveBackendOp' during lowering.
 newtype BackendOp = BackendOp
-  { backendOpName :: Name
+  { backendOpName :: Name -- ^ The logical Hydra 'Name' for this op.
   } deriving (Eq, Ord, Show)
 
 
+-- | Construct a 'BackendOp' from an arbitrary logical op name.
 backendOp :: Text -> BackendOp
 backendOp =
   BackendOp . Name . T.unpack
 
 
+-- | Build a Hydra 'Term' that applies a 'BackendOp' to a list of arguments.
+--
+-- The result is a curried application: @primitive(name) arg1 arg2 ...@
 call :: BackendOp -> [Term] -> Term
 call (BackendOp name) args =
   foldl (Terms.@@) (Terms.primitive name) args
 
 
+-- | A single entry in a backend JSON spec.
 data OpSpec = OpSpec
-  { path :: Text
-  , arity :: Maybe Int
-  , kind :: Maybe Text
+  { path  :: Text        -- ^ Qualified backend path, e.g. @\"numpy.matmul\"@.
+  , arity :: Maybe Int   -- ^ Number of tensor arguments (used for eta-expansion).
+  , kind  :: Maybe Text  -- ^ Optional op category tag (currently unused).
   } deriving (Eq, Show, Generic)
 
 instance FromJSON OpSpec where
@@ -66,38 +100,42 @@ instance FromJSON OpSpec where
       <*> o .:? "kind"
 
 
+-- | The full deserialized backend JSON file.
 data BackendSpec = BackendSpec
-  { backend :: Text
-  , ops :: Map Text OpSpec
+  { backend :: Text             -- ^ Backend name, e.g. @\"numpy\"@.
+  , ops     :: Map Text OpSpec  -- ^ Map from logical op key to 'OpSpec'.
   } deriving (Eq, Show, Generic)
 
 instance FromJSON BackendSpec
 
 
--- | A resolved backend binding.
+-- | A resolved backend binding: the backend-specific qualified path that
+-- Hydra codegen treats as an ordinary module-qualified name.
 --
--- Not Python source code — the backend-specific Hydra/Python path that
--- Hydra codegen can later see as an ordinary qualified name:
+-- Examples: @numpy.matmul@, @jax.numpy.matmul@, @torch.matmul@.
 --
---   numpy.matmul
---   jax.numpy.matmul
---   torch.matmul
-
+-- This is /not/ Python source — it is a Hydra name that the Python coder
+-- renders as a qualified attribute access.
 data BackendBinding = BackendBinding
-  { bindingPath :: Text
+  { bindingPath :: Text -- ^ Qualified path, e.g. @\"numpy.matmul\"@.
   } deriving (Eq, Show)
 
 
+-- | A loaded backend, ready to use in lowering and codegen.
 newtype BackendContext = BackendContext
-  { backendContextSpec :: BackendSpec
+  { backendContextSpec :: BackendSpec -- ^ The underlying 'BackendSpec'.
   } deriving (Eq, Show)
 
 
+-- | Load and decode a backend JSON file.
 loadBackendSpec :: FilePath -> IO (Either String BackendSpec)
 loadBackendSpec filePath =
   eitherDecode <$> BL.readFile filePath
 
 
+-- | Load a named backend from a directory.
+--
+-- Reads @backendDir/backendName.json@ and wraps it in a 'BackendContext'.
 loadBackendContext :: FilePath -> Text -> IO (Either String BackendContext)
 loadBackendContext backendDir backendName = do
   loaded <- loadBackendSpec filePath
@@ -106,27 +144,31 @@ loadBackendContext backendDir backendName = do
     filePath = backendDir <> "/" <> T.unpack backendName <> ".json"
 
 
+-- | Look up the backend path for a logical op key (e.g. @\"matmul\"@).
 lookupOpPath :: Text -> BackendSpec -> Maybe Text
 lookupOpPath opKey spec =
   path <$> Map.lookup opKey (ops spec)
 
 
--- Temporary compatibility alias.
+-- | Alias for 'lookupOpPath'.
 lookupOpSymbol :: Text -> BackendSpec -> Maybe Text
 lookupOpSymbol =
   lookupOpPath
 
 
+-- | Resolve a Hydra 'Name' (e.g. @unialg.backend.matmul@) to its backend path.
 resolveName :: BackendSpec -> Name -> Maybe Text
 resolveName spec name =
   lookupOpPath (nameToBackendOpKey name) spec
 
 
+-- | Resolve a 'BackendOp' to its backend path.
 resolveBackendOp :: BackendSpec -> BackendOp -> Maybe Text
 resolveBackendOp spec op =
   resolveName spec (backendOpName op)
 
 
+-- | Resolve a Hydra 'Name' to a 'BackendBinding'.
 resolveBinding :: BackendSpec -> Name -> Maybe BackendBinding
 resolveBinding spec name = do
   resolvedPath <- resolveName spec name
@@ -135,6 +177,8 @@ resolveBinding spec name = do
     }
 
 
+-- | Resolve a 'TermVariable' to a 'BackendBinding'; returns 'Nothing' for
+-- any other term shape.
 resolveTermBinding :: BackendSpec -> Term -> Maybe BackendBinding
 resolveTermBinding spec term =
   case term of
@@ -145,6 +189,7 @@ resolveTermBinding spec term =
       Nothing
 
 
+-- | Resolve a Hydra 'Name' using a loaded 'BackendContext'.
 resolveContextName :: BackendContext -> Name -> Maybe BackendBinding
 resolveContextName context =
   resolveBinding (backendContextSpec context)

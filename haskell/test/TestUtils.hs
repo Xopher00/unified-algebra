@@ -55,13 +55,13 @@ assertBool label condition =
 -- | Backends directory path
 backendsDir :: FilePath
 backendsDir =
-  "/home/xopher001/Documents/Research/doctoral_research/src/unialg/backends"
+  "backends"
 
 
 -- | Python venv path
 pythonVenv :: FilePath
 pythonVenv =
-  "/home/xopher001/Documents/Research/doctoral_research/.venv/bin/python3"
+  "../.venv/bin/python3"
 
 
 -- | Load the numpy backend context, error on failure

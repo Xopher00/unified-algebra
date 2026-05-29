@@ -111,7 +111,7 @@ test-suite recursion-codegen-test
   type:             exitcode-stdio-1.0
   main-is:          RecursionCodegenTest.hs
   hs-source-dirs:   test
-  build-depends:    base, unialg, hydra, text, process, test-utils
+  build-depends:    base, unialg, hydra, text, process, directory, filepath, test-utils
   default-language: Haskell2010
 
 test-suite op-arity-test

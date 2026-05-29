@@ -120,18 +120,18 @@ main :: IO ()
 main = do
   generatePython
     "/tmp/unialg-rnn-fold"
-    "/home/xopher001/Documents/Research/doctoral_research/src/unialg/backends/numpy.json"
+    "backends/numpy.json"
     "fold_rnn"
     [ ("foldRNN", foldRNNTerm) ]
 
   generatePython
     "/tmp/unialg-rnn-tree"
-    "/home/xopher001/Documents/Research/doctoral_research/src/unialg/backends/numpy.json"
+    "backends/numpy.json"
     "tree_rnn"
     [ ("treeRNN", treeRNNTerm) ]
 
   generatePython
     "/tmp/unialg-rnn-unfold"
-    "/home/xopher001/Documents/Research/doctoral_research/src/unialg/backends/numpy.json"
+    "backends/numpy.json"
     "geo_rnn"
     [ ("geoRNN", geoRNNTerm) ]

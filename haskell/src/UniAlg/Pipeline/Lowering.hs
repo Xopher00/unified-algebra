@@ -1,5 +1,28 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+{-|
+Backend lowering: rewrite symbolic UniAlg op names to backend-specific paths.
+
+DSL-level morphisms reference operations symbolically, e.g.:
+
+@
+unialg.backend.matmul x w
+@
+
+Before Hydra generates Python source, these names must be rewritten to the
+chosen backend's qualified paths, e.g.:
+
+@
+numpy.matmul x w
+@
+
+This module performs that rewrite at the Hydra IR level — it operates on
+'Term', 'Definition', and 'Module' values, not on Python source text.
+The result is still Hydra IR; actual Python emission is handled by
+@Hydra.Python.Coder@.
+
+The entry point for most uses is 'lowerModule'.
+-}
 module UniAlg.Pipeline.Lowering
   ( lowerName
   , lowerTerm
@@ -30,6 +53,8 @@ import UniAlg.Pipeline.Backend
   )
 
 
+-- | Resolve a single Hydra 'Name'.  Returns the backend path if the name is
+-- a known @unialg.backend.*@ symbol; otherwise returns the name unchanged.
 lowerName :: BackendSpec -> Name -> Name
 lowerName spec name =
   case resolveName spec name of
@@ -40,15 +65,15 @@ lowerName spec name =
       textToName resolved
 
 
--- | Rewrite symbolic UniAlg backend primitive names throughout a Hydra term.
+-- | Rewrite all symbolic UniAlg backend names throughout a Hydra 'Term'.
 --
--- Example:
+-- @
+-- unialg.backend.matmul x w  →  numpy.matmul x w
+-- @
 --
---   unialg.backend.matmul x w
---   -> numpy.matmul x w
---
--- Still Hydra IR — not Python source.
-
+-- The result is still Hydra IR, not Python source.  Unknown names are left
+-- unchanged so that non-backend references (Hydra stdlib names, user
+-- definitions) pass through unmodified.
 lowerTerm :: BackendSpec -> Term -> Term
 lowerTerm spec =
   Rewriting.rewriteTerm rewrite
@@ -62,6 +87,7 @@ lowerTerm spec =
           descend term
 
 
+-- | Lower backend names inside a single 'Definition'.  Type definitions pass through unchanged.
 lowerDefinition :: BackendSpec -> Definition -> Definition
 lowerDefinition spec def =
   case def of
@@ -76,11 +102,16 @@ lowerDefinition spec def =
       def
 
 
+-- | Lower backend names across a list of 'Definition's.
 lowerDefinitions :: BackendSpec -> [Definition] -> [Definition]
 lowerDefinitions spec =
   fmap (lowerDefinition spec)
 
 
+-- | Lower backend names in all definitions of a 'Module'.
+--
+-- This is the main entry point used by 'writePythonWithBackend' in
+-- "UniAlg.Pipeline.Codegen".
 lowerModule :: BackendSpec -> Module -> Module
 lowerModule spec modu =
   modu
@@ -89,11 +120,10 @@ lowerModule spec modu =
     }
 
 
--- | Lower UniAlg backend symbols in a module before delegating to Hydra's
--- Python coder. Rewrites Hydra IR only:
+-- | Adapter for Hydra's @generateSources@ callback signature.
 --
---   unialg.backend.matmul -> numpy.matmul
-
+-- Lowers UniAlg backend symbols in a module and its definitions before
+-- delegating to Hydra's Python coder.
 unialgModuleLowerer
   :: BackendContext
   -> Module

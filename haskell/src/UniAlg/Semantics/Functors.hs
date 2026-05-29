@@ -3,6 +3,37 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
+{-|
+Polynomial functor building blocks and the 'TFunctor' class.
+
+Polynomial functors are built from 'Identity', 'Const', 'Product', and 'Sum'
+using the standard @Data.Functor.*@ types.  'TFunctor' augments these with a
+TTerm-level map so that 'cataT', 'anaT', and 'hyloT' can drive code generation
+through them.
+
+=== Why not use standard @Functor@?
+
+@Functor@ maps over real Haskell values.  Here the "values" are symbolic
+'TTerm' nodes — they need to be wired into Hydra IR, not evaluated.
+'TFunctor' provides:
+
+* 'tfmap' — insert a recursive self-call 'TTerm' into the functor layer.
+* 'applyAlg' — peel apart a functor-shaped 'TTerm' into real Haskell
+  constructors so that algebra functions can use native Haskell pattern matching.
+* 'foldToTerm' — reassemble a real Haskell functor value back into a 'TTerm'
+  (the inverse direction, used by 'anaT').
+
+=== Predefined aliases
+
+General aliases: 'MaybeF', 'ListF', 'RoseF', 'TreeF'.
+
+Neural-architecture aliases, chosen so that the functor shape makes the
+recursion scheme obvious:
+
+* 'SeqF' @a@ — @F(X) = 1 + (a × X)@ — sequence / RNN / transformer layer.
+* 'RTreeF' @a@ — @F(X) = a + (X × X)@ — binary tree with data at leaves.
+* 'StreamF' @o@ — @F(X) = o × X@ — infinite stream / unfolding RNN.
+-}
 module UniAlg.Semantics.Functors
   ( -- * Polynomial functor atoms (re-exported from Data.Functor.*)
     Identity(..)
@@ -46,17 +77,29 @@ import Hydra.Sources.Libraries
 
 -- ── TFunctor — TTerm-level analogue of Functor ───────────────────────────────
 
+-- | 'TTerm'-level counterpart of 'Functor', used to drive 'cataT', 'anaT',
+-- and 'hyloT'.
+--
+-- Every instance @f@ must also be a plain 'Functor' so that the standard
+-- recursion schemes ('cata', 'ana', 'hylo') still work on real Haskell values.
 class Functor f => TFunctor f where
-  -- | Internal: map a self-call TTerm over the functor layer (used by cataBody).
+  -- | Map the recursive self-call 'TTerm' over one functor layer.
+  --
+  -- The first argument is the self-call (e.g. @var \"f\"@); the second is
+  -- the current node.  Used internally by 'cataT'.
   tfmap :: TTerm a -> TTerm a -> TTerm a
 
-  -- | Peel apart a TTerm functor layer into real Haskell constructors,
-  -- pass them to the algebra, and return the result.
-  -- This is what lets algebra functions use native Haskell pattern matching.
-  applyAlg :: (f (TTerm a) -> TTerm a) -> TTerm a -> TTerm a
+  -- | Peel one functor layer off a 'TTerm' node into real Haskell
+  -- constructors, pass them to the algebra, and return the result.
+  --
+  -- This is what allows algebra functions to use native Haskell pattern
+  -- matching (@\case@) instead of operating on raw 'TTerm' values.
+  applyAlg :: (f (TTerm s) -> TTerm r) -> TTerm s -> TTerm r
 
-  -- | Reassemble a real Haskell functor value back into a TTerm.
-  -- Inverse of applyAlg; needed for anaBody.
+  -- | Reassemble a real Haskell functor value back into a 'TTerm'.
+  --
+  -- Inverse of 'applyAlg'; used by 'anaT' to fold a coalgebra result back
+  -- into the Hydra IR.
   foldToTerm :: f (TTerm a) -> TTerm a
 
 
@@ -90,7 +133,7 @@ instance (TFunctor f, TFunctor g) => TFunctor (Sum f g) where
     tEither
       (tLam "l" (applyAlg @f (alg . InL) (tVar "l")))
       (tLam "r" (applyAlg @g (alg . InR) (tVar "r")))
-      x
+      (coerce x)
 
   foldToTerm (InL l) = tLeft  (foldToTerm @f l)
   foldToTerm (InR r) = tRight (foldToTerm @g r)
@@ -158,19 +201,31 @@ tRight x = TTerm (Terms.right (unTTerm x))
 
 -- ── Functor aliases — general ─────────────────────────────────────────────────
 
+-- | @F(X) = 1 + X@
 type MaybeF   = Sum (Const ())
+-- | @F(X) = 1 + (a × X)@
 type ListF  a = Sum (Const ()) (Product (Const a) Identity)
+-- | @F(X) = f(X) × [X]@  — rose tree functor
 type RoseF  f = Product f []
+-- | @F(X) = 1 + f(X) × [X]@  — general tree
 type TreeF  f = Sum (Const ()) (RoseF f)
 
 
 -- ── Functor aliases — neural architectures ───────────────────────────────────
 
--- F(X) = 1 + (a × X)   sequence / RNN / transformer layer
+-- | @F(X) = 1 + (a × X)@  — sequence, RNN layer, or transformer block.
+-- The base case @InL (Const ())@ is the empty sequence; the recursive case
+-- @InR (Pair (Const layer) (Identity rest))@ carries one layer weight and
+-- the tail.
 type SeqF a = Sum (Const ()) (Product (Const a) Identity)
 
--- F(X) = a + (X × X)   binary tree: leaves carry a, nodes recurse twice
+-- | @F(X) = a + (X × X)@  — binary tree with data at leaves.
+-- @InL (Const a)@ is a leaf carrying value @a@; @InR (Pair l r)@ is an
+-- internal node with two recursive subtrees.
 type RTreeF a = Sum (Const a) (Product Identity Identity)
 
--- F(X) = o × X         stream / unfolding RNN: emit o, continue with X
+-- | @F(X) = o × X@  — stream or unfolding RNN.
+-- Each step emits an output @o@ and continues with the next state @X@.
+-- The anamorphism 'anaT' over this functor generates a corecursive Python
+-- function.
 type StreamF o = Product (Const o) Identity

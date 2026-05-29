@@ -1,13 +1,45 @@
-{-# LANGUAGE ImplicitParams    #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE ImplicitParams        #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeApplications      #-}
 
+{-|
+Python code generation pipeline.
+
+Ties together backend loading, lowering, and Hydra's Python coder into a
+single workflow:
+
+1. Load a backend JSON spec ('loadBackendContext').
+2. Lower symbolic @unialg.backend.*@ names to backend paths ('lowerModule').
+3. Inject eta-expanded external module declarations ('backendExternalModules').
+4. Call Hydra's Python coder (@Hydra.Python.Coder.moduleToPython@).
+
+=== Module builders
+
+For non-recursive definitions, use 'generatePythonTerms' (or build 'Module'
+values manually and pass them to 'writePythonWithBackend').
+
+For recursive definitions, use the recursion-scheme aware builders:
+
+* 'recDef' / 'recModule' — recommended.  Declare functor, coalgebra, and
+  algebra together; handle 'withSelf', partial self-application, and the
+  'polyFnScheme' annotation automatically.  Pass @id@ as the coalgebra for
+  a pure catamorphism.  The functor @f@ is supplied via @\@f@ type application.
+
+=== Evaluation helpers
+
+'generatePythonString' generates Python as an in-memory @('FilePath', 'String')@
+list without touching the filesystem.  'evalPython' pipes a generated module
+directly into a Python subprocess for quick testing.
+-}
 module UniAlg.Pipeline.Codegen
   ( writePythonWithBackend
+  , writePythonWithBackendRec
   , loadBackendAndWritePython
+  , loadBackendAndWritePythonRec
   , generatePythonTerms
-  , recursiveDef
-  , recursiveModule
   , recDef
   , recModule
   , evalPython
@@ -65,8 +97,13 @@ import UniAlg.Semantics.Category
   ( tApply
   )
 
+import UniAlg.Semantics.Functors
+  ( TFunctor
+  )
+
 import UniAlg.Semantics.Recursion
-  ( withSelf
+  ( hyloT
+  , withSelf
   )
 
 import qualified Hydra.Python.Coder as PythonCoder
@@ -90,11 +127,16 @@ import UniAlg.Core.Reduce
   )
 
 
+-- | Generate Python files for a set of modules using a loaded backend.
+--
+-- @universeModules@ are available to the Hydra type system but are not
+-- themselves generated.  @modulesToGenerate@ are lowered and emitted as
+-- Python files under @outputDir@.  Returns the number of files written.
 writePythonWithBackend
   :: BackendContext
-  -> FilePath
-  -> [Module]
-  -> [Module]
+  -> FilePath   -- ^ Output directory for generated @.py@ files.
+  -> [Module]   -- ^ Universe modules (used for name resolution only).
+  -> [Module]   -- ^ Modules to lower and generate.
   -> IO Int
 writePythonWithBackend context outputDir universeModules modulesToGenerate =
   generateSources
@@ -121,12 +163,17 @@ writePythonWithBackend context outputDir universeModules modulesToGenerate =
       backendExternalModules spec <> adaptedUniverse
 
 
+-- | Load a backend by name and generate Python files.
+--
+-- Convenience wrapper around 'loadBackendContext' and
+-- 'writePythonWithBackend'.  Returns @'Left' err@ if the backend JSON
+-- cannot be loaded.
 loadBackendAndWritePython
-  :: FilePath
-  -> Text
-  -> FilePath
-  -> [Module]
-  -> [Module]
+  :: FilePath         -- ^ Directory containing backend JSON files.
+  -> Text             -- ^ Backend name (e.g. @\"numpy\"@).
+  -> FilePath         -- ^ Output directory for generated @.py@ files.
+  -> [Module]         -- ^ Universe modules.
+  -> [Module]         -- ^ Modules to generate.
   -> IO (Either String Int)
 loadBackendAndWritePython backendDir backendName outputDir universeModules modulesToGenerate = do
   loaded <- loadBackendContext backendDir backendName
@@ -144,11 +191,65 @@ loadBackendAndWritePython backendDir backendName outputDir universeModules modul
           modulesToGenerate
 
 
-generatePythonTerms
-  :: FilePath
+-- | Like 'writePythonWithBackend' but skips Hydra type inference.
+--
+-- Use this for modules containing recursive definitions built with
+-- 'recModule' or 'recDef'.  Hydra's inference pass triggers an
+-- occurs-check on equi-recursive type schemes even when a 'polyFnScheme'
+-- annotation is already attached; skipping inference avoids the error
+-- while producing semantically identical Python output.
+writePythonWithBackendRec
+  :: BackendContext
   -> FilePath
-  -> String
-  -> [(String, TTerm a)]
+  -> [Module]
+  -> [Module]
+  -> IO Int
+writePythonWithBackendRec context outputDir universeModules modulesToGenerate =
+  generateSources
+    PythonCoder.moduleToPython
+    hydraLanguage
+    False
+    True
+    True
+    True
+    outputDir
+    fullUniverse
+    adaptedTargets
+  where
+    spec           = backendContextSpec context
+    adaptedUniverse = fmap (lowerModule spec) universeModules
+    adaptedTargets  = fmap (lowerModule spec) modulesToGenerate
+    fullUniverse    = backendExternalModules spec <> adaptedUniverse
+
+
+-- | Like 'loadBackendAndWritePython' but skips Hydra type inference.
+-- Use for modules built with 'recModule' or 'recDef'.
+loadBackendAndWritePythonRec
+  :: FilePath
+  -> Text
+  -> FilePath
+  -> [Module]
+  -> [Module]
+  -> IO (Either String Int)
+loadBackendAndWritePythonRec backendDir backendName outputDir universeModules modulesToGenerate = do
+  loaded <- loadBackendContext backendDir backendName
+  case loaded of
+    Left err -> pure (Left err)
+    Right context ->
+      Right <$>
+        writePythonWithBackendRec context outputDir universeModules modulesToGenerate
+
+
+-- | Generate Python for a flat list of named 'TTerm' definitions.
+--
+-- Wraps the definitions in a single 'Module' keyed by @moduleName@, lowers
+-- backend names using the spec at @backendJson@, and writes @.py@ files
+-- under @outputDir@.
+generatePythonTerms
+  :: FilePath              -- ^ Output directory.
+  -> FilePath              -- ^ Path to the backend JSON file.
+  -> String                -- ^ Module namespace (e.g. @\"demo\"@).
+  -> [(String, TTerm a)]   -- ^ @(localName, term)@ pairs.
   -> IO ()
 generatePythonTerms outputDir backendJson moduleName defs = do
   context <- loadContextFromJson backendJson
@@ -196,6 +297,8 @@ definitionFromTTerm moduleName (localName, term) =
       }
 
 
+-- Private helper: build a TermDefinition from a pre-formed body TTerm.
+-- Used by recDef, which wraps the result with a polyFnScheme type annotation.
 recursiveDef :: String -> String -> TTerm a -> TermDefinition
 recursiveDef ns defName body = TermDefinition
   { termDefinitionName       = Name qualName
@@ -205,22 +308,11 @@ recursiveDef ns defName body = TermDefinition
   where qualName = ns <> "." <> defName
 
 
-recursiveModule :: String -> String -> [Namespace] -> TTerm a -> Module
-recursiveModule ns defName deps body = Module
-  { moduleDescription      = Just "Recursive definition"
-  , moduleNamespace        = Namespace ns
-  , moduleTermDependencies = deps
-  , moduleTypeDependencies = []
-  , moduleDefinitions      = [DefinitionTerm (recursiveDef ns defName body)]
-  }
-
-
 -- ── Recursion-scheme aware builders ──────────────────────────────────────────
--- outerArgNames: shared parameters prepended to every recursive self-call.
 
 -- Builds forall _a0 .. _a(n-1). _a0 -> .. -> _a(n-1).
--- Gives recursive definitions an explicit type scheme so Hydra skips
--- inference and avoids the occurs-check on equi-recursive function bodies.
+-- Attaches an explicit polymorphic type scheme to recursive definitions so
+-- Hydra skips inference and avoids the occurs-check on equi-recursive bodies.
 polyFnScheme :: Int -> TypeScheme
 polyFnScheme n = TypeScheme
   { typeSchemeVariables   = vars
@@ -238,29 +330,75 @@ polyFnScheme n = TypeScheme
 -- Users write: recModule ns "f" deps ["w"] $ cataT @F myAlg
 -- and never touch withSelf, applyAlg, or TTerm layer construction.
 
-recDef :: String -> String -> [String] -> ((?self :: TTerm a) => TTerm a -> TTerm a) -> TermDefinition
-recDef ns name outerArgNames body =
+-- | Build a 'TermDefinition' for a hylomorphism with shared outer parameters.
+--
+-- Declares a full architecture in one call: the functor @f@ (via @\@f@ type
+-- application), the coalgebra (a seed transform), and the algebra (a fold
+-- step).  Pass @id@ as the coalgebra for a pure catamorphism.
+--
+-- @
+-- -- Pure catamorphism (coalgebra = id):
+-- recDef \@(SeqF (TTerm Tensor)) \"neural\" \"fold_rnn\" [\"w\", \"s0\"] id myAlg
+--
+-- -- Genuine hylomorphism:
+-- recDef \@MyF \"neural\" \"f\" [\"w\"] myCoalg myAlg
+-- @
+--
+-- 'withSelf', the partial self-application, and the 'polyFnScheme' type
+-- annotation are handled automatically.
+recDef :: forall f a. TFunctor f
+       => String
+       -> String
+       -> [String]
+       -> (TTerm a -> TTerm a)                            -- ^ coalgebra
+       -> ((?self :: TTerm a) => f (TTerm a) -> TTerm a)  -- ^ algebra
+       -> TermDefinition
+recDef ns name outerArgNames coalg alg =
   (recursiveDef ns name $
     foldr (~>) innerTerm outerArgNames)
     { termDefinitionTypeScheme = Just (polyFnScheme (length outerArgNames + 2)) }
   where
     appliedSelf = foldl (\s n -> tApply s (var n)) (var (ns <> "." <> name)) outerArgNames
-    innerTerm   = "x" ~> withSelf appliedSelf (body (var "x"))
+    innerTerm   = "x" ~> withSelf appliedSelf (hyloT @f coalg alg (var "x"))
 
 
-recModule :: String -> String -> [Namespace] -> [String] -> ((?self :: TTerm a) => TTerm a -> TTerm a) -> Module
-recModule ns name deps outerArgNames body = Module
+-- | Wrap a single 'recDef' in a 'Module'.  Primary builder for recursive
+-- architectures: declares functor @f@, coalgebra, and algebra together.
+--
+-- @
+-- -- Pure catamorphism (coalgebra = id):
+-- recModule \@(SeqF Layer) \"transformer\" \"stack\"
+--           [Namespace \"numpy\"] [\"x\", \"tokens\"]
+--           id stackAlg
+--
+-- -- Hylomorphism:
+-- recModule \@MyF \"neural\" \"arch\"
+--           [Namespace \"numpy\"] [\"w\"]
+--           myCoalg myAlg
+-- @
+recModule :: forall f a. TFunctor f
+          => String
+          -> String
+          -> [Namespace]
+          -> [String]
+          -> (TTerm a -> TTerm a)                            -- ^ coalgebra
+          -> ((?self :: TTerm a) => f (TTerm a) -> TTerm a)  -- ^ algebra
+          -> Module
+recModule ns name deps outerArgNames coalg alg = Module
   { moduleDescription      = Just "Recursive definition"
   , moduleNamespace        = Namespace ns
   , moduleTermDependencies = deps
   , moduleTypeDependencies = []
-  , moduleDefinitions      = [DefinitionTerm (recDef ns name outerArgNames body)]
+  , moduleDefinitions      = [DefinitionTerm (recDef @f ns name outerArgNames coalg alg)]
   }
 
 
--- | Generate Python for a module as a string — no disk writes.
--- Returns a map of relative file path to source content (same keys
--- generateSources would write). Fails in IO on a codegen error.
+-- | Generate Python for a module as an in-memory @('FilePath', 'String')@
+-- list — no disk writes.
+--
+-- Returns the same @(relative path, source)@ pairs that
+-- @generateSources@ would write.  Useful for testing generated output
+-- without touching the filesystem.  Fails in 'IO' on a codegen error.
 generatePythonString :: [Module] -> Module -> IO ([(FilePath, String)])
 generatePythonString universe target =
   let cx = Context.Context [] [] M.empty
@@ -276,13 +414,16 @@ generatePythonString universe target =
        Right pairs -> pure pairs
 
 
--- | Pipe generated Python code to the interpreter and evaluate an expression.
--- The expression is appended as @print(<expr>)@ so its repr appears on stdout.
--- Returns @Right stdout@ on success, @Left stderr@ on non-zero exit.
+-- | Pipe a generated Python module to the interpreter and evaluate one expression.
+--
+-- Appends @print(\<expr\>)@ to the module source and feeds the result to
+-- @pyBin@ via @stdin@.  Returns @'Right' stdout@ on success or
+-- @'Left' stderr@ on a non-zero exit.  Useful for quick numerical
+-- correctness checks in tests.
 evalPython
-  :: FilePath    -- ^ Python executable (e.g. path to venv python3)
-  -> String      -- ^ Generated module source (as returned by 'generate')
-  -> String      -- ^ Python expression to evaluate
+  :: FilePath    -- ^ Python executable (e.g. @\"../.venv/bin/python3\"@).
+  -> String      -- ^ Generated module source.
+  -> String      -- ^ Python expression whose @repr@ to print.
   -> IO (Either String String)
 evalPython pyBin code expr = do
   let script = code <> "\nprint(" <> expr <> ")"

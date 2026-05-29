@@ -108,6 +108,9 @@ testHarness = do
   mapM_ (\e -> writeModuleForBackend "torch" torchDir (seedModule e))
     [treeCata, streamAna, mooreCata]
 
+  putStrLn "=== Formatting generated code ==="
+  callProcess pythonVenv ["-m", "black", "--quiet", "explore/generated"]
+
   existing <- lookupEnv "PYTHONPATH"
   let newPath = tfDir <> ":" <> torchDir <> case existing of
         Just p  -> ":" <> p

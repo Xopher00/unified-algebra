@@ -45,11 +45,9 @@ like @numpy.sum(numpy.multiply(...))@ after backend substitution.
 'tensorOp', 'equationModule', and 'tensorOpModule' wrap these into 'Module'
 builders for use with 'writePythonWithBackend'.
 
-=== Op helpers
+=== Op resolution
 
-'op1', 'op2', 'op3' lift named backend ops to typed Haskell functions over
-'TTerm' values.  'backendOp', 'reduceOp', and 'structuralOp' construct the
-symbolic 'TTerm' references that the lowering pass resolves to backend paths.
+Backend ops are resolved through the registry in "UniAlg.Core.Ops".
 -}
 module UniAlg.Domain.Tensors
   ( Tensor
@@ -68,12 +66,6 @@ module UniAlg.Domain.Tensors
   , alignmentPlans
   , reducedAxes
   , targetVars
-  , backendOp
-  , reduceOp
-  , structuralOp
-  , op1
-  , op2
-  , op3
   , contract
   , adjointContract
   , compileEquation
@@ -112,6 +104,10 @@ import qualified Hydra.Dsl.Terms as Terms
 
 import UniAlg.Core.Reduce
   ( reduceTerm
+  )
+
+import UniAlg.Core.Ops
+  ( op
   )
 
 import UniAlg.Semantics.Functors
@@ -306,36 +302,6 @@ reducedAxes eq =
   [length (eqOutput eq) .. length (targetVars eq) - 1]
 
 
--- ── Backend op references ────────────────────────────────────────────────────
-
--- | Symbolic 'TTerm' reference to a backend element-wise op.
--- The name @unialg.backend.\<key\>@ is rewritten to e.g. @numpy.multiply@
--- by the lowering pass.
-backendOp :: String -> TTerm a
-backendOp key = var ("unialg.backend." <> key)
-
--- | Symbolic 'TTerm' reference to a backend reduction op (e.g. @numpy.sum@).
-reduceOp :: String -> TTerm a
-reduceOp key = var ("unialg.backend.reduce." <> key)
-
--- | Symbolic 'TTerm' reference to a structural shape op
--- (e.g. @numpy.expand_dims@, @numpy.transpose@).
-structuralOp :: String -> TTerm a
-structuralOp key = var ("unialg.backend.structural." <> key)
-
-
--- | Apply a named backend op to one tensor argument.
-op1 :: String -> TTerm Tensor -> TTerm Tensor
-op1 key a = backendOp key @@ a
-
--- | Apply a named backend op to two tensor arguments.
-op2 :: String -> TTerm Tensor -> TTerm Tensor -> TTerm Tensor
-op2 key a b = backendOp key @@ a @@ b
-
--- | Apply a named backend op to three tensor arguments.
-op3 :: String -> TTerm Tensor -> TTerm Tensor -> TTerm Tensor -> TTerm Tensor
-op3 key a b c = backendOp key @@ a @@ b @@ c
-
 
 -- ── Simple contractions (no equation, arity-inferred reduce) ─────────────────
 
@@ -347,7 +313,7 @@ op3 key a b c = backendOp key @@ a @@ b @@ c
 contract :: Semiring -> TTerm (Tensor -> Tensor -> Tensor)
 contract sr =
   reify2 $ \x y ->
-    reduceOp (semiringPlus sr) @@ op2 (semiringTimes sr) x y
+    op ("reduce." <> semiringPlus sr) @@ (op (semiringTimes sr) @@ x @@ y)
 
 
 -- | Adjoint contraction: uses @adjoint@ for element product and @times@
@@ -357,7 +323,7 @@ adjointContract sr =
   case semiringAdjoint sr of
     Nothing  -> error "adjointContract: semiring has no adjoint"
     Just adj -> reify2 $ \x y ->
-      reduceOp (semiringTimes sr) @@ op2 adj x y
+      op ("reduce." <> semiringTimes sr) @@ (op adj @@ x @@ y)
 
 
 -- ── Equation-aware contractions ──────────────────────────────────────────────
@@ -366,10 +332,10 @@ align :: AlignmentPlan -> TTerm a -> TTerm a
 align plan t = transpose_ (unsqueeze_ t)
   where
     unsqueeze_ t' =
-      foldl (\acc ax -> structuralOp "expand_dims" @@ acc @@ TTerm (Terms.int32 ax))
+      foldl (\acc ax -> op "structural.expand_dims" @@ acc @@ TTerm (Terms.int32 ax))
             t' (unsqueezeAxes plan)
     transpose_ t' =
-      structuralOp "transpose" @@ t' @@ TTerm (Terms.list (fmap Terms.int32 (perm plan)))
+      op "structural.transpose" @@ t' @@ TTerm (Terms.list (fmap Terms.int32 (perm plan)))
 
 
 orientedOps :: Orientation -> Semiring -> Either String (String, String)
@@ -391,8 +357,8 @@ compileEquation orientation sr eq = do
   (timesKey, reduceKey) <- orientedOps orientation sr
   let params   = ["t" <> show i | i <- [0 .. length (eqInputs eq) - 1]]
       aligned  = zipWith (\plan p -> align plan (var p)) (alignmentPlans eq) params
-      product_ = foldl1 (\a b -> backendOp timesKey @@ a @@ b) aligned
-      body     = foldl (\acc ax -> backendOp reduceKey @@ acc @@ TTerm (Terms.int32 ax))
+      product_ = foldl1 (\a b -> op timesKey @@ a @@ b) aligned
+      body     = foldl (\acc ax -> op reduceKey @@ acc @@ TTerm (Terms.int32 ax))
                        product_ (reducedAxes eq)
   pure (TTerm (Terms.lambdas params (unTTerm body)))
 

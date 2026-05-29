@@ -13,6 +13,7 @@ import Hydra.Kernel
 
 import Hydra.Phantoms (TTerm(..), unTTerm)
 
+import UniAlg.Core.Ops (op)
 import UniAlg.Domain.Tensors
 
 
@@ -65,14 +66,14 @@ main = do
   assertBool "adjoint contract references unialg.backend.reduce.multiply"
     (containsName "unialg.backend.reduce.multiply" (adjointContract sr))
 
-  -- ── Op builders ──────────────────────────────────────────
-  assertEqual "backendOp builds correct variable name"
+  -- ── Op registry ──────────────────────────────────────────
+  assertEqual "op builds correct variable name"
     (TermVariable (Name "unialg.backend.multiply"))
-    (unTTerm (backendOp "multiply" :: TTerm a))
+    (unTTerm (op "multiply" :: TTerm a))
 
-  assertEqual "reduceOp builds correct variable name"
+  assertEqual "op builds correct variable name for reduce ops"
     (TermVariable (Name "unialg.backend.reduce.add"))
-    (unTTerm (reduceOp "add" :: TTerm a))
+    (unTTerm (op "reduce.add" :: TTerm a))
 
   -- ── Equation parsing ─────────────────────────────────────
   let Right matmul = parseEquation "ij,jk->ik"
@@ -166,8 +167,8 @@ main = do
     (containsName "unialg.backend.reduce.multiply" adjTerm)
 
   -- ── applyEquation ────────────────────────────────────────
-  let x = backendOp "x_tensor" :: TTerm Tensor
-      w = backendOp "w_tensor" :: TTerm Tensor
+  let x = TTerm (TermVariable (Name "unialg.backend.x_tensor")) :: TTerm Tensor
+      w = TTerm (TermVariable (Name "unialg.backend.w_tensor")) :: TTerm Tensor
       Right applied = applyEquation Forward sr matmul [x, w]
 
   assertBool "applyEquation produces a term with multiply"

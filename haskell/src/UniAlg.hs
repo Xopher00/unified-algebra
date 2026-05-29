@@ -50,6 +50,7 @@ writePythonWithBackend context outputDir [attnMod] [attnMod]
 * "UniAlg.Pipeline.Backend"   — backend spec loading and op resolution.
 * "UniAlg.Pipeline.Lowering"  — Hydra IR rewriting.
 * "UniAlg.Core.Reduce"        — Hydra IR simplification.
+* "UniAlg.Core.Ops"           — auto-generated backend op surface ('add', 'tanh', 'op', …).
 -}
 module UniAlg
   ( -- * Hydra phantom DSL surface
@@ -59,8 +60,8 @@ module UniAlg
   , Namespace(..)
   , varPhantom
 
-    -- * UniAlg symbolic architecture surface
-  , op
+    -- * Auto-generated backend op surface (arity-typed, from spec)
+  , module UniAlg.Core.Ops
 
     -- * Tensor semiring DSL
   , module UniAlg.Domain.Tensors
@@ -110,6 +111,8 @@ import Hydra.Dsl.Meta.Terms
 
 import Hydra.Phantoms
 
+import UniAlg.Core.Ops
+
 import UniAlg.Pipeline.Codegen
   ( generatePythonTerms
   , loadBackendAndWritePython
@@ -134,15 +137,6 @@ import UniAlg.Semantics.Functors
 import UniAlg.Semantics.Recursion
 
 import UniAlg.Semantics.Optics
-
-
--- | Reference a named backend op as a 'TTerm'.
---
--- Equivalent to 'varPhantom': produces a symbolic name that the lowering
--- pass resolves to a backend-specific path.
-op :: String -> TTerm a
-op =
-  varPhantom
 
 
 -- | Generate Python for a flat list of named definitions.  Alias for

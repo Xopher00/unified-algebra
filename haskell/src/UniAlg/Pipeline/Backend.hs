@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {-|
@@ -45,13 +44,12 @@ module UniAlg.Pipeline.Backend
   , resolveContextName
   ) where
 
-import Data.Aeson
+import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import GHC.Generics (Generic)
 
 import Hydra.Kernel
   ( Name(..)
@@ -59,6 +57,11 @@ import Hydra.Kernel
   )
 
 import qualified Hydra.Dsl.Terms as Terms
+
+import UniAlg.Core.BackendSpec
+  ( BackendSpec(..)
+  , OpSpec(..)
+  )
 
 
 -- | A symbolic reference to a backend operation.
@@ -85,29 +88,7 @@ call (BackendOp name) args =
   foldl (Terms.@@) (Terms.primitive name) args
 
 
--- | A single entry in a backend JSON spec.
-data OpSpec = OpSpec
-  { path  :: Text        -- ^ Qualified backend path, e.g. @\"numpy.matmul\"@.
-  , arity :: Maybe Int   -- ^ Number of tensor arguments (used for eta-expansion).
-  , kind  :: Maybe Text  -- ^ Optional op category tag (currently unused).
-  } deriving (Eq, Show, Generic)
-
-instance FromJSON OpSpec where
-  parseJSON = withObject "OpSpec" $ \o ->
-    OpSpec
-      <$> o .:  "path"
-      <*> o .:? "arity"
-      <*> o .:? "kind"
-
-
--- | The full deserialized backend JSON file.
-data BackendSpec = BackendSpec
-  { backend :: Text             -- ^ Backend name, e.g. @\"numpy\"@.
-  , ops     :: Map Text OpSpec  -- ^ Map from logical op key to 'OpSpec'.
-  } deriving (Eq, Show, Generic)
-
-instance FromJSON BackendSpec
-
+-- BackendSpec and OpSpec are defined in UniAlg.Core.BackendSpec and re-exported.
 
 -- | A resolved backend binding: the backend-specific qualified path that
 -- Hydra codegen treats as an ordinary module-qualified name.

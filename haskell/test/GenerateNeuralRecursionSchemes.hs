@@ -9,15 +9,6 @@ import qualified Prelude as P
 import UniAlg hiding ((++))
 
 
--- ── Backend operations ────────────────────────────────────────────────────────
-
-multiply :: TTerm Tensor -> TTerm Tensor -> TTerm Tensor
-multiply a b = backendOp "multiply" @@ a @@ b
-
-add :: TTerm Tensor -> TTerm Tensor -> TTerm Tensor
-add a b = backendOp "add" @@ a @@ b
-
-
 -- ── Folding RNN ───────────────────────────────────────────────────────────────
 -- F(X) = 1 + (a × X)   =   SeqF a
 

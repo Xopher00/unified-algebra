@@ -27,14 +27,6 @@ import TestUtils
   )
 
 
--- ── Shared backend ops ────────────────────────────────────────────────────────
-
-multiply :: TTerm Tensor -> TTerm Tensor -> TTerm Tensor
-multiply = op2 "multiply"
-
-add :: TTerm Tensor -> TTerm Tensor -> TTerm Tensor
-add = op2 "add"
-
 
 -- ── Disk writer (uses generatePythonString to avoid Hydra's occurs-check) ────
 
@@ -67,7 +59,7 @@ testListCata = do
       mod_ = recModule @(ListF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
                ( id
                , \case InL (Const ())                      -> s0
-                       InR (Pair (Const a) (Identity acc)) -> backendOp "add" @@ a @@ acc )
+                       InR (Pair (Const a) (Identity acc)) -> add a acc )
 
   putStrLn "=== cataT with ListF ==="
   py <- generateFor mod_
@@ -91,8 +83,8 @@ testTreeCata = do
 
       mod_ = recModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
                ( id
-               , \case InL (Const a)                        -> backendOp "multiply" @@ w @@ a
-                       InR (Pair (Identity l) (Identity r)) -> backendOp "add" @@ l @@ r )
+               , \case InL (Const a)                        -> multiply w a
+                       InR (Pair (Identity l) (Identity r)) -> add l r )
 
   putStrLn "\n=== cataT with RTreeF ==="
   py <- generateFor mod_
@@ -141,7 +133,7 @@ testHylo = do
       mod_ = recModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
                ( id
                , \case InL (Const ())                      -> s0
-                       InR (Pair (Const a) (Identity acc)) -> backendOp "add" @@ a @@ acc )
+                       InR (Pair (Const a) (Identity acc)) -> add a acc )
 
   putStrLn "\n=== hyloT with SeqF (coalg=id) ==="
   py <- generateFor mod_

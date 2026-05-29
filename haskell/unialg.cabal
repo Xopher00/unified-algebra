@@ -6,6 +6,9 @@ library
   hs-source-dirs:   src
   exposed-modules:
     UniAlg
+    UniAlg.Core.BackendSpec
+    UniAlg.Core.Ops
+    UniAlg.Core.Ops.Generate
     UniAlg.Core.Reduce
     UniAlg.Pipeline.Backend
     UniAlg.Pipeline.Codegen
@@ -18,7 +21,7 @@ library
     UniAlg.Semantics.Recursion
     UniAlg.Semantics.Optics
   build-depends:
-    base       >= 4.18,
+    base             >= 4.18,
     aeson,
     bytestring,
     containers,
@@ -27,6 +30,7 @@ library
     process,
     profunctors,
     tagged,
+    template-haskell >= 2.20,
     text
   default-language: Haskell2010
 

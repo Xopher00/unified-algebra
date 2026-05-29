@@ -24,7 +24,7 @@ import UniAlg.Pipeline.Backend (backendContextSpec, loadBackendContext)
 import UniAlg.Pipeline.Externals (backendExternalModules)
 import UniAlg.Pipeline.Lowering (lowerModule)
 
-import Prelude hiding (fst, snd, either, left, right)
+import Prelude hiding (fst, snd, either, left, right, tanh)
 import UniAlg
 
 import TestUtils
@@ -36,31 +36,31 @@ import TestUtils
 
 
 -- ── IR structure tests ────────────────────────────────────────────────────────
--- These verify op1/op2/op3 produce exactly the same IR as hand-written @@ chains.
+-- These verify generated static bindings produce the same IR as op key @@ args.
 
 testOp1Structure :: IO ()
 testOp1Structure = do
-  let x       = TTerm (Terms.var "x") :: TTerm Tensor
-      expected = unTTerm (backendOp "softmax" @@ x)
-      actual   = unTTerm (op1 "softmax" x)
-  assertEqual "op1 k x  ==  backendOp k @@ x" expected actual
+  let x        = TTerm (Terms.var "x") :: TTerm Tensor
+      expected = unTTerm (op "tanh" @@ x)
+      actual   = unTTerm (tanh x)
+  assertEqual "tanh x  ==  op \"tanh\" @@ x" expected actual
 
 testOp2Structure :: IO ()
 testOp2Structure = do
-  let x       = TTerm (Terms.var "x") :: TTerm Tensor
-      y       = TTerm (Terms.var "y") :: TTerm Tensor
-      expected = unTTerm (backendOp "multiply" @@ x @@ y)
-      actual   = unTTerm (op2 "multiply" x y)
-  assertEqual "op2 k x y  ==  backendOp k @@ x @@ y" expected actual
+  let x        = TTerm (Terms.var "x") :: TTerm Tensor
+      y        = TTerm (Terms.var "y") :: TTerm Tensor
+      expected = unTTerm (op "multiply" @@ x @@ y)
+      actual   = unTTerm (multiply x y)
+  assertEqual "multiply x y  ==  op \"multiply\" @@ x @@ y" expected actual
 
 testOp3Structure :: IO ()
 testOp3Structure = do
-  let x       = TTerm (Terms.var "x") :: TTerm Tensor
-      y       = TTerm (Terms.var "y") :: TTerm Tensor
-      z       = TTerm (Terms.var "z") :: TTerm Tensor
-      expected = unTTerm (backendOp "clip" @@ x @@ y @@ z)
-      actual   = unTTerm (op3 "clip" x y z)
-  assertEqual "op3 k x y z  ==  backendOp k @@ x @@ y @@ z" expected actual
+  let x        = TTerm (Terms.var "x") :: TTerm Tensor
+      y        = TTerm (Terms.var "y") :: TTerm Tensor
+      z        = TTerm (Terms.var "z") :: TTerm Tensor
+      expected = unTTerm (op "clip" @@ x @@ y @@ z)
+      actual   = unTTerm (clip x y z)
+  assertEqual "clip x y z  ==  op \"clip\" @@ x @@ y @@ z" expected actual
 
 
 -- ── Codegen validation tests ──────────────────────────────────────────────────
@@ -106,21 +106,20 @@ mkOpModule deps ns defName body = Module
 
 testOp1Codegen :: IO ()
 testOp1Codegen = do
-  -- softmax lives in scipy.special
-  let deps = [Namespace "numpy", Namespace "scipy.special"]
-      body = "x" ~> op1 "softmax" (varPhantom "x")
-      mod_ = mkOpModule deps "test.ops.unary" (Name "test.ops.unary.test_softmax") body
-  putStrLn "\n=== op1 codegen: softmax ==="
+  let deps = [Namespace "numpy"]
+      body = "x" ~> tanh (varPhantom "x")
+      mod_ = mkOpModule deps "test.ops.unary" (Name "test.ops.unary.test_tanh") body
+  putStrLn "\n=== op1 codegen: tanh ==="
   py <- generate "/tmp/unialg-op-arity-1" "test/ops/unary.py" mod_
   putStrLn py
-  assertBool "op1: scipy.special.softmax in output" ("softmax" `isInfixOf` py)
-  assertBool "op1: def emitted"                     ("def test_softmax" `isInfixOf` py)
+  assertBool "op1: numpy.tanh in output" ("numpy.tanh" `isInfixOf` py)
+  assertBool "op1: def emitted"          ("def test_tanh" `isInfixOf` py)
 
 
 testOp2Codegen :: IO ()
 testOp2Codegen = do
   -- multiply is a pure numpy binary op
-  let body = "x" ~> "y" ~> op2 "multiply" (varPhantom "x") (varPhantom "y")
+  let body = "x" ~> "y" ~> multiply (varPhantom "x") (varPhantom "y")
       mod_ = Module
         { moduleDescription    = Just "op2 codegen test"
         , moduleNamespace      = Namespace "test.ops.binary"
@@ -146,7 +145,7 @@ testOp2Codegen = do
 testOp3Codegen :: IO ()
 testOp3Codegen = do
   -- clip takes three tensor arguments (value, min, max)
-  let body = "x" ~> "lo" ~> "hi" ~> op3 "clip" (varPhantom "x") (varPhantom "lo") (varPhantom "hi")
+  let body = "x" ~> "lo" ~> "hi" ~> clip (varPhantom "x") (varPhantom "lo") (varPhantom "hi")
       mod_ = Module
         { moduleDescription    = Just "op3 codegen test"
         , moduleNamespace      = Namespace "test.ops.ternary"

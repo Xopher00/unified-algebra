@@ -1,0 +1,29 @@
+{
+  "backend": "pretty_midi",
+  "binary_adapter": {
+    "dump": "pretty_midi.PrettyMIDI.write",
+    "load": "pretty_midi.PrettyMIDI",
+    "dump_style": "value_first"
+  },
+  "structural": {},
+  "operations": {
+    "pitch_to_midi": {"kind": "unary", "path": "pretty_midi.note_name_to_number", "arity": 1, "arg_type": "STRING", "result_type": "INT"},
+    "midi_to_pitch": {"kind": "unary", "path": "pretty_midi.note_number_to_name", "arity": 1, "arg_type": "INT", "result_type": "STRING"},
+    "midi_to_hz": {"kind": "unary", "path": "pretty_midi.note_number_to_hz", "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT"},
+    "hz_to_midi": {"kind": "unary", "path": "pretty_midi.hz_to_note_number", "arity": 1, "arg_type": "FLOAT", "result_type": "FLOAT"},
+    "key_to_number": {"kind": "unary", "path": "pretty_midi.key_name_to_key_number", "arity": 1, "arg_type": "STRING", "result_type": "INT"},
+    "number_to_key": {"kind": "unary", "path": "pretty_midi.key_number_to_key_name", "arity": 1, "arg_type": "INT", "result_type": "STRING"},
+    "qpm_to_bpm": {"kind": "ternary", "path": "pretty_midi.qpm_to_bpm", "arity": 3, "arg_types": ["FLOAT", "INT", "INT"], "result_type": "FLOAT"},
+    "estimate_tempo": {"kind": "unary", "path": "pretty_midi.PrettyMIDI.estimate_tempo", "arity": 1, "arg_type": "BINARY", "result_type": "FLOAT"},
+    "tempo_changes": {"kind": "unary", "path": "pretty_midi.PrettyMIDI.get_tempo_changes", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "tick_to_time": {"kind": "binary", "path": "pretty_midi.PrettyMIDI.tick_to_time", "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "FLOAT"},
+    "time_to_tick": {"kind": "binary", "path": "pretty_midi.PrettyMIDI.time_to_tick", "arity": 2, "arg_types": ["BINARY", "FLOAT"], "result_type": "INT"},
+    "piano_roll": {"kind": "unary", "path": "pretty_midi.PrettyMIDI.get_piano_roll", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "chroma": {"kind": "unary", "path": "pretty_midi.PrettyMIDI.get_chroma", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "onsets": {"kind": "unary", "path": "pretty_midi.PrettyMIDI.get_onsets", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "beats": {"kind": "unary", "path": "pretty_midi.PrettyMIDI.get_beats", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "downbeats": {"kind": "unary", "path": "pretty_midi.PrettyMIDI.get_downbeats", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "adjust_times": {"kind": "ternary", "path": "pretty_midi.PrettyMIDI.adjust_times", "arity": 3, "arg_type": "BINARY", "result_type": "UNIT"},
+    "write": {"kind": "io", "path": "pretty_midi.PrettyMIDI.write", "arity": 2, "arg_types": ["BINARY", "STRING"], "result_type": "UNIT"}
+  }
+}

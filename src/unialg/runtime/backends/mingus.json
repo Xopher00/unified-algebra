@@ -1,0 +1,31 @@
+{
+  "backend": "mingus",
+  "structural": {},
+  "operations": {
+    "pitch_class_to_int": {"kind": "unary", "path": "mingus.core.notes.note_to_int", "arity": 1, "arg_type": "STRING", "result_type": "INT"},
+    "int_to_pitch_class": {"kind": "unary", "path": "mingus.core.notes.int_to_note", "arity": 1, "arg_type": "INT", "result_type": "STRING"},
+    "raise_accidental": {"kind": "unary", "path": "mingus.core.notes.augment", "arity": 1, "arg_type": "STRING", "result_type": "STRING"},
+    "lower_accidental": {"kind": "unary", "path": "mingus.core.notes.diminish", "arity": 1, "arg_type": "STRING", "result_type": "STRING"},
+    "is_enharmonic": {"kind": "binary", "path": "mingus.core.notes.is_enharmonic", "arity": 2, "arg_type": "STRING", "result_type": "BOOL"},
+    "reduce_accidentals": {"kind": "unary", "path": "mingus.core.notes.reduce_accidentals", "arity": 1, "arg_type": "STRING", "result_type": "STRING"},
+    "semitone_distance": {"kind": "binary", "path": "mingus.core.intervals.measure", "arity": 2, "arg_type": "STRING", "result_type": "INT"},
+    "invert_note_interval": {"kind": "unary", "path": "mingus.core.intervals.invert", "arity": 1, "arg_type": {"list": "STRING"}, "result_type": {"list": "STRING"}},
+    "name_interval": {"kind": "binary", "path": "mingus.core.intervals.determine", "arity": 2, "arg_type": "STRING", "result_type": "STRING"},
+    "interval_from_distance": {"kind": "binary", "path": "mingus.core.intervals.get_interval", "arity": 2, "arg_types": ["STRING", "INT"], "result_type": "STRING"},
+    "notes_are_consonant": {"kind": "binary", "path": "mingus.core.intervals.is_consonant", "arity": 2, "arg_type": "STRING", "result_type": "BOOL"},
+    "identify_chord": {"kind": "unary", "path": "mingus.core.chords.determine", "arity": 1, "arg_type": {"list": "STRING"}, "result_type": {"list": "STRING"}},
+    "rotate_chord_inversion": {"kind": "unary", "path": "mingus.core.chords.invert", "arity": 1, "arg_type": {"list": "STRING"}, "result_type": {"list": "STRING"}},
+    "first_chord_inversion": {"kind": "unary", "path": "mingus.core.chords.first_inversion", "arity": 1, "arg_type": {"list": "STRING"}, "result_type": {"list": "STRING"}},
+    "chord_from_symbol": {"kind": "unary", "path": "mingus.core.chords.from_shorthand", "arity": 1, "arg_type": "STRING", "result_type": {"list": "STRING"}},
+    "major_triad": {"kind": "unary", "path": "mingus.core.chords.major_triad", "arity": 1, "arg_type": "STRING", "result_type": {"list": "STRING"}},
+    "minor_triad": {"kind": "unary", "path": "mingus.core.chords.minor_triad", "arity": 1, "arg_type": "STRING", "result_type": {"list": "STRING"}},
+    "scale_get_notes": {"kind": "unary", "path": "mingus.core.scales.get_notes", "arity": 1, "arg_type": "STRING", "result_type": {"list": "STRING"}},
+    "identify_scales": {"kind": "unary", "path": "mingus.core.scales.determine", "arity": 1, "arg_type": {"list": "STRING"}, "result_type": {"list": "STRING"}},
+    "key_get_notes": {"kind": "unary", "path": "mingus.core.keys.get_notes", "arity": 1, "arg_type": "STRING", "result_type": {"list": "STRING"}},
+    "key_relative_major": {"kind": "unary", "path": "mingus.core.keys.relative_major", "arity": 1, "arg_type": "STRING", "result_type": "STRING"},
+    "key_relative_minor": {"kind": "unary", "path": "mingus.core.keys.relative_minor", "arity": 1, "arg_type": "STRING", "result_type": "STRING"},
+    "key_signature": {"kind": "unary", "path": "mingus.core.keys.get_key_signature", "arity": 1, "arg_type": "STRING", "result_type": "INT"},
+    "progression_to_chords": {"kind": "binary", "path": "mingus.core.progressions.to_chords", "arity": 2, "arg_types": [{"list": "STRING"}, "STRING"], "result_type": {"list": {"list": "STRING"}}},
+    "progression_determine": {"kind": "binary", "path": "mingus.core.progressions.determine", "arity": 2, "arg_types": [{"list": {"list": "STRING"}}, "STRING"], "result_type": {"list": {"list": "STRING"}}}
+  }
+}

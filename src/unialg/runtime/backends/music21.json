@@ -1,0 +1,39 @@
+{
+  "backend": "music21",
+  "binary_adapter": {
+    "dump": "music21.stream.Stream.write",
+    "load": "music21.converter.parse",
+    "dump_style": "value_first"
+  },
+  "structural": {
+    "flatten": "music21.stream.Stream.flatten",
+    "chordify": "music21.stream.Stream.chordify",
+    "quantize": "music21.stream.Stream.quantize"
+  },
+  "operations": {
+    "pitch_object_to_midi": {"kind": "unary", "path": "music21.pitch.Pitch.midi", "arity": 1, "arg_type": "BINARY", "result_type": "INT"},
+    "midi_to_pitch_object": {"kind": "unary", "path": "music21.pitch.Pitch", "arity": 1, "arg_type": "INT", "result_type": "BINARY"},
+    "pitch_object_to_hz": {"kind": "unary", "path": "music21.pitch.Pitch.frequency", "arity": 1, "arg_type": "BINARY", "result_type": "FLOAT"},
+    "pitch_space_to_pitch_object": {"kind": "unary", "path": "music21.pitch.Pitch", "arity": 1, "arg_type": "FLOAT", "result_type": "BINARY"},
+    "transpose": {"kind": "binary", "path": "music21.pitch.Pitch.transpose", "arity": 2, "arg_types": ["BINARY", "STRING"], "result_type": "BINARY"},
+    "scale_duration": {"kind": "binary", "path": "music21.note.Note.augmentOrDiminish", "arity": 2, "arg_types": ["BINARY", "FLOAT"], "result_type": "BINARY"},
+    "make_interval": {"kind": "binary", "path": "music21.interval.Interval", "arity": 2, "arg_type": "BINARY", "result_type": "BINARY"},
+    "invert_interval": {"kind": "unary", "path": "music21.interval.Interval.reverse", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "interval_is_consonant": {"kind": "unary", "path": "music21.interval.Interval.isConsonant", "arity": 1, "arg_type": "BINARY", "result_type": "BOOL"},
+    "set_chord_inversion": {"kind": "binary", "path": "music21.chord.Chord.inversion", "arity": 2, "arg_types": ["BINARY", "INT"], "result_type": "UNIT"},
+    "chord_closed_position": {"kind": "unary", "path": "music21.chord.Chord.closedPosition", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "chord_root": {"kind": "unary", "path": "music21.chord.Chord.root", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "chord_bass": {"kind": "unary", "path": "music21.chord.Chord.bass", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "chord_is_major": {"kind": "unary", "path": "music21.chord.Chord.isMajorTriad", "arity": 1, "arg_type": "BINARY", "result_type": "BOOL"},
+    "chord_is_minor": {"kind": "unary", "path": "music21.chord.Chord.isMinorTriad", "arity": 1, "arg_type": "BINARY", "result_type": "BOOL"},
+    "chord_is_consonant": {"kind": "unary", "path": "music21.chord.Chord.isConsonant", "arity": 1, "arg_type": "BINARY", "result_type": "BOOL"},
+    "scale_object_get_pitches": {"kind": "unary", "path": "music21.scale.MajorScale.getPitches", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "scale_network_find": {"kind": "unary", "path": "music21.scale.ScaleNetwork.find", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "key_object_relative_major": {"kind": "unary", "path": "music21.key.Key.getRelativeMajor", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "key_object_relative_minor": {"kind": "unary", "path": "music21.key.Key.getRelativeMinor", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "key_object_signature": {"kind": "unary", "path": "music21.key.Key.sharps", "arity": 1, "arg_type": "BINARY", "result_type": "INT"},
+    "pitch_objects_are_enharmonic": {"kind": "binary", "path": "music21.pitch.Pitch.isEnharmonic", "arity": 2, "arg_type": "BINARY", "result_type": "BOOL"},
+    "enharmonic": {"kind": "unary", "path": "music21.pitch.Pitch.getEnharmonic", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "stream_write": {"kind": "io", "path": "music21.stream.Stream.write", "arity": 2, "arg_types": ["BINARY", "STRING"], "result_type": "BINARY"}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "backend": "mido",
+  "binary_adapter": {
+    "dump": "mido.MidiFile.save",
+    "load": "mido.MidiFile",
+    "dump_style": "value_first"
+  },
+  "structural": {
+    "merge_tracks": "mido.merge_tracks"
+  },
+  "operations": {
+    "bpm_to_midi_tempo": {"kind": "unary", "path": "mido.bpm2tempo", "arity": 1, "arg_type": "FLOAT", "result_type": "INT"},
+    "midi_tempo_to_bpm": {"kind": "unary", "path": "mido.tempo2bpm", "arity": 1, "arg_type": "INT", "result_type": "FLOAT"},
+    "ticks_to_seconds": {"kind": "ternary", "path": "mido.tick2second", "arity": 3, "arg_types": ["INT", "INT", "INT"], "result_type": "FLOAT"},
+    "seconds_to_ticks": {"kind": "ternary", "path": "mido.second2tick", "arity": 3, "arg_types": ["FLOAT", "INT", "INT"], "result_type": "INT"},
+    "merge_tracks": {"kind": "reduce", "path": "mido.merge_tracks", "arity": 1, "arg_type": "BINARY", "result_type": "BINARY"},
+    "write": {"kind": "io", "path": "mido.MidiFile.save", "arity": 2, "arg_types": ["BINARY", "STRING"], "result_type": "UNIT"}
+  }
+}

@@ -127,10 +127,3 @@ executable neural-recursion-schemes
   ghc-options:      -main-is NeuralRecursionSchemes
   build-depends:    base, unialg
   default-language: Haskell2010
-
-executable transformer
-  main-is:          Transformer.hs
-  hs-source-dirs:   test
-  ghc-options:      -main-is Transformer
-  build-depends:    base, unialg
-  default-language: Haskell2010

@@ -26,11 +26,10 @@ type Seq a = Fix (SeqF a)
 nil :: Seq a
 nil = Fix (InL (Const ()))
 
-cons :: a -> Seq a -> Seq a
+cons :: TTerm a -> Seq a -> Seq a
 cons a as = Fix (InR (Pair (Const a) (Identity as)))
 
 
-foldRNN :: (p -> Either () (a, s) -> s) -> p -> Seq a -> s
 foldRNN cell p = cata $ \case
   InL (Const ())                    -> cell p (Left ())
   InR (Pair (Const a) (Identity s)) -> cell p (Right (a, s))
@@ -58,14 +57,13 @@ foldRNNTerm =
 
 type RTree a = Fix (RTreeF a)
 
-rleaf :: a -> RTree a
+rleaf :: TTerm a -> RTree a
 rleaf a = Fix (InL (Const a))
 
 rnode :: RTree a -> RTree a -> RTree a
 rnode l r = Fix (InR (Pair (Identity l) (Identity r)))
 
 
-foldTreeRNN :: (p -> Either a (s, s) -> s) -> p -> RTree a -> s
 foldTreeRNN cell p = cata $ \case
   InL (Const a)                        -> cell p (Left a)
   InR (Pair (Identity l) (Identity r)) -> cell p (Right (l, r))
@@ -95,12 +93,10 @@ treeRNNTerm =
 
 type Stream' o = Fix (StreamF o)
 
-unfoldRNN :: (p -> s -> (o, s)) -> p -> s -> Stream' o
 unfoldRNN step p = ana $ \s ->
   let (o, s') = step p s
   in Pair (Const o) (Identity s')
 
-takeS :: Int -> Stream' o -> [o]
 takeS 0 _ = []
 takeS n (Fix (Pair (Const o) (Identity rest))) = o : takeS (n P.- 1) rest
 

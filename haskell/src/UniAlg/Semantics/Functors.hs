@@ -28,11 +28,23 @@ through them.
 General aliases: 'MaybeF', 'ListF', 'RoseF', 'TreeF'.
 
 Neural-architecture aliases, chosen so that the functor shape makes the
-recursion scheme obvious:
+recursion scheme obvious.  The type parameter names the *underlying* element
+type (@Tensor@, not @'TTerm' Tensor@), so you write @\@('SeqF' Tensor)@:
 
-* 'SeqF' @a@ — @F(X) = 1 + (a × X)@ — sequence / RNN / transformer layer.
-* 'RTreeF' @a@ — @F(X) = a + (X × X)@ — binary tree with data at leaves.
-* 'StreamF' @o@ — @F(X) = o × X@ — infinite stream / unfolding RNN.
+* 'SeqF' @a@ — @F(X) = 1 + ('TTerm' a × X)@ — sequence / RNN / transformer layer.
+* 'RTreeF' @a@ — @F(X) = 'TTerm' a + (X × X)@ — binary tree with data at leaves.
+* 'StreamF' @o@ — @F(X) = 'TTerm' o × X@ — infinite stream / unfolding RNN.
+
+=== Writing a bare @\@MyF@ type application
+
+The predefined aliases keep their element-type parameter so they stay general.
+If you want to write just @\@MyF@ (no argument), declare a saturated synonym in
+your own module:
+
+@
+type MySeq = SeqF Tensor
+-- then: recModule \@MySeq ...
+@
 -}
 module UniAlg.Semantics.Functors
   ( -- * Polynomial functor atoms (re-exported from Data.Functor.*)
@@ -204,7 +216,7 @@ tRight x = TTerm (Terms.right (unTTerm x))
 -- | @F(X) = 1 + X@
 type MaybeF   = Sum (Const ())
 -- | @F(X) = 1 + (a × X)@
-type ListF  a = Sum (Const ()) (Product (Const a) Identity)
+type ListF  a = Sum (Const ()) (Product (Const (TTerm a)) Identity)
 -- | @F(X) = f(X) × [X]@  — rose tree functor
 type RoseF  f = Product f []
 -- | @F(X) = 1 + f(X) × [X]@  — general tree
@@ -215,17 +227,17 @@ type TreeF  f = Sum (Const ()) (RoseF f)
 
 -- | @F(X) = 1 + (a × X)@  — sequence, RNN layer, or transformer block.
 -- The base case @InL (Const ())@ is the empty sequence; the recursive case
--- @InR (Pair (Const layer) (Identity rest))@ carries one layer weight and
--- the tail.
-type SeqF a = Sum (Const ()) (Product (Const a) Identity)
+-- @InR (Pair (Const layer) (Identity rest))@ carries one layer ('TTerm' @a@)
+-- and the tail.
+type SeqF a = Sum (Const ()) (Product (Const (TTerm a)) Identity)
 
 -- | @F(X) = a + (X × X)@  — binary tree with data at leaves.
--- @InL (Const a)@ is a leaf carrying value @a@; @InR (Pair l r)@ is an
+-- @InL (Const a)@ is a leaf carrying @'TTerm' a@; @InR (Pair l r)@ is an
 -- internal node with two recursive subtrees.
-type RTreeF a = Sum (Const a) (Product Identity Identity)
+type RTreeF a = Sum (Const (TTerm a)) (Product Identity Identity)
 
 -- | @F(X) = o × X@  — stream or unfolding RNN.
--- Each step emits an output @o@ and continues with the next state @X@.
+-- Each step emits an output (@'TTerm' o@) and continues with the next state.
 -- The anamorphism 'anaT' over this functor generates a corecursive Python
 -- function.
-type StreamF o = Product (Const o) Identity
+type StreamF o = Product (Const (TTerm o)) Identity

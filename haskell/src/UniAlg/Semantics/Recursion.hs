@@ -27,14 +27,14 @@ each recursive step can emit the correct self-application.
 === Typical usage
 
 @
--- Simple catamorphism (no outer parameters):
-withSelf (var \"f\") $ cataT @MyF myAlg
-
--- With shared outer parameters (e.g. weights w, initial state s0):
-recModule ns \"f\" deps [\"w\", \"s0\"] $
-  cataT @MyF myAlg
--- recModule handles withSelf and the partial self-application automatically.
+recModule \@(SeqF Tensor) ns \"fold_rnn\" deps [\"w\", \"s0\"] $ \\[w, s0] ->
+  ( id                                              -- coalgebra (id = pure cata)
+  , \\case InL (Const ())                    -> s0
+          InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
 @
+
+'recModule' handles 'withSelf' and the partial self-application
+automatically.  Spec authors never call 'withSelf' directly.
 -}
 module UniAlg.Semantics.Recursion
   ( Fix(..)
@@ -83,13 +83,8 @@ hylo alg coalg =
 
 -- | Bind the recursive self-reference before running a TTerm recursion scheme.
 --
--- @?self@ is an implicit parameter carrying the 'TTerm' that represents the
--- function being defined.  For a plain recursive definition use
--- @var \"name\"@.  When outer parameters are shared (e.g. weights @w@), use
--- a partial application: @var \"name\" \`tApply\` var \"w\"@.
---
--- 'recModule' and 'recDef' handle 'withSelf' automatically; call it directly
--- only when building a module outside those helpers.
+-- Internal.  'recModule' and 'recDef' call 'withSelf' automatically with the
+-- correctly partially-applied self-term; spec authors never call it directly.
 withSelf :: TTerm a -> ((?self :: TTerm a) => r) -> r
 withSelf s k = let ?self = s in k
 

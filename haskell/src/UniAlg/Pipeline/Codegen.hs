@@ -23,10 +23,22 @@ values manually and pass them to 'writePythonWithBackend').
 
 For recursive definitions, use the recursion-scheme aware builders:
 
-* 'recDef' / 'recModule' — recommended.  Declare functor, coalgebra, and
-  algebra together; handle 'withSelf', partial self-application, and the
-  'polyFnScheme' annotation automatically.  Pass @id@ as the coalgebra for
-  a pure catamorphism.  The functor @f@ is supplied via @\@f@ type application.
+* 'recDef' / 'recModule' — recommended.  The functor @f@ is selected via
+  @\@f@ type application; the outer argument names become real bound 'TTerm'
+  values via a @\\[w, s0] -> (coalg, alg)@ lambda, eliminating string
+  re-typing.  Pass @id@ as the coalgebra for a pure catamorphism.
+  'withSelf', partial self-application, and the 'polyFnScheme' annotation
+  are all handled automatically — spec authors never touch them.
+
+@
+recModule \@(SeqF Tensor) ns \"fold_rnn\" [Namespace \"numpy\"] [\"w\", \"s0\"] $ \\[w, s0] ->
+  ( id
+  , \\case InL (Const ())                    -> s0
+          InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
+@
+
+To write a bare @\@MyF@ without a type argument, declare a saturated synonym:
+@type MySeq = SeqF Tensor@ — then @recModule \@MySeq ...@.
 
 === Evaluation helpers
 
@@ -327,37 +339,44 @@ polyFnScheme n = TypeScheme
                  { functionTypeDomain   = a
                  , functionTypeCodomain = b }
 -- These become the leading lambda parameters of the generated Python function.
--- Users write: recModule ns "f" deps ["w"] $ cataT @F myAlg
--- and never touch withSelf, applyAlg, or TTerm layer construction.
+-- The outer-arg names are bound once; the builder receives them as real TTerm
+-- values so the algebra can reference them directly without var "name" strings.
 
 -- | Build a 'TermDefinition' for a hylomorphism with shared outer parameters.
 --
--- Declares a full architecture in one call: the functor @f@ (via @\@f@ type
--- application), the coalgebra (a seed transform), and the algebra (a fold
--- step).  Pass @id@ as the coalgebra for a pure catamorphism.
---
--- @
--- -- Pure catamorphism (coalgebra = id):
--- recDef \@(SeqF (TTerm Tensor)) \"neural\" \"fold_rnn\" [\"w\", \"s0\"] id myAlg
---
--- -- Genuine hylomorphism:
--- recDef \@MyF \"neural\" \"f\" [\"w\"] myCoalg myAlg
--- @
+-- The argument names in @outerArgNames@ are bound as real 'TTerm' values and
+-- passed to the builder @k@.  @k@ returns the coalgebra and algebra together,
+-- so each name is declared exactly once.  Pass @id@ as the coalgebra for a
+-- pure catamorphism.
 --
 -- 'withSelf', the partial self-application, and the 'polyFnScheme' type
 -- annotation are handled automatically.
+--
+-- @
+-- -- Pure catamorphism:
+-- recDef \@(SeqF Tensor) \"neural\" \"fold_rnn\" [\"w\", \"s0\"] $ \\[w, s0] ->
+--   ( id
+--   , \\case InL (Const ())                    -> s0
+--           InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
+--
+-- -- Hylomorphism:
+-- recDef \@MyF \"neural\" \"f\" [\"w\"] $ \\[w] ->
+--   ( myCoalg w, myAlg w )
+-- @
 recDef :: forall f a. TFunctor f
        => String
        -> String
        -> [String]
-       -> (TTerm a -> TTerm a)                            -- ^ coalgebra
-       -> ((?self :: TTerm a) => f (TTerm a) -> TTerm a)  -- ^ algebra
+       -> ([TTerm a] -> ( TTerm a -> TTerm a        -- ^ coalgebra
+                        , f (TTerm a) -> TTerm a ))  -- ^ algebra
        -> TermDefinition
-recDef ns name outerArgNames coalg alg =
+recDef ns name outerArgNames k =
   (recursiveDef ns name $
     foldr (~>) innerTerm outerArgNames)
     { termDefinitionTypeScheme = Just (polyFnScheme (length outerArgNames + 2)) }
   where
+    vars        = map var outerArgNames
+    (coalg,alg) = k vars
     appliedSelf = foldl (\s n -> tApply s (var n)) (var (ns <> "." <> name)) outerArgNames
     innerTerm   = "x" ~> withSelf appliedSelf (hyloT @f coalg alg (var "x"))
 
@@ -366,30 +385,30 @@ recDef ns name outerArgNames coalg alg =
 -- architectures: declares functor @f@, coalgebra, and algebra together.
 --
 -- @
--- -- Pure catamorphism (coalgebra = id):
--- recModule \@(SeqF Layer) \"transformer\" \"stack\"
---           [Namespace \"numpy\"] [\"x\", \"tokens\"]
---           id stackAlg
+-- -- Pure catamorphism:
+-- recModule \@(SeqF Tensor) \"transformer\" \"stack\"
+--           [Namespace \"numpy\"] [\"x\", \"tokens\"] $ \\[x, tokens] ->
+--   ( id, stackAlg x tokens )
 --
 -- -- Hylomorphism:
 -- recModule \@MyF \"neural\" \"arch\"
---           [Namespace \"numpy\"] [\"w\"]
---           myCoalg myAlg
+--           [Namespace \"numpy\"] [\"w\"] $ \\[w] ->
+--   ( myCoalg w, myAlg w )
 -- @
 recModule :: forall f a. TFunctor f
           => String
           -> String
           -> [Namespace]
           -> [String]
-          -> (TTerm a -> TTerm a)                            -- ^ coalgebra
-          -> ((?self :: TTerm a) => f (TTerm a) -> TTerm a)  -- ^ algebra
+          -> ([TTerm a] -> ( TTerm a -> TTerm a
+                           , f (TTerm a) -> TTerm a ))
           -> Module
-recModule ns name deps outerArgNames coalg alg = Module
+recModule ns name deps outerArgNames k = Module
   { moduleDescription      = Just "Recursive definition"
   , moduleNamespace        = Namespace ns
   , moduleTermDependencies = deps
   , moduleTypeDependencies = []
-  , moduleDefinitions      = [DefinitionTerm (recDef @f ns name outerArgNames coalg alg)]
+  , moduleDefinitions      = [DefinitionTerm (recDef @f ns name outerArgNames k)]
   }
 
 

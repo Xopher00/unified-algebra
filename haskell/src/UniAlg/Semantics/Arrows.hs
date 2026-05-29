@@ -9,8 +9,11 @@ The core morphism type.
 executing Python.
 
 'TArr' implements 'Control.Category.Category', 'Control.Arrow.Arrow', and
-'Control.Arrow.ArrowChoice' so that mathematicians can write programs using
-standard Haskell arrow notation (@'>>>'@, @'&&&'@, @'|||'@, etc.).
+'Control.Arrow.ArrowChoice'.  The operator aliases (@'>>>'@, @'&&&'@,
+@'***'@, @'|||'@, @'+++'@) are re-exported from "UniAlg.Semantics.Category"
+with the same fixities and semantics as their 'Control.Arrow' counterparts —
+existing intuitions transfer directly.  They shadow the base imports by
+design; do not import both together.
 
 === The @arr@ constraint
 

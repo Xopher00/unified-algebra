@@ -55,7 +55,7 @@ writeModuleToDisk outputDir mod_ = do
 
 
 -- ── Test: ListF catamorphism — sum elements ──────────────────────────────────
--- ListF (TTerm Tensor) x = 1 + (TTerm Tensor × x)
+-- ListF Tensor x = 1 + (TTerm Tensor × x)
 -- Base (Left (Const ())): return initial accumulator s0
 -- Cons (Right (Pair (Const a) (Identity acc))): add element a to accumulator
 
@@ -64,10 +64,10 @@ testListCata = do
   let ns      = "test_rec.fold"
       defName = "sum_list"
 
-      sumAlg (InL (Const ()))                      = var "s0"
-      sumAlg (InR (Pair (Const a) (Identity acc))) = backendOp "add" @@ a @@ acc
-
-      mod_ = recModule @(ListF (TTerm Tensor)) ns defName [Namespace "numpy"] ["s0"] id sumAlg
+      mod_ = recModule @(ListF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
+               ( id
+               , \case InL (Const ())                      -> s0
+                       InR (Pair (Const a) (Identity acc)) -> backendOp "add" @@ a @@ acc )
 
   putStrLn "=== cataT with ListF ==="
   py <- generateFor mod_
@@ -80,7 +80,7 @@ testListCata = do
 
 
 -- ── Test: RTreeF catamorphism — weighted sum of binary tree leaves ────────────
--- RTreeF (TTerm Tensor) x = TTerm Tensor + (x × x)
+-- RTreeF Tensor x = TTerm Tensor + (x × x)
 -- Leaf (Left (Const a)): multiply weight w by leaf value a
 -- Node (Right (Pair (Identity l) (Identity r))): add left and right results
 
@@ -89,10 +89,10 @@ testTreeCata = do
   let ns      = "test_rec.tree"
       defName = "sum_tree"
 
-      treeAlg (InL (Const a))                        = backendOp "multiply" @@ var "w" @@ a
-      treeAlg (InR (Pair (Identity l) (Identity r))) = backendOp "add" @@ l @@ r
-
-      mod_ = recModule @(RTreeF (TTerm Tensor)) ns defName [Namespace "numpy"] ["w"] id treeAlg
+      mod_ = recModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
+               ( id
+               , \case InL (Const a)                        -> backendOp "multiply" @@ w @@ a
+                       InR (Pair (Identity l) (Identity r)) -> backendOp "add" @@ l @@ r )
 
   putStrLn "\n=== cataT with RTreeF ==="
   py <- generateFor mod_
@@ -116,8 +116,9 @@ testAnaT = do
   let ns      = "test_rec.ana"
       defName = "copy_list"
 
-      mod_ = recModule @(SeqF (TTerm Tensor)) ns defName [Namespace "numpy"] [] (id :: TTerm Tensor -> TTerm Tensor)
-               (\layer -> foldToTerm layer)
+      mod_ = recModule @(SeqF Tensor) ns defName [Namespace "numpy"] [] $ \[] ->
+               ( id :: TTerm Tensor -> TTerm Tensor
+               , \layer -> foldToTerm layer )
 
   putStrLn "\n=== anaT with SeqF (coalg=id, alg=foldToTerm) ==="
   py <- generateFor mod_
@@ -137,10 +138,10 @@ testHylo = do
   let ns      = "test_rec.hylo"
       defName = "hylo_sum"
 
-      seqAlg (InL (Const ()))                      = var "s0"
-      seqAlg (InR (Pair (Const a) (Identity acc))) = backendOp "add" @@ a @@ acc
-
-      mod_ = recModule @(SeqF (TTerm Tensor)) ns defName [Namespace "numpy"] ["s0"] id seqAlg
+      mod_ = recModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
+               ( id
+               , \case InL (Const ())                      -> s0
+                       InR (Pair (Const a) (Identity acc)) -> backendOp "add" @@ a @@ acc )
 
   putStrLn "\n=== hyloT with SeqF (coalg=id) ==="
   py <- generateFor mod_
@@ -161,10 +162,10 @@ testFoldRNN = do
   let ns      = "neural.fold_rnn"
       defName = "fold_rnn"
 
-      foldAlg (InL (Const ()))                    = var "s0"
-      foldAlg (InR (Pair (Const a) (Identity s))) = add (multiply (var "w") a) s
-
-      mod_ = recModule @(SeqF (TTerm Tensor)) ns defName [Namespace "numpy"] ["w", "s0"] id foldAlg
+      mod_ = recModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
+               ( id
+               , \case InL (Const ())                    -> s0
+                       InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
 
   putStrLn "\n=== FoldRNN cataT ==="
   py <- generateFor mod_
@@ -187,10 +188,10 @@ testTreeRNN = do
   let ns      = "neural.tree_rnn"
       defName = "tree_rnn"
 
-      treeAlg (InL (Const a))                        = multiply (var "w") a
-      treeAlg (InR (Pair (Identity l) (Identity r))) = add l r
-
-      mod_ = recModule @(RTreeF (TTerm Tensor)) ns defName [Namespace "numpy"] ["w"] id treeAlg
+      mod_ = recModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
+               ( id
+               , \case InL (Const a)                        -> multiply w a
+                       InR (Pair (Identity l) (Identity r)) -> add l r )
 
   putStrLn "\n=== TreeRNN cataT ==="
   py <- generateFor mod_
@@ -214,12 +215,10 @@ testHyloRNN = do
   let ns      = "neural.hylo_rnn"
       defName = "hylo_rnn"
 
-      hyloAlg (InL (Const ()))                    = var "s0"
-      hyloAlg (InR (Pair (Const a) (Identity s))) = add a s
-
-      mod_ = recModule @(SeqF (TTerm Tensor)) ns defName [Namespace "numpy"] ["s0"]
-               id
-               hyloAlg
+      mod_ = recModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
+               ( id
+               , \case InL (Const ())                    -> s0
+                       InR (Pair (Const a) (Identity s)) -> add a s )
 
   putStrLn "\n=== HyloRNN hyloT ==="
   py <- generateFor mod_
@@ -243,16 +242,16 @@ main = do
   testTreeRNN
   testHyloRNN
   putStrLn "\n=== TF comparison ==="
-  let foldMod = recModule @(SeqF (TTerm Tensor))
-                  "neural.fold_rnn" "fold_rnn" [Namespace "numpy"] ["w", "s0"] id
-                  (\case
-                    InL (Const ())                    -> var "s0"
-                    InR (Pair (Const a) (Identity s)) -> add (multiply (var "w") a) s)
-      treeMod = recModule @(RTreeF (TTerm Tensor))
-                  "neural.tree_rnn" "tree_rnn" [Namespace "numpy"] ["w"] id
-                  (\case
-                    InL (Const a)                        -> multiply (var "w") a
-                    InR (Pair (Identity l) (Identity r)) -> add l r)
+  let foldMod = recModule @(SeqF Tensor)
+                  "neural.fold_rnn" "fold_rnn" [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
+                  ( id
+                  , \case InL (Const ())                    -> s0
+                          InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
+      treeMod = recModule @(RTreeF Tensor)
+                  "neural.tree_rnn" "tree_rnn" [Namespace "numpy"] ["w"] $ \[w] ->
+                  ( id
+                  , \case InL (Const a)                        -> multiply w a
+                          InR (Pair (Identity l) (Identity r)) -> add l r )
   writeModuleToDisk "/tmp/unialg-neural-fold" foldMod
   writeModuleToDisk "/tmp/unialg-neural-tree" treeMod
   let scriptPath = "test/neural_comparison.py"

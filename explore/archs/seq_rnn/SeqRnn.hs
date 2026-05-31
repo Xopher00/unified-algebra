@@ -20,6 +20,7 @@ import Prelude hiding (tanh)
 import Hydra.Kernel (Module(..))
 import UniAlg
 
+import Grammar (PolyF(..))
 import Seed (SeedEntry(..), ArchClass(..), contraction)
 
 
@@ -34,7 +35,7 @@ rnnCell wIn wRec b a s = add (add (contraction real "hi,i->h" wIn a)
 
 -- | General RNN cell: @h_t = W_in · x_t + W_rec · h_{t-1} + b@
 seqCata :: SeedEntry
-seqCata = SeedEntry "seqCata" CataArch $
+seqCata = SeedEntry "seqCata" CataArch (KUnit :+: (KConst :*: Hole)) $
   cataModule @(SeqF Tensor)
     "seed.seq" "fold_seq"
     [Namespace "numpy"] ["wIn", "wRec", "b", "s0"] $ \[wIn, wRec, b, s0] ->
@@ -45,7 +46,7 @@ seqCata = SeedEntry "seqCata" CataArch $
 
 -- | RNN cell with tanh: @h_t = tanh(W_in · x_t + W_rec · h_{t-1} + b)@
 seqCataTanh :: SeedEntry
-seqCataTanh = SeedEntry "seqCataTanh" CataArch $
+seqCataTanh = SeedEntry "seqCataTanh" CataArch (KUnit :+: (KConst :*: Hole)) $
   cataModule @(SeqF Tensor)
     "seed.seq_tanh" "fold_seq_tanh"
     [Namespace "numpy"] ["wIn", "wRec", "b", "s0"] $ \[wIn, wRec, b, s0] ->

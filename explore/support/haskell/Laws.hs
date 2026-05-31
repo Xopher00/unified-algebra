@@ -28,6 +28,7 @@ module Laws
   , checkSeedMapping
   ) where
 
+import Catalogue (seeds)
 import Generate
 import Grammar
 import Seed
@@ -87,7 +88,7 @@ checkClassificationLaws =
   , ("KConst :+: (Hole :*: Hole) is CataArch (RTreeF shape)"
     , classifyPolyF (KConst :+: (Hole :*: Hole)) == CataArch)
 
-  , ("KConst :*: Hole is HyloArch (StreamF shape)"
+  , ("KConst :*: Hole is HyloArch (product, no exp, no sum base)"
     , classifyPolyF (KConst :*: Hole) == HyloArch)
 
   , ("KConst :*: ExpF Hole is AnaArch (MooreF shape)"
@@ -98,22 +99,12 @@ checkClassificationLaws =
   ]
 
 
--- | Verify seed entries map to their expected PolyF shapes.
+-- | Every seed's declared 'PolyF' shape classifies to its declared 'ArchClass'.
+-- Covers all seeds in the catalogue automatically — no hardcoded names.
 checkSeedMapping :: [(String, Bool)]
-checkSeedMapping =
-  [ ("seqCata matches KUnit :+: (KConst :*: Hole)"
-    , matchResult "seqCata" (KUnit :+: (KConst :*: Hole)))
-
-  , ("treeCata matches KConst :+: (Hole :*: Hole)"
-    , matchResult "treeCata" (KConst :+: (Hole :*: Hole)))
-
-  , ("streamAna matches KConst :*: Hole"
-    , matchResult "streamAna" (KConst :*: Hole))
-
-  , ("mooreAna matches KConst :*: ExpF Hole"
-    , matchResult "mooreAna" (KConst :*: ExpF Hole))
-  ]
+checkSeedMapping = map checkOne seeds
   where
-    matchResult label poly = case matchesSeed poly of
-      Just s  -> seedLabel s == label
-      Nothing -> False
+    checkOne s =
+      ( seedLabel s <> ": classifyPolyF matches seedClass"
+      , classifyPolyF (seedPolyF s) == seedClass s
+      )

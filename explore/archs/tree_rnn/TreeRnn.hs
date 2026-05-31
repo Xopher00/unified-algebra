@@ -5,7 +5,7 @@
 Recursive NN architecture: polynomial functor @F(X) = Tensor + (X × X)@.
 
 Leaf = @W · a@ (contraction), node = @left + right@ (elementwise).
-No library-native counterpart — structural test only.
+No exact library-native counterpart; tests use constrained linear invariants.
 -}
 module TreeRnn
   ( RTreeF
@@ -16,6 +16,7 @@ module TreeRnn
 import Hydra.Kernel (Module(..))
 import UniAlg
 
+import Grammar (PolyF(..))
 import Seed (SeedEntry(..), ArchClass(..), contraction)
 
 
@@ -26,7 +27,7 @@ real = Semiring "add" "multiply" (Just "divide")
 
 
 treeCata :: SeedEntry
-treeCata = SeedEntry "treeCata" CataArch $
+treeCata = SeedEntry "treeCata" CataArch (KConst :+: (Hole :*: Hole)) $
   cataModule @(RTreeF Tensor)
     "seed.tree" "fold_tree"
     [Namespace "numpy"] ["w"] $ \[w] ->

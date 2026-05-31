@@ -10,8 +10,8 @@ Turn a functor + canonical (co)algebra into a codegen-ready 'Module'.
 'hyloModule' needs @f@ as a compile-time type with a term-level 'Shape' instance.
 The 'PolyF' AST is a value. Resolution:
 
-- __Seed MVP__ (this module): hand-pair each seed 'PolyF' with its concrete
-  @hyloModule \@T@ call in 'Seed' — finite, explicit list.
+- __Seed MVP__: each 'SeedEntry' carries its own 'PolyF' shape; lookup
+  is a linear scan of the catalogue.
 - __General depth-N__ (future): a Template Haskell splice consuming
   'enumerate' and emitting one @hyloModule \@\<typeFromPolyF\>@ per AST.
 
@@ -42,13 +42,6 @@ matchesSeed :: PolyF -> Maybe SeedEntry
 matchesSeed poly = case filter (\s -> seedPolyF s == poly) seeds of
   (s:_) -> Just s
   []    -> Nothing
-  where
-    seedPolyF s = case seedLabel s of
-      "seqCata"    -> KUnit :+: (KConst :*: Hole)
-      "treeCata"   -> KConst :+: (Hole :*: Hole)
-      "streamAna"  -> KConst :*: Hole
-      "mooreAna"   -> KConst :*: ExpF Hole
-      _            -> KUnit
 
 
 -- | Classify a 'PolyF' by its architecture role.

@@ -9,7 +9,8 @@ Differential test (TF): fold_tree vs SimpleRNN(activation='linear') with
 W_rec=I, b=0, h_0=0. By linearity of W, fold(tree) = W @ sum(leaves) for
 any tree shape — the same value SimpleRNN accumulates over the leaf sequence.
 
-Structural test (torch, numpy): verifies finite output.
+Invariant test (torch, numpy): fold_tree vs the closed form W @ sum(leaves).
+This avoids writing a second recursive tree fold as the oracle.
 """
 
 import numpy as np
@@ -28,9 +29,6 @@ from backends import (
 
 GENERATED_ROOT = arch_generated_root(__file__)
 
-ADD_ID = 0.0
-MUL_ID = 1.0
-
 INPUT_DIMS = [1, 2, 3]
 HIDDEN_DIMS = [1, 2, 4]
 
@@ -48,20 +46,42 @@ def _tf_reference(backend, w, leaves, idim, hdim):
     rnn(x_tf)  # build weights
     rnn.set_weights(
         [
-            tf.transpose(w),  # kernel: (idim, hdim)
-            np.eye(hdim),  # recurrent_kernel: (hdim, hdim) = I
+            tf.transpose(w).numpy(),  # kernel: (idim, hdim)
+            np.eye(hdim, dtype=np.float64),  # recurrent_kernel: (hdim, hdim) = I
         ]
     )
     h0 = tf.zeros((1, hdim), dtype=tf.float64)
     return rnn(x_tf, initial_state=h0)[0]
 
 
+def _closed_form_reference(backend, w, leaves, idim, hdim):
+    del idim, hdim
+    lib = backend.framework
+    if backend.name == "numpy":
+        return w @ lib.sum(lib.stack(leaves), axis=0)
+    if backend.name == "tensorflow":
+        return lib.linalg.matvec(w, lib.reduce_sum(lib.stack(leaves), axis=0))
+    if backend.name == "torch":
+        return lib.mv(w, lib.sum(lib.stack(leaves), dim=0))
+    raise AssertionError(f"unsupported backend: {backend.name}")
+
+
 BACKENDS = [
     BackendSpec(
         TFBackend(), module="seed.tree", fn="fold_tree", reference=_tf_reference
     ),
-    BackendSpec(TorchBackend(), module="seed.tree", fn="fold_tree", reference=None),
-    BackendSpec(NumpyBackend(), module="seed.tree", fn="fold_tree", reference=None),
+    BackendSpec(
+        TorchBackend(),
+        module="seed.tree",
+        fn="fold_tree",
+        reference=_closed_form_reference,
+    ),
+    BackendSpec(
+        NumpyBackend(),
+        module="seed.tree",
+        fn="fold_tree",
+        reference=_closed_form_reference,
+    ),
 ]
 
 
@@ -103,11 +123,12 @@ class TestTreeRnn:
 
         fold = spec.load(GENERATED_ROOT)
         gen = fold(w, tree)
+        assert tuple(gen.shape) == (
+            hdim,
+        ), f"[{backend.name}] wrong shape: expected {(hdim,)}, got {gen.shape}"
+        assert backend.is_finite(gen), f"[{backend.name}] non-finite output"
 
-        if spec.reference is not None:
-            ref = spec.reference(backend, w, leaves, idim, hdim)
-            assert backend.allclose(
-                gen, ref, atol=1e-5
-            ), f"[{backend.name}] mismatch: input_dim={idim}, hidden_dim={hdim}"
-        else:
-            assert backend.is_finite(gen), f"[{backend.name}] non-finite output"
+        ref = spec.reference(backend, w, leaves, idim, hdim)
+        assert backend.allclose(
+            gen, ref, atol=1e-5
+        ), f"[{backend.name}] mismatch: input_dim={idim}, hidden_dim={hdim}"

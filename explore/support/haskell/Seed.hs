@@ -15,6 +15,7 @@ module Seed
 
 import Hydra.Kernel ( Module(..) )
 import UniAlg
+import Grammar (PolyF)
 
 
 data ArchClass
@@ -28,6 +29,7 @@ data ArchClass
 data SeedEntry = SeedEntry
   { seedLabel  :: String
   , seedClass  :: ArchClass
+  , seedPolyF  :: PolyF
   , seedModule :: Module
   }
 

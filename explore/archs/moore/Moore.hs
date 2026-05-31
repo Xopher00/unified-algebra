@@ -14,6 +14,7 @@ module Moore
 import Hydra.Kernel (Module(..))
 import UniAlg
 
+import Grammar (PolyF(..))
 import Seed (SeedEntry(..), ArchClass(..))
 
 
@@ -21,7 +22,7 @@ type MooreF o i = Product (Const (TTerm o)) (Exp (TTerm i))
 
 
 mooreAna :: SeedEntry
-mooreAna = SeedEntry "mooreAna" AnaArch $
+mooreAna = SeedEntry "mooreAna" AnaArch (KConst :*: ExpF Hole) $
   anaModule @(MooreF Tensor Tensor)
     "seed.moore" "moore_step"
     [Namespace "numpy"] [] $ \[] ->

@@ -39,14 +39,33 @@ def _take_n(fn, w, s0, n):
     return outputs
 
 
-def _reference(w, s0, n):
-    """Compute [W·s, W²·s, …, Wⁿ·s] in numpy."""
+def _numpy_reference(backend, w, s0, n):
+    lib = backend.framework
     outputs = []
-    s = np.array(s0)
-    w_np = np.array(w)
+    s = s0
     for _ in range(n):
-        s = np.einsum("hi,i->h", w_np, s)
-        outputs.append(s)
+        s = lib.einsum("hi,i->h", w, s)
+        outputs.append(np.array(s))
+    return outputs
+
+
+def _tf_reference(backend, w, s0, n):
+    lib = backend.framework
+    outputs = []
+    s = s0
+    for _ in range(n):
+        s = lib.linalg.matvec(w, s)
+        outputs.append(np.array(s))
+    return outputs
+
+
+def _torch_reference(backend, w, s0, n):
+    lib = backend.framework
+    outputs = []
+    s = s0
+    for _ in range(n):
+        s = lib.mv(w, s)
+        outputs.append(np.array(s.detach()))
     return outputs
 
 
@@ -55,19 +74,19 @@ BACKENDS = [
         NumpyBackend(),
         module="seed.stream_linear",
         fn="unfold_stream_linear",
-        reference=None,
+        reference=_numpy_reference,
     ),
     BackendSpec(
         TFBackend(),
         module="seed.stream_linear",
         fn="unfold_stream_linear",
-        reference=None,
+        reference=_tf_reference,
     ),
     BackendSpec(
         TorchBackend(),
         module="seed.stream_linear",
         fn="unfold_stream_linear",
-        reference=None,
+        reference=_torch_reference,
     ),
 ]
 
@@ -97,7 +116,7 @@ class TestStreamRnn:
 
         unfold = spec.load(GENERATED_ROOT)
         gen = _take_n(unfold, w, s0, n)
-        ref = _reference(w, s0, n)
+        ref = spec.reference(backend, w, s0, n)
 
         assert len(gen) == n, f"[{backend.name}] expected {n} steps, got {len(gen)}"
         for k, (g, r) in enumerate(zip(gen, ref)):

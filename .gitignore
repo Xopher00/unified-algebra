@@ -17,3 +17,5 @@ src/unialg/graphify-out/
 src/unialg/.refactor_plan/
 src/hydra/
 src/hydra_local_backup/
+*.hi
+*.o

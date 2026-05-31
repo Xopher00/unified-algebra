@@ -17,14 +17,14 @@ logical UniAlg op keys to backend-specific qualified paths:
 @
 
 At DSL-definition time, morphisms reference ops symbolically as
-@unialg.backend.matmul@.  The lowering pass (see "UniAlg.Pipeline.Lowering")
+@unialg.backend.matmul@.  The lowering pass (see "UniAlg.Backend")
 rewrites these names to their backend-specific equivalents (@numpy.matmul@)
 before Hydra generates Python source.
 
 'BackendOp' and 'call' are the construction side; the @resolve*@ and @lookup*@
 functions are the query side used by lowering.
 -}
-module UniAlg.Pipeline.Backend
+module UniAlg.Backend.Spec
   ( BackendOp
   , backendOp
   , backendOpName

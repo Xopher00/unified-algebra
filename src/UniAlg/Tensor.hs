@@ -8,7 +8,7 @@ Parse an equation string with 'parseEquation', compose equations with
 'applyEquation' \/ 'applyTree', or to a codegen 'Module' with
 'equationModule' \/ 'treeModule'.
 -}
-module UniAlg.Domain.Tensors
+module UniAlg.Tensor
   ( Tensor
   , Index(..)
   , Orientation(..)
@@ -52,7 +52,7 @@ import Hydra.Dsl.Meta.Phantoms
   , toDefinition
   )
 
-import UniAlg.Semantics.Term.Arrows
+import UniAlg.Term
   ( reify2
   )
 
@@ -66,13 +66,13 @@ import UniAlg.Core.Ops
   ( op
   )
 
-import UniAlg.Semantics.Term.Polynomial
+import UniAlg.Shape
   ( Const(..)
   , Product(..)
   , RoseF
   )
 
-import UniAlg.Semantics.Recursion
+import UniAlg.Scheme
   ( Fix(..)
   , cata
   )

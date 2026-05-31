@@ -21,7 +21,7 @@ prevent @\"missing binding\"@ errors from the Python coder.  They are passed
 as part of the @universe@ list to 'writePythonWithBackend' but are /not/
 included in @modulesToGenerate@, so they do not appear in generated output.
 -}
-module UniAlg.Pipeline.Externals
+module UniAlg.Backend.Externals
   ( backendExternalModules
   ) where
 
@@ -43,7 +43,7 @@ import Hydra.Kernel
 
 import qualified Hydra.Dsl.Types as Types
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend.Spec
   ( BackendSpec(..)
   , OpSpec(..)
   )

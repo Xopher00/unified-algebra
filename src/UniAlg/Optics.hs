@@ -29,7 +29,7 @@ _snd = mkLens snd (\\p w -> pair (fst p) w)
 _wK = _snd . _fst   -- second field of outer pair, first of inner
 @
 -}
-module UniAlg.Semantics.Optics
+module UniAlg.Optics
   ( Lens
   , Traversal
   , Prism
@@ -71,16 +71,16 @@ import Hydra.Phantoms
   ( TTerm
   )
 
-import UniAlg.Semantics.Term.Polynomial
+import UniAlg.Shape
   ( Identity(..)
   , Const(..)
   )
 
-import UniAlg.Semantics.Term.Arrows
+import UniAlg.Term
   ( TArr(..)
   )
 
-import UniAlg.Semantics.Category
+import UniAlg.Term
   ( fst
   , snd
   , pair

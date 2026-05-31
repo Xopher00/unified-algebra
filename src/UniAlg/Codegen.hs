@@ -11,11 +11,11 @@ Workflow:
 4. Call Hydra's Python coder (@Hydra.Python.Coder.moduleToPython@).
 
 For non-recursive definitions use 'writePythonWithBackend' or 'generatePythonTerms'.
-For recursive definitions use 'UniAlg.Semantics.Recursion.recModule' or
-'UniAlg.Semantics.Recursion.cataModule' \/ 'UniAlg.Semantics.Recursion.anaModule'.
+For recursive definitions use 'UniAlg.Architecture.hyloModule' or
+'UniAlg.Architecture.cataModule' \/ 'UniAlg.Architecture.anaModule'.
 'generatePythonString' generates Python in-memory; 'evalPython' pipes it straight to the interpreter.
 -}
-module UniAlg.Pipeline.Codegen
+module UniAlg.Codegen
   ( writePythonWithBackend
   , writePythonWithBackendRec
   , loadBackendAndWritePython
@@ -62,18 +62,12 @@ import Hydra.Phantoms
 
 import qualified Hydra.Python.Coder as PythonCoder
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend
   ( BackendContext(..)
   , backendContextSpec
+  , backendExternalModules
   , loadBackendContext
-  )
-
-import UniAlg.Pipeline.Externals
-  ( backendExternalModules
-  )
-
-import UniAlg.Pipeline.Lowering
-  ( lowerModule
+  , lowerModule
   )
 
 
@@ -102,7 +96,7 @@ writePythonWithBackend = writePython' True
 
 
 -- | Like 'writePythonWithBackend' but skips Hydra type inference.
--- Use for modules built with 'recModule' or 'recDef'.
+-- Use for modules built with 'hyloModule' or 'hyloDef'.
 writePythonWithBackendRec :: BackendContext -> FilePath -> [Module] -> [Module] -> IO Int
 writePythonWithBackendRec = writePython' False
 
@@ -123,7 +117,7 @@ loadBackendAndWritePython = loadAndWrite' True
 
 
 -- | Like 'loadBackendAndWritePython' but skips Hydra type inference.
--- Use for modules built with 'recModule' or 'recDef'.
+-- Use for modules built with 'hyloModule' or 'hyloDef'.
 loadBackendAndWritePythonRec :: FilePath -> Text -> FilePath -> [Module] -> [Module] -> IO (Either String Int)
 loadBackendAndWritePythonRec = loadAndWrite' False
 

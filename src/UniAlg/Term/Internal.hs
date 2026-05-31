@@ -1,9 +1,4 @@
--- | Raw TTerm IR construction helpers.
---
--- Type-erased phantom wrappers around Hydra IR nodes.  These are
--- foundational primitives used by 'UniAlg.Semantics.Term.Polynomial'
--- and 'UniAlg.Semantics.Schemes'; they carry no functor or algebra logic.
-module UniAlg.Semantics.Term.Builders
+module UniAlg.Term.Internal
   ( tApp
   , tLam
   , tVar
@@ -13,10 +8,11 @@ module UniAlg.Semantics.Term.Builders
   , tEither
   , tLeft
   , tRight
+  , tApply
   ) where
 
-import Hydra.Kernel           ( Name(..), Term(..) )
-import Hydra.Phantoms         ( TTerm(..) )
+import Hydra.Kernel (Name(..), Term(..))
+import Hydra.Phantoms (TTerm(..))
 import qualified Hydra.Dsl.Terms as Terms
 
 import Hydra.Sources.Libraries
@@ -57,3 +53,6 @@ tLeft x = TTerm (Terms.left (unTTerm x))
 
 tRight :: TTerm a -> TTerm a
 tRight x = TTerm (Terms.right (unTTerm x))
+
+tApply :: TTerm a -> TTerm a -> TTerm a
+tApply f x = TTerm (Terms.apply (unTTerm f) (unTTerm x))

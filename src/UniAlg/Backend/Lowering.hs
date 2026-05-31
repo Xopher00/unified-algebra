@@ -23,7 +23,7 @@ The result is still Hydra IR; actual Python emission is handled by
 
 The entry point for most uses is 'lowerModule'.
 -}
-module UniAlg.Pipeline.Lowering
+module UniAlg.Backend.Lowering
   ( lowerName
   , lowerTerm
   , lowerDefinition
@@ -45,7 +45,7 @@ import Hydra.Kernel
 
 import qualified Hydra.Rewriting as Rewriting
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend.Spec
   ( BackendContext(..)
   , BackendSpec
   , backendContextSpec
@@ -111,7 +111,7 @@ lowerDefinitions spec =
 -- | Lower backend names in all definitions of a 'Module'.
 --
 -- This is the main entry point used by 'writePythonWithBackend' in
--- "UniAlg.Pipeline.Codegen".
+-- "UniAlg.Codegen".
 lowerModule :: BackendSpec -> Module -> Module
 lowerModule spec modu =
   modu

@@ -3,19 +3,30 @@ Recursive NN — RTreeF cata.
 
 Functor:   F(X) = Tensor + (X × X)
 Semiring:  real  (add_id=0.0, mul_id=1.0)
-Algebra:   leaf = W · a (contraction), node = left + right (elementwise)
+Algebra:   leaf = W · a (contraction hi,i->h), node = left + right (elementwise)
 
-No library-native counterpart — structural test only (finite output check).
+Differential test (TF): fold_tree vs SimpleRNN(activation='linear') with
+W_rec=I, b=0, h_0=0. By linearity of W, fold(tree) = W @ sum(leaves) for
+any tree shape — the same value SimpleRNN accumulates over the leaf sequence.
+
+Structural test (torch, numpy): verifies finite output.
 """
 
+import numpy as np
 import pytest
 from hypothesis import given, settings, strategies as st
 from hydra.dsl.python import Left, Right
 
-from backends import BackendSpec, TFBackend, TorchBackend, HYPO, arch_generated_root
+from backends import (
+    BackendSpec,
+    NumpyBackend,
+    TFBackend,
+    TorchBackend,
+    HYPO,
+    arch_generated_root,
+)
 
 GENERATED_ROOT = arch_generated_root(__file__)
-
 
 ADD_ID = 0.0
 MUL_ID = 1.0
@@ -24,9 +35,33 @@ INPUT_DIMS = [1, 2, 3]
 HIDDEN_DIMS = [1, 2, 4]
 
 
+def _tf_reference(backend, w, leaves, idim, hdim):
+    tf = backend.framework
+    rnn = tf.keras.layers.SimpleRNN(
+        units=hdim,
+        activation="linear",
+        use_bias=False,
+        return_sequences=False,
+        dtype="float64",
+    )
+    x_tf = tf.expand_dims(tf.stack(leaves), axis=0)  # (1, n_leaves, idim)
+    rnn(x_tf)  # build weights
+    rnn.set_weights(
+        [
+            tf.transpose(w),  # kernel: (idim, hdim)
+            np.eye(hdim),  # recurrent_kernel: (hdim, hdim) = I
+        ]
+    )
+    h0 = tf.zeros((1, hdim), dtype=tf.float64)
+    return rnn(x_tf, initial_state=h0)[0]
+
+
 BACKENDS = [
-    BackendSpec(TFBackend(), module="seed.tree", fn="fold_tree", reference=None),
+    BackendSpec(
+        TFBackend(), module="seed.tree", fn="fold_tree", reference=_tf_reference
+    ),
     BackendSpec(TorchBackend(), module="seed.tree", fn="fold_tree", reference=None),
+    BackendSpec(NumpyBackend(), module="seed.tree", fn="fold_tree", reference=None),
 ]
 
 
@@ -62,11 +97,17 @@ class TestTreeRnn:
 
     @given(data=st.data())
     @settings(max_examples=50, **HYPO)
-    def test_tree_runs(self, spec, data):
+    def test_tree_cata(self, spec, data):
         backend = spec.backend
-        w, _, tree, _, _ = data.draw(tree_inputs(backend))
+        w, leaves, tree, idim, hdim = data.draw(tree_inputs(backend))
 
         fold = spec.load(GENERATED_ROOT)
-        result = fold(w, tree)
+        gen = fold(w, tree)
 
-        assert backend.is_finite(result), f"[{backend}] non-finite tree output"
+        if spec.reference is not None:
+            ref = spec.reference(backend, w, leaves, idim, hdim)
+            assert backend.allclose(
+                gen, ref, atol=1e-5
+            ), f"[{backend.name}] mismatch: input_dim={idim}, hidden_dim={hdim}"
+        else:
+            assert backend.is_finite(gen), f"[{backend.name}] non-finite output"

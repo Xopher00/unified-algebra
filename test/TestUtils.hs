@@ -61,7 +61,7 @@ backendsDir =
 -- | Python venv path
 pythonVenv :: FilePath
 pythonVenv =
-  "../.venv/bin/python3"
+  ".venv/bin/python3"
 
 
 -- | Load the numpy backend context, error on failure

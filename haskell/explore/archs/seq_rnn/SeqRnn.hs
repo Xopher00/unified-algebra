@@ -10,7 +10,7 @@ Two seeds are exported:
   * 'seqCata' — linear activation; tested against @SimpleRNN(activation=\'linear\')@.
   * 'seqCataTanh' — tanh activation; tested against @torch.nn.RNN(nonlinearity=\'tanh\')@.
 -}
-module Explore.Archs.SeqRnn
+module SeqRnn
   ( SeqF
   , seqCata
   , seqCataTanh
@@ -21,7 +21,7 @@ import Prelude hiding (either, tanh)
 import Hydra.Kernel (Module(..))
 import UniAlg
 
-import Explore.Seed (SeedEntry(..), ArchClass(..), contraction)
+import Seed (SeedEntry(..), ArchClass(..), contraction)
 
 
 type SeqF a = Sum (Const ()) (Product (Const (TTerm a)) Identity)

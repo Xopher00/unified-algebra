@@ -8,7 +8,7 @@ programmatically.
 
 'enumerate' generates all well-formed 'PolyF' up to a given depth.
 -}
-module Explore.Grammar
+module Grammar
   ( PolyF(..)
   , enumerate
   , polyArity

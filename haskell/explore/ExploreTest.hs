@@ -15,10 +15,10 @@ import UniAlg.Pipeline.Codegen (generatePythonString, evalPython)
 import UniAlg.Pipeline.Externals (backendExternalModules)
 import UniAlg.Pipeline.Lowering (lowerModule)
 
-import Explore.Laws
-import Explore.Seed (seedLabel, seedModule, SeedEntry)
-import Explore.Catalogue (seeds, allArchSeeds)
-import qualified Explore.Archs.Moore as Moore
+import Laws
+import Seed (seedLabel, seedModule, SeedEntry)
+import Catalogue (seeds, allArchSeeds)
+import qualified Moore
 
 import TestUtils
   ( assertBool

@@ -3,11 +3,11 @@
 {-|
 Shared types and utilities for the Explore seed catalogue.
 
-Individual seeds live in their own modules under "Explore.Archs.*".
+Individual seeds live in their own modules under "explore/archs/*/".
 This module provides only the common types and the 'contraction' helper
 parameterized on an explicit 'Semiring'.
 -}
-module Explore.Seed
+module Seed
   ( SeedEntry(..)
   , ArchClass(..)
   , contraction

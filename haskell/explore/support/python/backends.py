@@ -8,8 +8,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable, Optional
 import importlib
+import importlib.util
+import os
+import sys
 
-from hypothesis import strategies as st
+from hypothesis import HealthCheck, strategies as st
 
 
 SCALAR = "scalar"
@@ -23,10 +26,29 @@ _floats = st.floats(min_value=-2, max_value=2,
                     allow_nan=False, allow_infinity=False)
 
 
-def load_generated(module: str, fn: str):
-    """Import a generated function by module path and name."""
-    mod = importlib.import_module(module)
-    return getattr(mod, fn)
+HYPO = dict(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+
+
+def arch_generated_root(arch_file: str) -> str:
+    """Return the generated/ directory co-located with an arch.py file."""
+    return os.path.join(os.path.dirname(arch_file), "generated")
+
+
+def load_generated(backend_name: str, module: str, fn: str, generated_root: str):
+    """Load a generated function from a backend-specific generated directory."""
+    cache_key = f"_gen_{backend_name}_{module.replace('.', '_')}"
+    if cache_key not in sys.modules:
+        file_path = os.path.join(generated_root, backend_name,
+                                 module.replace(".", os.sep) + ".py")
+        spec = importlib.util.spec_from_file_location(cache_key, file_path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[cache_key] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except Exception:
+            del sys.modules[cache_key]
+            raise
+    return getattr(sys.modules[cache_key], fn)
 
 
 @dataclass
@@ -35,6 +57,9 @@ class BackendSpec:
     module: str           # generated Python module, e.g. "seed.seq"
     fn: str               # function name in that module, e.g. "fold_seq"
     reference: Optional[Callable]  # None = structural test only
+
+    def load(self, generated_root: str):
+        return load_generated(self.backend.name, self.module, self.fn, generated_root)
 
 
 class Backend(ABC):
@@ -60,18 +85,14 @@ class Backend(ABC):
     def is_finite(self, tensor) -> bool:
         """True iff all elements are finite."""
 
-    @abstractmethod
-    def run_reference_rnn(self, wIn, wRec, b, s0, elements, input_dim, hidden_dim):
-        """Run the library-native RNN. All inputs native. Returns native."""
-
     def __repr__(self):
         return self.name
 
 
-# ── TensorFlow ───────────────────────────────────────────────────────────────
+# ── NumPy ────────────────────────────────────────────────────────────────────
 
-class TFBackend(Backend):
-    name = "tf"
+class NumpyBackend(Backend):
+    name = "numpy"
 
     def random_vector(self, draw, dim):
         import numpy as np
@@ -88,38 +109,48 @@ class TFBackend(Backend):
 
     def allclose(self, a, b, atol=1e-5):
         import numpy as np
-        return np.allclose(a, b, atol=atol)
+        return bool(np.allclose(a, b, atol=atol))
 
     def is_finite(self, tensor) -> bool:
         import numpy as np
-        return bool(np.all(np.isfinite(np.asarray(tensor))))
+        return bool(np.all(np.isfinite(tensor)))
 
-    def run_reference_rnn(self, wIn, wRec, b, s0, elements, input_dim, hidden_dim):
-        """SimpleRNN(activation='linear', use_bias=True).
+    @property
+    def framework(self):
+        import numpy
+        return numpy
 
-        Direct weight copy — no diagonal adapter needed.
-        kernel = wIn.T  (SimpleRNN expects [input, hidden])
-        recurrent_kernel = wRec.T  (SimpleRNN expects [hidden, hidden])
-        bias = b
 
-        Reversed element order: cata is right-fold, SimpleRNN is left-fold.
-        """
-        import numpy as np
+# ── TensorFlow ───────────────────────────────────────────────────────────────
+
+class TFBackend(Backend):
+    name = "tensorflow"
+
+    def random_vector(self, draw, dim):
         import tensorflow as tf
+        return tf.constant([draw(_floats) for _ in range(dim)], dtype=tf.float64)
 
-        rev = list(reversed(elements))
-        rnn = tf.keras.layers.SimpleRNN(
-            units=hidden_dim, activation='linear', use_bias=True,
-            return_sequences=False, dtype='float64')
-        x_tf = np.stack(rev, dtype=np.float64)[np.newaxis]
-        rnn(x_tf)
-        rnn.set_weights([
-            wIn.T,   # kernel: (input, hidden) — SimpleRNN convention
-            wRec.T,  # recurrent_kernel: (hidden, hidden)
-            b,       # bias
-        ])
-        init = s0.reshape(1, hidden_dim).astype(np.float64)
-        return rnn(x_tf, initial_state=tf.constant(init)).numpy()[0]
+    def random_matrix(self, draw, rows, cols):
+        import tensorflow as tf
+        return tf.constant([[draw(_floats) for _ in range(cols)]
+                            for _ in range(rows)], dtype=tf.float64)
+
+    def fill_vector(self, dim, value):
+        import tensorflow as tf
+        return tf.constant([value] * dim, dtype=tf.float64)
+
+    def allclose(self, a, b, atol=1e-5):
+        import tensorflow as tf
+        return bool(tf.reduce_all(tf.abs(a - b) <= atol).numpy())
+
+    def is_finite(self, tensor) -> bool:
+        import tensorflow as tf
+        return bool(tf.reduce_all(tf.math.is_finite(tensor)).numpy())
+
+    @property
+    def framework(self):
+        import tensorflow
+        return tensorflow
 
 
 # ── PyTorch ──────────────────────────────────────────────────────────────────
@@ -153,31 +184,7 @@ class TorchBackend(Backend):
         import torch
         return bool(torch.all(torch.isfinite(tensor.detach())))
 
-    def run_reference_rnn(self, wIn, wRec, b, s0, elements, input_dim, hidden_dim):
-        """torch.nn.RNN(nonlinearity='tanh', bias=True).
-
-        Direct weight copy — no diagonal adapter needed.
-        weight_ih = wIn   (torch expects [hidden, input])
-        weight_hh = wRec  (torch expects [hidden, hidden])
-        bias_ih = b, bias_hh = zeros
-
-        Reversed element order: cata is right-fold, RNN is left-fold.
-        left-fold(reversed) == right-fold(original).
-        """
+    @property
+    def framework(self):
         import torch
-
-        rev = list(reversed(elements))
-        x_t = torch.stack(rev).unsqueeze(1)  # (steps, batch=1, input)
-        h0 = s0.reshape(1, 1, hidden_dim)    # (layers=1, batch=1, hidden)
-
-        rnn = torch.nn.RNN(input_size=input_dim, hidden_size=hidden_dim,
-                           num_layers=1, nonlinearity='tanh', bias=True,
-                           batch_first=False, dtype=torch.float64)
-        with torch.no_grad():
-            rnn.weight_ih_l0.copy_(wIn)
-            rnn.weight_hh_l0.copy_(wRec)
-            rnn.bias_ih_l0.copy_(b)
-            rnn.bias_hh_l0.zero_()
-            _, hn = rnn(x_t, h0)
-
-        return hn.squeeze()
+        return torch

@@ -9,24 +9,23 @@ No library-native counterpart — structural test only (finite output check).
 """
 
 import pytest
-from hypothesis import given, settings, HealthCheck, strategies as st
+from hypothesis import given, settings, strategies as st
 from hydra.dsl.python import Left, Right
 
-from backends import BackendSpec, TFBackend, TorchBackend, load_generated
+from backends import BackendSpec, TFBackend, TorchBackend, HYPO, arch_generated_root
+
+GENERATED_ROOT = arch_generated_root(__file__)
 
 
 ADD_ID = 0.0
 MUL_ID = 1.0
 
-INPUT_DIMS  = [1, 2, 3]
+INPUT_DIMS = [1, 2, 3]
 HIDDEN_DIMS = [1, 2, 4]
-
-HYPO = dict(deadline=None,
-            suppress_health_check=[HealthCheck.function_scoped_fixture])
 
 
 BACKENDS = [
-    BackendSpec(TFBackend(),    module="seed.tree", fn="fold_tree", reference=None),
+    BackendSpec(TFBackend(), module="seed.tree", fn="fold_tree", reference=None),
     BackendSpec(TorchBackend(), module="seed.tree", fn="fold_tree", reference=None),
 ]
 
@@ -37,7 +36,7 @@ def _tree_recursive(draw, backend, dim, depth):
         val = backend.random_vector(draw, dim)
         return [val], Left(val)
     else:
-        left_vals,  left_tree  = draw(_tree_recursive(backend, dim, depth - 1))
+        left_vals, left_tree = draw(_tree_recursive(backend, dim, depth - 1))
         right_vals, right_tree = draw(_tree_recursive(backend, dim, depth - 1))
         return left_vals + right_vals, Right((left_tree, right_tree))
 
@@ -45,10 +44,10 @@ def _tree_recursive(draw, backend, dim, depth):
 @st.composite
 def tree_inputs(draw, backend, max_depth=3):
     """Draw (w, leaves, tree, input_dim, hidden_dim)."""
-    input_dim  = draw(st.sampled_from(INPUT_DIMS))
+    input_dim = draw(st.sampled_from(INPUT_DIMS))
     hidden_dim = draw(st.sampled_from(HIDDEN_DIMS))
 
-    w            = backend.random_matrix(draw, hidden_dim, input_dim)
+    w = backend.random_matrix(draw, hidden_dim, input_dim)
     leaves, tree = draw(_tree_recursive(backend, input_dim, max_depth))
 
     return w, leaves, tree, input_dim, hidden_dim
@@ -67,8 +66,7 @@ class TestTreeRnn:
         backend = spec.backend
         w, _, tree, _, _ = data.draw(tree_inputs(backend))
 
-        fold   = load_generated(spec.module, spec.fn)
+        fold = spec.load(GENERATED_ROOT)
         result = fold(w, tree)
 
-        assert backend.is_finite(result), \
-            f"[{backend}] non-finite tree output"
+        assert backend.is_finite(result), f"[{backend}] non-finite tree output"

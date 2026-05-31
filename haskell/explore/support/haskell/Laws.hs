@@ -23,15 +23,15 @@ A symbolic check that passes means \"confirmed\" — the IR forms are provably
 equal after reduction.  A check that cannot be expressed (e.g. pair eta)
 is reported as \"not structurally checkable,\" not silently skipped.
 -}
-module Explore.Laws
+module Laws
   ( checkGrammarLaws
   , checkClassificationLaws
   , checkSeedMapping
   ) where
 
-import Explore.Generate
-import Explore.Grammar
-import Explore.Seed
+import Generate
+import Grammar
+import Seed
 
 
 -- | Verify grammar enumeration properties.

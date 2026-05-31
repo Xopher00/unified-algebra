@@ -11,7 +11,7 @@ Turn a functor + canonical (co)algebra into a codegen-ready 'Module'.
 The 'PolyF' AST is a value. Resolution:
 
 - __Seed MVP__ (this module): hand-pair each seed 'PolyF' with its concrete
-  @recModule \@T@ call in 'Explore.Seed' — finite, explicit list.
+  @recModule \@T@ call in 'Seed' — finite, explicit list.
 - __General depth-N__ (future): a Template Haskell splice consuming
   'enumerate' and emitting one @recModule \@\<typeFromPolyF\>@ per AST.
 
@@ -25,16 +25,16 @@ Two canonical forms per functor:
    @Const ()@ → base seed; @Identity@ → recurse; @Product@ → combine
    children with a binary op; @Sum@ → branch.
 
-The seed set in 'Explore.Seed' uses these patterns.
+The seed set in 'Seed' uses these patterns.
 -}
-module Explore.Generate
+module Generate
   ( classifyPolyF
   , matchesSeed
   ) where
 
-import Explore.Grammar
-import Explore.Seed
-import Explore.Catalogue (seeds)
+import Grammar
+import Seed
+import Catalogue (seeds)
 
 
 -- | Which seed entry (if any) a 'PolyF' AST corresponds to.

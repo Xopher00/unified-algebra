@@ -36,17 +36,22 @@ library
 
 library explore
   visibility:       public
-  hs-source-dirs:   explore
+  hs-source-dirs:
+    explore/support/haskell
+    explore/archs/seq_rnn
+    explore/archs/tree_rnn
+    explore/archs/stream_rnn
+    explore/archs/moore
   exposed-modules:
-    Explore.Archs.Moore
-    Explore.Archs.SeqRnn
-    Explore.Archs.StreamRnn
-    Explore.Archs.TreeRnn
-    Explore.Catalogue
-    Explore.Generate
-    Explore.Grammar
-    Explore.Laws
-    Explore.Seed
+    Catalogue
+    Generate
+    Grammar
+    Laws
+    Moore
+    Seed
+    SeqRnn
+    StreamRnn
+    TreeRnn
   build-depends:
     base    >= 4.18,
     hydra,
@@ -56,7 +61,7 @@ library explore
 test-suite explore-test
   type:             exitcode-stdio-1.0
   main-is:          ExploreTest.hs
-  hs-source-dirs:   explore/test, test
+  hs-source-dirs:   explore, test
   build-depends:
     base, unialg, explore, hydra, text, process, directory, filepath, test-utils
   default-language: Haskell2010

@@ -5,7 +5,7 @@
 Moore machine: polynomial functor @F(X) = Tensor × (Tensor → X)@.
 Uses the 'Exp' functor. Structural test only (2-tuple output).
 -}
-module Explore.Archs.Moore
+module Moore
   ( MooreF
   , mooreCata
   , backendSeeds
@@ -14,7 +14,7 @@ module Explore.Archs.Moore
 import Hydra.Kernel (Module(..))
 import UniAlg
 
-import Explore.Seed (SeedEntry(..), ArchClass(..))
+import Seed (SeedEntry(..), ArchClass(..))
 
 
 type MooreF o i = Product (Const (TTerm o)) (Exp (TTerm i))

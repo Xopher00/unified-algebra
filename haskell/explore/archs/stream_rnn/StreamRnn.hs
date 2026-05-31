@@ -5,7 +5,7 @@
 Unfolding RNN: polynomial functor @F(X) = Tensor × X@.
 Identity corecursion via 'foldToTerm'. Structural test only.
 -}
-module Explore.Archs.StreamRnn
+module StreamRnn
   ( StreamF
   , streamAna
   , backendSeeds
@@ -14,7 +14,7 @@ module Explore.Archs.StreamRnn
 import Hydra.Kernel (Module(..))
 import UniAlg
 
-import Explore.Seed (SeedEntry(..), ArchClass(..))
+import Seed (SeedEntry(..), ArchClass(..))
 
 
 type StreamF o = Product (Const (TTerm o)) Identity

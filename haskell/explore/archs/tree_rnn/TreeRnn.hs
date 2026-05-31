@@ -8,7 +8,7 @@ Recursive NN architecture: polynomial functor @F(X) = Tensor + (X × X)@.
 Leaf = @W · a@ (contraction), node = @left + right@ (elementwise).
 No library-native counterpart — structural test only.
 -}
-module Explore.Archs.TreeRnn
+module TreeRnn
   ( RTreeF
   , treeCata
   , backendSeeds
@@ -18,7 +18,7 @@ import Prelude hiding (either)
 import Hydra.Kernel (Module(..))
 import UniAlg
 
-import Explore.Seed (SeedEntry(..), ArchClass(..), contraction)
+import Seed (SeedEntry(..), ArchClass(..), contraction)
 
 
 type RTreeF a = Sum (Const (TTerm a)) (Product Identity Identity)

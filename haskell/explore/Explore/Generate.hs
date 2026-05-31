@@ -34,6 +34,7 @@ module Explore.Generate
 
 import Explore.Grammar
 import Explore.Seed
+import Explore.Catalogue (seeds)
 
 
 -- | Which seed entry (if any) a 'PolyF' AST corresponds to.

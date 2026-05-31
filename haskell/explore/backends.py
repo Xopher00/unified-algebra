@@ -5,8 +5,11 @@ Each backend owns the full tensor lifecycle. No runtime crossing.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Callable, Optional
+import importlib
+
 from hypothesis import strategies as st
-from hydra.dsl.python import Left, Right
 
 
 SCALAR = "scalar"
@@ -18,6 +21,20 @@ MATRIX_DIMS = [2, 3]
 
 _floats = st.floats(min_value=-2, max_value=2,
                     allow_nan=False, allow_infinity=False)
+
+
+def load_generated(module: str, fn: str):
+    """Import a generated function by module path and name."""
+    mod = importlib.import_module(module)
+    return getattr(mod, fn)
+
+
+@dataclass
+class BackendSpec:
+    backend: "Backend"
+    module: str           # generated Python module, e.g. "seed.seq"
+    fn: str               # function name in that module, e.g. "fold_seq"
+    reference: Optional[Callable]  # None = structural test only
 
 
 class Backend(ABC):
@@ -37,15 +54,11 @@ class Backend(ABC):
 
     @abstractmethod
     def allclose(self, a, b, atol=1e-5):
-        """Native comparison."""
+        """Native allclose comparison."""
 
     @abstractmethod
-    def load_fold_seq(self):
-        """Import the generated fold_seq for this backend."""
-
-    @abstractmethod
-    def load_fold_tree(self):
-        """Import the generated fold_tree for this backend."""
+    def is_finite(self, tensor) -> bool:
+        """True iff all elements are finite."""
 
     @abstractmethod
     def run_reference_rnn(self, wIn, wRec, b, s0, elements, input_dim, hidden_dim):
@@ -77,13 +90,9 @@ class TFBackend(Backend):
         import numpy as np
         return np.allclose(a, b, atol=atol)
 
-    def load_fold_seq(self):
-        from seed.seq import fold_seq
-        return fold_seq
-
-    def load_fold_tree(self):
-        from seed.tree import fold_tree
-        return fold_tree
+    def is_finite(self, tensor) -> bool:
+        import numpy as np
+        return bool(np.all(np.isfinite(np.asarray(tensor))))
 
     def run_reference_rnn(self, wIn, wRec, b, s0, elements, input_dim, hidden_dim):
         """SimpleRNN(activation='linear', use_bias=True).
@@ -140,13 +149,9 @@ class TorchBackend(Backend):
             b = torch.tensor(b, dtype=torch.float64)
         return torch.allclose(a.detach(), b.detach(), atol=atol)
 
-    def load_fold_seq(self):
-        from seed.seq_tanh import fold_seq_tanh
-        return fold_seq_tanh
-
-    def load_fold_tree(self):
-        from seed.tree import fold_tree
-        return fold_tree
+    def is_finite(self, tensor) -> bool:
+        import torch
+        return bool(torch.all(torch.isfinite(tensor.detach())))
 
     def run_reference_rnn(self, wIn, wRec, b, s0, elements, input_dim, hidden_dim):
         """torch.nn.RNN(nonlinearity='tanh', bias=True).

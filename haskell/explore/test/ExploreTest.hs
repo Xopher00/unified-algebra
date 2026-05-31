@@ -5,7 +5,6 @@ module Main where
 import Data.List (isInfixOf)
 import qualified Data.Text as T
 import System.Directory (createDirectoryIfMissing)
-import System.Environment (setEnv, lookupEnv)
 import System.FilePath (takeDirectory, (</>))
 import System.Process (callProcess)
 
@@ -17,13 +16,14 @@ import UniAlg.Pipeline.Externals (backendExternalModules)
 import UniAlg.Pipeline.Lowering (lowerModule)
 
 import Explore.Laws
-import Explore.Seed
+import Explore.Seed (seedLabel, seedModule, SeedEntry)
+import Explore.Catalogue (seeds, allArchSeeds)
+import qualified Explore.Archs.Moore as Moore
 
 import TestUtils
   ( assertBool
   , backendsDir
   , generateFor
-  , loadNumpyContext
   , pythonVenv
   )
 
@@ -68,7 +68,7 @@ testSeeds = do
 testMoore :: IO ()
 testMoore = do
   putStrLn "\n=== Moore machine (MooreF Tensor Tensor) ==="
-  let entry = mooreCata
+  let entry = Moore.mooreCata
   py <- generateFor (seedModule entry)
   putStrLn py
   assertBool "moore: emitted as a def"        ("def moore_step"   `isInfixOf` py)
@@ -95,33 +95,27 @@ testLaws = do
       assertBool (T.pack label) passed
 
 
--- ── Arm B: per-library differential tests ────────────────────────────────────
+-- ── Arm B: per-arch differential tests ───────────────────────────────────────
 
 testHarness :: IO ()
 testHarness = do
-  let npDir    = "explore/generated/numpy"
-      tfDir    = "explore/generated/tf"
-      torchDir = "explore/generated/torch"
-
-  putStrLn "\n=== Arm B: generating per-backend modules ==="
-  mapM_ (\e -> writeModuleForBackend "numpy" npDir (seedModule e)) seeds
-  mapM_ (\e -> writeModuleForBackend "tensorflow" tfDir (seedModule e)) seeds
-  writeModuleForBackend "torch" torchDir (seedModule seqCataTanh)
-  mapM_ (\e -> writeModuleForBackend "torch" torchDir (seedModule e))
-    [treeCata, streamAna, mooreCata]
+  putStrLn "\n=== Arm B: generating per-arch, per-backend modules ==="
+  mapM_ generateArch allArchSeeds
 
   putStrLn "=== Formatting generated code ==="
-  callProcess pythonVenv ["-m", "black", "--quiet", "explore/generated"]
-
-  existing <- lookupEnv "PYTHONPATH"
-  let newPath = tfDir <> ":" <> torchDir <> case existing of
-        Just p  -> ":" <> p
-        Nothing -> ""
-  setEnv "PYTHONPATH" newPath
+  callProcess pythonVenv ["-m", "black", "--quiet", "explore/archs"]
 
   putStrLn "=== Arm B: running differential harness ==="
   callProcess pythonVenv
-    ["-m", "pytest", "explore/harness.py", "-v", "--tb=short"]
+    ["-m", "pytest", "explore/archs/", "-v", "--tb=short"]
+
+
+generateArch :: (String, [(String, SeedEntry)]) -> IO ()
+generateArch (archDir, bseeds) = mapM_ generate bseeds
+  where
+    generate (backend, entry) =
+      writeModuleForBackend backend outDir (seedModule entry)
+      where outDir = "explore/archs" </> archDir </> "generated" </> backend
 
 
 main :: IO ()

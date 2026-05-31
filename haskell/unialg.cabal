@@ -38,7 +38,11 @@ library explore
   visibility:       public
   hs-source-dirs:   explore
   exposed-modules:
-    Explore.Archs
+    Explore.Archs.Moore
+    Explore.Archs.SeqRnn
+    Explore.Archs.StreamRnn
+    Explore.Archs.TreeRnn
+    Explore.Catalogue
     Explore.Generate
     Explore.Grammar
     Explore.Laws

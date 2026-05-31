@@ -111,8 +111,8 @@ checkSeedMapping =
   , ("streamAna matches KConst :*: Hole"
     , matchResult "streamAna" (KConst :*: Hole))
 
-  , ("mooreCata matches KConst :*: ExpF Hole"
-    , matchResult "mooreCata" (KConst :*: ExpF Hole))
+  , ("mooreAna matches KConst :*: ExpF Hole"
+    , matchResult "mooreAna" (KConst :*: ExpF Hole))
   ]
   where
     matchResult label poly = case matchesSeed poly of

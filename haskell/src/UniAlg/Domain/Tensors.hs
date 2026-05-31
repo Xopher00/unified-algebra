@@ -52,7 +52,7 @@ import Hydra.Dsl.Meta.Phantoms
   , toDefinition
   )
 
-import UniAlg.Semantics.Arrows
+import UniAlg.Semantics.Term.Arrows
   ( reify2
   )
 
@@ -66,7 +66,7 @@ import UniAlg.Core.Ops
   ( op
   )
 
-import UniAlg.Semantics.Functors
+import UniAlg.Semantics.Term.Polynomial
   ( Const(..)
   , Product(..)
   , RoseF

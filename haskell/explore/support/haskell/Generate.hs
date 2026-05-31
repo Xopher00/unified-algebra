@@ -47,7 +47,7 @@ matchesSeed poly = case filter (\s -> seedPolyF s == poly) seeds of
       "seqCata"    -> KUnit :+: (KConst :*: Hole)
       "treeCata"   -> KConst :+: (Hole :*: Hole)
       "streamAna"  -> KConst :*: Hole
-      "mooreCata"  -> KConst :*: ExpF Hole
+      "mooreAna"   -> KConst :*: ExpF Hole
       _            -> KUnit
 
 

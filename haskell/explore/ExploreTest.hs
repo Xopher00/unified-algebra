@@ -68,7 +68,7 @@ testSeeds = do
 testMoore :: IO ()
 testMoore = do
   putStrLn "\n=== Moore machine (MooreF Tensor Tensor) ==="
-  let entry = Moore.mooreCata
+  let entry = Moore.mooreAna
   py <- generateFor (seedModule entry)
   putStrLn py
   assertBool "moore: emitted as a def"        ("def moore_step"   `isInfixOf` py)

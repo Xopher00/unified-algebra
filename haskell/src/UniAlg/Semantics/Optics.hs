@@ -71,12 +71,12 @@ import Hydra.Phantoms
   ( TTerm
   )
 
-import UniAlg.Semantics.Functors
+import UniAlg.Semantics.Term.Polynomial
   ( Identity(..)
   , Const(..)
   )
 
-import UniAlg.Semantics.Arrows
+import UniAlg.Semantics.Term.Arrows
   ( TArr(..)
   )
 

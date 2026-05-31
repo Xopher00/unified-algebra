@@ -15,11 +15,13 @@ library
     UniAlg.Pipeline.Externals
     UniAlg.Pipeline.Lowering
     UniAlg.Domain.Tensors
-    UniAlg.Semantics.Arrows
+    UniAlg.Semantics.Term.Builders
+    UniAlg.Semantics.Term.Arrows
+    UniAlg.Semantics.Term.Polynomial
     UniAlg.Semantics.Category
-    UniAlg.Semantics.Functors
     UniAlg.Semantics.Recursion
     UniAlg.Semantics.Optics
+    UniAlg.Semantics.Schemes
   build-depends:
     base             >= 4.18,
     aeson,

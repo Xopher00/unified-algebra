@@ -40,9 +40,9 @@ writePythonWithBackend context outputDir [attnMod] [attnMod]
 
 === Module map
 
-* "UniAlg.Semantics.Arrows"   — 'TArr': the core morphism type.
+* "UniAlg.Semantics.Term.Arrows"   — 'TArr': the core morphism type.
 * "UniAlg.Semantics.Category" — structural morphisms and operator aliases.
-* "UniAlg.Semantics.Functors" — 'TFunctor', polynomial functor atoms ('Identity', 'Const', 'Product', 'Sum', 'Exp').
+* "UniAlg.Semantics.Term.Polynomial" — 'TFunctor', polynomial functor atoms ('Identity', 'Const', 'Product', 'Sum', 'Exp').
   Architecture aliases ('SeqF', 'RTreeF', 'StreamF', 'MooreF') live in "Explore.Archs".
 * "UniAlg.Semantics.Recursion"— 'cataT', 'anaT', 'hyloT', 'withSelf'.
 * "UniAlg.Semantics.Optics"   — van Laarhoven optics over 'TTerm' values.
@@ -75,7 +75,10 @@ module UniAlg
   , module UniAlg.Semantics.Category
 
     -- * Polynomial functor atoms and aliases
-  , module UniAlg.Semantics.Functors
+  , module UniAlg.Semantics.Term.Polynomial
+
+    -- * Natural eliminators (algebra and coalgebra)
+  , module UniAlg.Semantics.Schemes
 
     -- * Fixed points and recursion schemes
   , module UniAlg.Semantics.Recursion
@@ -89,8 +92,6 @@ module UniAlg
   , loadBackendAndWritePython
   , loadBackendAndWritePythonRec
   , generatePython
-  , recDef
-  , recModule
   ) where
 
 import Hydra.Kernel
@@ -120,20 +121,20 @@ import UniAlg.Pipeline.Codegen
   , loadBackendAndWritePythonRec
   , writePythonWithBackend
   , writePythonWithBackendRec
-  , recDef
-  , recModule
   )
 
 import UniAlg.Domain.Tensors
 
-import UniAlg.Semantics.Arrows
+import UniAlg.Semantics.Term.Arrows
   ( reify
   , reify2
   )
 
 import UniAlg.Semantics.Category
 
-import UniAlg.Semantics.Functors
+import UniAlg.Semantics.Term.Polynomial
+
+import UniAlg.Semantics.Schemes
 
 import UniAlg.Semantics.Recursion
 

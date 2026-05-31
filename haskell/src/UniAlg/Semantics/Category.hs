@@ -4,7 +4,7 @@
 {-|
 Structural morphisms and operator aliases.
 
-Re-exports 'TArr' from "UniAlg.Semantics.Arrows" and adds:
+Re-exports 'TArr' from "UniAlg.Semantics.Term.Arrows" and adds:
 
 * Operator aliases matching standard @Control.Arrow@ notation so that
   category-theoretic composition feels natural:
@@ -17,12 +17,12 @@ Re-exports 'TArr' from "UniAlg.Semantics.Arrows" and adds:
   @'copy'@, @'delete'@, @'assoc'@, @'symmetry'@, @'merge'@,
   @'distributeLeft'@, @'distributeRight'@.
 
-Import this module instead of "UniAlg.Semantics.Arrows" for user-facing DSL
+Import this module instead of "UniAlg.Semantics.Term.Arrows" for user-facing DSL
 work.
 -}
 module UniAlg.Semantics.Category
   ( -- * Term-level arrow
-    module UniAlg.Semantics.Arrows
+    module UniAlg.Semantics.Term.Arrows
 
     -- * TTerm-level operator aliases (identical syntax to Control.Arrow)
   , (>>>)
@@ -63,7 +63,7 @@ import qualified Hydra.Dsl.Terms as Terms
 import qualified Hydra.Dsl.Meta.Lib.Pairs   as Pairs
 import qualified Hydra.Dsl.Meta.Lib.Eithers as Eithers
 
-import UniAlg.Semantics.Arrows (TArr(..), reify)
+import UniAlg.Semantics.Term.Arrows (TArr(..), reify)
 
 
 -- ── TTerm-level operator aliases ─────────────────────────────────────────────

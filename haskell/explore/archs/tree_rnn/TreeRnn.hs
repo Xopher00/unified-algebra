@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
 
@@ -14,7 +13,6 @@ module TreeRnn
   , backendSeeds
   ) where
 
-import Prelude hiding (either)
 import Hydra.Kernel (Module(..))
 import UniAlg
 
@@ -29,12 +27,12 @@ real = Semiring "add" "multiply" (Just "divide")
 
 treeCata :: SeedEntry
 treeCata = SeedEntry "treeCata" CataArch $
-  recModule @(RTreeF Tensor)
+  cataModule @(RTreeF Tensor)
     "seed.tree" "fold_tree"
     [Namespace "numpy"] ["w"] $ \[w] ->
-      ( id
-      , \case InL (Const a)                        -> contraction real "hi,i->h" w a
-              InR (Pair (Identity l) (Identity r)) -> add l r )
+      ( \a   -> contraction real "hi,i->h" w a
+      , \l r -> add l r
+      )
 
 
 backendSeeds :: [(String, SeedEntry)]

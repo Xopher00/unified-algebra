@@ -23,7 +23,7 @@ the corresponding Python source.  Any combinator that calls @arr@ internally
 will throw at code-generation time.  Use the explicit 'TArr' constructors
 exported from "UniAlg.Semantics.Category" instead.
 -}
-module UniAlg.Semantics.Arrows
+module UniAlg.Semantics.Term.Arrows
   ( TArr(..)
   , reify
   , reify2

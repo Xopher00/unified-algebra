@@ -3,7 +3,7 @@
 
 {-|
 Unfolding RNN: polynomial functor @F(X) = Tensor × X@.
-Identity corecursion via 'foldToTerm'. Structural test only.
+Structural test only — trivial coalgebra repeats state as output.
 -}
 module StreamRnn
   ( StreamF
@@ -22,11 +22,10 @@ type StreamF o = Product (Const (TTerm o)) Identity
 
 streamAna :: SeedEntry
 streamAna = SeedEntry "streamAna" AnaArch $
-  recModule @(StreamF Tensor)
+  anaModule @(StreamF Tensor)
     "seed.stream" "unfold_stream"
     [Namespace "numpy"] [] $ \[] ->
-      ( id :: TTerm Tensor -> TTerm Tensor
-      , foldToTerm )
+      \s -> (s, s)
 
 
 backendSeeds :: [(String, SeedEntry)]

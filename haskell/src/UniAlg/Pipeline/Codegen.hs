@@ -1,9 +1,4 @@
-{-# LANGUAGE AllowAmbiguousTypes   #-}
-{-# LANGUAGE ImplicitParams        #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-|
 Python code generation pipeline.
@@ -16,9 +11,8 @@ Workflow:
 4. Call Hydra's Python coder (@Hydra.Python.Coder.moduleToPython@).
 
 For non-recursive definitions use 'writePythonWithBackend' or 'generatePythonTerms'.
-For recursive definitions use 'recModule' \/ 'recDef' with a @\@f@ type application;
-pass @id@ as the coalgebra for a pure catamorphism.
-To apply an unsaturated type constructor, declare a type synonym: @type MySeq = SeqF Tensor@.
+For recursive definitions use 'UniAlg.Semantics.Recursion.recModule' or
+'UniAlg.Semantics.Recursion.cataModule' \/ 'UniAlg.Semantics.Recursion.anaModule'.
 'generatePythonString' generates Python in-memory; 'evalPython' pipes it straight to the interpreter.
 -}
 module UniAlg.Pipeline.Codegen
@@ -27,8 +21,6 @@ module UniAlg.Pipeline.Codegen
   , loadBackendAndWritePython
   , loadBackendAndWritePythonRec
   , generatePythonTerms
-  , recDef
-  , recModule
   , evalPython
   , generatePythonString
   ) where
@@ -53,13 +45,10 @@ import Hydra.Generation
 
 import Hydra.Kernel
   ( Definition(..)
-  , FunctionType(..)
   , Module(..)
   , Name(..)
   , Namespace(..)
   , TermDefinition(..)
-  , Type(..)
-  , TypeScheme(..)
   )
 
 import Hydra.Languages
@@ -69,28 +58,6 @@ import Hydra.Languages
 import Hydra.Phantoms
   ( TTerm
   , unTTerm
-  )
-
-import Hydra.Dsl.Meta.Phantoms
-  ( var
-  , (~>)
-  )
-
-import UniAlg.Semantics.Arrows
-  ( reify
-  )
-
-import UniAlg.Semantics.Category
-  ( tApply
-  )
-
-import UniAlg.Semantics.Functors
-  ( TFunctor
-  )
-
-import UniAlg.Semantics.Recursion
-  ( hyloT
-  , withSelf
   )
 
 import qualified Hydra.Python.Coder as PythonCoder
@@ -107,10 +74,6 @@ import UniAlg.Pipeline.Externals
 
 import UniAlg.Pipeline.Lowering
   ( lowerModule
-  )
-
-import UniAlg.Core.Reduce
-  ( reduceTerm
   )
 
 
@@ -220,97 +183,6 @@ definitionFromTTerm moduleName (localName, term) =
       , termDefinitionTypeScheme =
           Nothing
       }
-
-
--- ── Recursion-scheme aware builders ──────────────────────────────────────────
-
--- Builds forall _a0 .. _a(n-1). _a0 -> .. -> _a(n-1).
--- Attaches an explicit polymorphic type scheme to recursive definitions so
--- Hydra skips inference and avoids the occurs-check on equi-recursive bodies.
-polyFnScheme :: Int -> TypeScheme
-polyFnScheme n = TypeScheme
-  { typeSchemeVariables   = vars
-  , typeSchemeBody        = foldr step ret (init tvars)
-  , typeSchemeConstraints = Nothing
-  }
-  where
-    vars  = [Name ("_a" <> show i) | i <- [0 .. n - 1]]
-    tvars = fmap TypeVariable vars
-    ret   = last tvars
-    step a b = TypeFunction FunctionType
-                 { functionTypeDomain   = a
-                 , functionTypeCodomain = b }
-
-
--- | Build a 'TermDefinition' for a hylomorphism with shared outer parameters.
---
--- The argument names in @outerArgNames@ are bound as real 'TTerm' values and
--- passed to the builder @k@.  @k@ returns the coalgebra and algebra together,
--- so each name is declared exactly once.  Pass @id@ as the coalgebra for a
--- pure catamorphism.
---
--- 'withSelf', the partial self-application, and the 'polyFnScheme' type
--- annotation are handled automatically.
---
--- @
--- -- Pure catamorphism:
--- recDef \@(SeqF Tensor) \"neural\" \"fold_rnn\" [\"w\", \"s0\"] $ \\[w, s0] ->
---   ( id
---   , \\case InL (Const ())                    -> s0
---           InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
---
--- -- Hylomorphism:
--- recDef \@MyF \"neural\" \"f\" [\"w\"] $ \\[w] ->
---   ( myCoalg w, myAlg w )
--- @
-recDef :: forall f a. TFunctor f
-       => String
-       -> String
-       -> [String]
-       -> ([TTerm a] -> ( TTerm a -> TTerm a        -- ^ coalgebra
-                        , f (TTerm a) -> TTerm a ))  -- ^ algebra
-       -> TermDefinition
-recDef ns name outerArgNames k = TermDefinition
-  { termDefinitionName       = Name (ns <> "." <> name)
-  , termDefinitionTerm       = reduceTerm $ unTTerm $ foldr (~>) innerTerm outerArgNames
-  , termDefinitionTypeScheme = Just (polyFnScheme (length outerArgNames + 2))
-  }
-  where
-    vars        = map var outerArgNames
-    (coalg,alg) = k vars
-    appliedSelf = foldl (\s n -> tApply s (var n)) (var (ns <> "." <> name)) outerArgNames
-    innerTerm   = "x" ~> withSelf appliedSelf (hyloT @f coalg alg (var "x"))
-
-
--- | Wrap a single 'recDef' in a 'Module'.  Primary builder for recursive
--- architectures: declares functor @f@, coalgebra, and algebra together.
---
--- @
--- -- Pure catamorphism:
--- recModule \@(SeqF Tensor) \"transformer\" \"stack\"
---           [Namespace \"numpy\"] [\"x\", \"tokens\"] $ \\[x, tokens] ->
---   ( id, stackAlg x tokens )
---
--- -- Hylomorphism:
--- recModule \@MyF \"neural\" \"arch\"
---           [Namespace \"numpy\"] [\"w\"] $ \\[w] ->
---   ( myCoalg w, myAlg w )
--- @
-recModule :: forall f a. TFunctor f
-          => String
-          -> String
-          -> [Namespace]
-          -> [String]
-          -> ([TTerm a] -> ( TTerm a -> TTerm a
-                           , f (TTerm a) -> TTerm a ))
-          -> Module
-recModule ns name deps outerArgNames k = Module
-  { moduleDescription      = Just "Recursive definition"
-  , moduleNamespace        = Namespace ns
-  , moduleTermDependencies = deps
-  , moduleTypeDependencies = []
-  , moduleDefinitions      = [DefinitionTerm (recDef @f ns name outerArgNames k)]
-  }
 
 
 -- | Generate Python for a module as an in-memory @('FilePath', 'String')@

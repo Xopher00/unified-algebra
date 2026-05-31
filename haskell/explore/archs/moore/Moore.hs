@@ -7,7 +7,7 @@ Uses the 'Exp' functor. Structural test only (2-tuple output).
 -}
 module Moore
   ( MooreF
-  , mooreCata
+  , mooreAna
   , backendSeeds
   ) where
 
@@ -20,16 +20,15 @@ import Seed (SeedEntry(..), ArchClass(..))
 type MooreF o i = Product (Const (TTerm o)) (Exp (TTerm i))
 
 
-mooreCata :: SeedEntry
-mooreCata = SeedEntry "mooreCata" AnaArch $
-  recModule @(MooreF Tensor Tensor)
+mooreAna :: SeedEntry
+mooreAna = SeedEntry "mooreAna" AnaArch $
+  anaModule @(MooreF Tensor Tensor)
     "seed.moore" "moore_step"
     [Namespace "numpy"] [] $ \[] ->
-      ( id :: TTerm Tensor -> TTerm Tensor
-      , foldToTerm )
+      \s -> (s, \_ -> s)
 
 
 backendSeeds :: [(String, SeedEntry)]
 backendSeeds =
-  [ ("numpy", mooreCata)
+  [ ("numpy", mooreAna)
   ]

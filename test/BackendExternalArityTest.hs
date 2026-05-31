@@ -9,11 +9,11 @@ import Hydra.Kernel
   , TermDefinition(..)
   )
 
-import UniAlg.Pipeline.Externals
+import UniAlg.Backend
   ( backendExternalModules
   )
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend
   ( loadBackendSpec
   )
 

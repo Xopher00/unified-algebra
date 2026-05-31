@@ -16,12 +16,12 @@ import Hydra.Kernel
   , TermDefinition(..)
   )
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend
   ( backendContextSpec
   , loadBackendContext
   )
 
-import UniAlg.Pipeline.Lowering
+import UniAlg.Backend
   ( lowerModule
   )
 

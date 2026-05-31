@@ -1,8 +1,8 @@
 """
 Unfolding RNN — StreamF ana.
 
-Functor:   F(X) = Tensor × X
-Algebra:   identity corecursion (foldToTerm)
+Functor:          F(X) = Tensor × X
+Layer rebuilding: anaModule/buildLayer
 
 Structural test only: verifies that the lowering pipeline emits a
 corecursive function and that it raises on evaluation (infinite recursion).

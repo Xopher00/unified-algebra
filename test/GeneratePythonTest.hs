@@ -17,7 +17,7 @@ import Hydra.Kernel
   , TermDefinition(..)
   )
 
-import UniAlg.Pipeline.Codegen
+import UniAlg.Codegen
   ( loadBackendAndWritePython
   )
 

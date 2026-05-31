@@ -14,21 +14,21 @@ import qualified Data.Text as T
 
 import Hydra.Kernel (Module)
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend
   ( BackendContext
   , backendContextSpec
   , loadBackendContext
   )
 
-import UniAlg.Pipeline.Codegen
+import UniAlg.Codegen
   ( generatePythonString
   )
 
-import UniAlg.Pipeline.Externals
+import UniAlg.Backend
   ( backendExternalModules
   )
 
-import UniAlg.Pipeline.Lowering
+import UniAlg.Backend
   ( lowerModule
   )
 

@@ -14,7 +14,7 @@ import Hydra.Kernel
 import Hydra.Phantoms (TTerm(..), unTTerm)
 
 import UniAlg.Core.Ops (op)
-import UniAlg.Domain.Tensors
+import UniAlg.Tensor
 
 
 assertBool :: Text -> Bool -> IO ()

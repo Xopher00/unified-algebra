@@ -6,22 +6,25 @@ library
   hs-source-dirs:   src
   exposed-modules:
     UniAlg
-    UniAlg.Core.BackendSpec
+    UniAlg.Architecture
+    UniAlg.Backend
+    UniAlg.Codegen
     UniAlg.Core.Ops
+    UniAlg.Optics
+    UniAlg.Scheme
+    UniAlg.Shape
+    UniAlg.Tensor
+    UniAlg.Term
+  other-modules:
+    UniAlg.Backend.Externals
+    UniAlg.Backend.Lowering
+    UniAlg.Backend.Spec
+    UniAlg.Core.BackendSpec
     UniAlg.Core.Ops.Generate
     UniAlg.Core.Reduce
-    UniAlg.Pipeline.Backend
-    UniAlg.Pipeline.Codegen
-    UniAlg.Pipeline.Externals
-    UniAlg.Pipeline.Lowering
-    UniAlg.Domain.Tensors
-    UniAlg.Semantics.Term.Builders
-    UniAlg.Semantics.Term.Arrows
-    UniAlg.Semantics.Term.Polynomial
-    UniAlg.Semantics.Category
-    UniAlg.Semantics.Recursion
-    UniAlg.Semantics.Optics
-    UniAlg.Semantics.Schemes
+    UniAlg.Scheme.Internal
+    UniAlg.Shape.Encode
+    UniAlg.Term.Internal
   build-depends:
     base             >= 4.18,
     aeson,
@@ -64,6 +67,7 @@ test-suite explore-test
   type:             exitcode-stdio-1.0
   main-is:          ExploreTest.hs
   hs-source-dirs:   explore, test
+  other-modules:    TestUtils
   build-depends:
     base, unialg, explore, hydra, text, process, directory, filepath, test-utils
   default-language: Haskell2010
@@ -79,6 +83,7 @@ test-suite backend-external-arity-test
   type:             exitcode-stdio-1.0
   main-is:          BackendExternalArityTest.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, test-utils
   default-language: Haskell2010
 
@@ -86,6 +91,7 @@ test-suite backend-spec-test
   type:             exitcode-stdio-1.0
   main-is:          BackendSpecTest.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, test-utils
   default-language: Haskell2010
 
@@ -93,6 +99,7 @@ test-suite codegen-boundary-test
   type:             exitcode-stdio-1.0
   main-is:          CodegenBoundaryTest.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, containers, test-utils
   default-language: Haskell2010
 
@@ -107,6 +114,7 @@ test-suite lowering-test
   type:             exitcode-stdio-1.0
   main-is:          LoweringTest.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, test-utils
   default-language: Haskell2010
 
@@ -114,6 +122,7 @@ test-suite generate-python-test
   type:             exitcode-stdio-1.0
   main-is:          GeneratePythonTest.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, test-utils
   default-language: Haskell2010
 
@@ -121,6 +130,7 @@ test-suite generate-python-inference-diagnostic
   type:             exitcode-stdio-1.0
   main-is:          GeneratePythonInferenceDiagnostic.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, containers, test-utils
   default-language: Haskell2010
 
@@ -128,6 +138,7 @@ test-suite generate-python-binding-diagnostic
   type:             exitcode-stdio-1.0
   main-is:          GeneratePythonBindingDiagnostic.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, containers, test-utils
   default-language: Haskell2010
 
@@ -142,6 +153,7 @@ test-suite tensors-codegen-test
   type:             exitcode-stdio-1.0
   main-is:          TensorsCodegenTest.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, test-utils
   default-language: Haskell2010
 
@@ -149,6 +161,7 @@ test-suite recursion-codegen-test
   type:             exitcode-stdio-1.0
   main-is:          RecursionCodegenTest.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, explore, hydra, text, process, directory, filepath, test-utils
   default-language: Haskell2010
 
@@ -156,6 +169,7 @@ test-suite op-arity-test
   type:             exitcode-stdio-1.0
   main-is:          OpArityTest.hs
   hs-source-dirs:   test
+  other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, test-utils
   default-language: Haskell2010
 

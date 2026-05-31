@@ -199,10 +199,10 @@ type MealyF o i = Product (Const (TTerm o)) (Exp (TTerm i))
 
 mealyCata :: SeedEntry
 mealyCata = SeedEntry "mealyCata" AnaArch $
-  recModule @(MealyF Tensor Tensor)
+  anaModule @(MealyF Tensor Tensor)
     "seed.mealy" "mealy_step"
     [Namespace "numpy"] [] $ \[] ->
-      (id, foldToTerm)
+      \s -> (s, \_inp -> s)
 
 backendSeeds :: [(String, SeedEntry)]
 backendSeeds = [("numpy", mealyCata)]

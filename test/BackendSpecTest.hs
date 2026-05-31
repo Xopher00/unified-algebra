@@ -8,7 +8,7 @@ import Hydra.Kernel
 
 import qualified Hydra.Dsl.Terms as Terms
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend
 
 import TestUtils
   ( assertEqual

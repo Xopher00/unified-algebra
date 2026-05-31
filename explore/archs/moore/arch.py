@@ -1,8 +1,8 @@
 """
 Moore machine — MooreF cata.
 
-Functor:   F(X) = Tensor × (Tensor → X)
-Algebra:   identity corecursion (foldToTerm)
+Functor:          F(X) = Tensor × (Tensor → X)
+Layer rebuilding: anaModule/buildLayer
 
 Structural test only: verifies that the output is a 2-tuple (tensor, callable).
 """

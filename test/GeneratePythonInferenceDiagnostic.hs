@@ -28,7 +28,7 @@ import Hydra.Languages
 
 import qualified Hydra.Python.Coder as PythonCoder
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend
   ( BackendContext(..)
   , OpSpec(..)
   , backendContextSpec
@@ -36,11 +36,11 @@ import UniAlg.Pipeline.Backend
   , ops
   )
 
-import UniAlg.Pipeline.Externals
+import UniAlg.Backend
   ( backendExternalModules
   )
 
-import UniAlg.Pipeline.Lowering
+import UniAlg.Backend
   ( lowerModule
   )
 

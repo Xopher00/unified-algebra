@@ -8,13 +8,12 @@ __Grammar laws__ (pure Haskell, no IR):
 - Classification is consistent with functor structure
 
 __Structural laws__ (TTerm IR, via 'reduceTerm'):
-- @'tfmap' id ≡ id@ for atomic functors ('Identity', 'Const')
-- Compound functors (Product, Sum) produce @pair(first(x), second(x))@ rather
-  than bare @x@ after @tfmap id@ — the IR lacks an eta law for pairs, so
-  structural equality is weaker than semantic equality for these.
+- Atomic shapes ('Identity', 'Const') and compound shapes ('Product', 'Sum')
+  are checked through the same encoded layer representation used by
+  'cataT'/'anaT'.
 
 __Fusion law__ (@cata alg . ana coalg ≡ hylo coalg alg@):
-- Holds by construction in "UniAlg.Semantics.Recursion" (the pure Haskell
+- Holds by construction in "UniAlg.Scheme" (the pure Haskell
   definitions). Numerical verification is deferred to Arm B (Python harness).
 
 === Epistemic honesty

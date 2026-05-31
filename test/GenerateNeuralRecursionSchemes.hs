@@ -7,7 +7,9 @@ import Prelude
 import qualified Prelude as P
 
 import UniAlg hiding ((++))
-import Explore.Archs
+import SeqRnn (SeqF)
+import StreamRnn (StreamF)
+import TreeRnn (RTreeF)
 
 
 -- ── Folding RNN ───────────────────────────────────────────────────────────────

@@ -20,9 +20,7 @@ import qualified Hydra.Python.Coder as PythonCoder
 
 import Hydra.Phantoms (TTerm(..), unTTerm)
 
-import UniAlg.Pipeline.Backend (backendContextSpec, loadBackendContext)
-import UniAlg.Pipeline.Externals (backendExternalModules)
-import UniAlg.Pipeline.Lowering (lowerModule)
+import UniAlg.Backend (backendContextSpec, backendExternalModules, loadBackendContext, lowerModule)
 
 import Prelude hiding (fst, snd, either, left, right, tanh)
 import UniAlg

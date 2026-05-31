@@ -7,19 +7,19 @@ Turn a functor + canonical (co)algebra into a codegen-ready 'Module'.
 
 === Type-application bridge
 
-'recModule' needs @f@ as a compile-time type with a 'TFunctor' instance.
+'hyloModule' needs @f@ as a compile-time type with a term-level 'Shape' instance.
 The 'PolyF' AST is a value. Resolution:
 
 - __Seed MVP__ (this module): hand-pair each seed 'PolyF' with its concrete
-  @recModule \@T@ call in 'Seed' — finite, explicit list.
+  @hyloModule \@T@ call in 'Seed' — finite, explicit list.
 - __General depth-N__ (future): a Template Haskell splice consuming
-  'enumerate' and emitting one @recModule \@\<typeFromPolyF\>@ per AST.
+  'enumerate' and emitting one @hyloModule \@\<typeFromPolyF\>@ per AST.
 
 === Canonical architectures
 
 Two canonical forms per functor:
 
-1. __Structural identity__ @(id, foldToTerm)@: coalg=id, alg reassembles
+1. __Structural identity__ @(id, buildLayer)@: coalg=id, alg reassembles
    each layer. The generated function is an identity transform.
 2. __Op-family algebra__: generic algebra derived from the 'PolyF' AST.
    @Const ()@ → base seed; @Identity@ → recurse; @Product@ → combine

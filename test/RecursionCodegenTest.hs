@@ -11,14 +11,13 @@ import System.Process (callProcess)
 
 import Hydra.Kernel (Module(..), Namespace(..))
 
-import UniAlg.Pipeline.Backend (backendContextSpec, loadBackendContext)
-import UniAlg.Pipeline.Codegen (generatePythonString)
-import UniAlg.Pipeline.Externals (backendExternalModules)
-import UniAlg.Pipeline.Lowering (lowerModule)
+import UniAlg.Backend (backendContextSpec, backendExternalModules, loadBackendContext, lowerModule)
+import UniAlg.Codegen (generatePythonString)
 
 import Prelude hiding (fst, snd, either, left, right)
 import UniAlg
-import Explore.Archs
+import SeqRnn (SeqF)
+import TreeRnn (RTreeF)
 
 import TestUtils
   ( assertBool
@@ -57,7 +56,7 @@ testListCata = do
   let ns      = "test_rec.fold"
       defName = "sum_list"
 
-      mod_ = recModule @(ListF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
+      mod_ = hyloModule @(ListF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
                ( id
                , \case InL (Const ())                      -> s0
                        InR (Pair (Const a) (Identity acc)) -> add a acc )
@@ -82,7 +81,7 @@ testTreeCata = do
   let ns      = "test_rec.tree"
       defName = "sum_tree"
 
-      mod_ = recModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
+      mod_ = hyloModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
                ( id
                , \case InL (Const a)                        -> multiply w a
                        InR (Pair (Identity l) (Identity r)) -> add l r )
@@ -98,22 +97,21 @@ testTreeCata = do
     ("numpy.add" `isInfixOf` py && "numpy.multiply" `isInfixOf` py)
 
 
--- ── Test: anaT — runtime dispatch via hyloT/foldToTerm ─────────────────────
--- anaT coalg = hyloT @f coalg (foldToTerm @f): dispatches at runtime via
--- applyAlg/eithers.either, exactly as cataT does on its input.
--- coalg=id: input is already a runtime SeqF-shaped value; foldToTerm
--- reassembles each layer with a self-call in the Identity position.
+-- ── Test: anaT — runtime dispatch via hyloT/buildLayer ─────────────────────
+-- anaT coalg = hyloT @f coalg buildLayer: dispatches at runtime via
+-- matchLayer/eithers.either, exactly as cataT does on its input.
+-- coalg emits a cons-like SeqF layer; buildLayer reassembles each layer
+-- with a self-call in the Identity position.
 
 testAnaT :: IO ()
 testAnaT = do
   let ns      = "test_rec.ana"
       defName = "copy_list"
 
-      mod_ = recModule @(SeqF Tensor) ns defName [Namespace "numpy"] [] $ \[] ->
-               ( id :: TTerm Tensor -> TTerm Tensor
-               , \layer -> foldToTerm layer )
+      mod_ = anaModule @(SeqF Tensor) ns defName [Namespace "numpy"] [] $ \[] ->
+               \s -> Right (s, s)
 
-  putStrLn "\n=== anaT with SeqF (coalg=id, alg=foldToTerm) ==="
+  putStrLn "\n=== anaT with SeqF (natural coalg, alg=buildLayer) ==="
   py <- generateFor mod_
   putStrLn py
 
@@ -131,7 +129,7 @@ testHylo = do
   let ns      = "test_rec.hylo"
       defName = "hylo_sum"
 
-      mod_ = recModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
+      mod_ = hyloModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
                ( id
                , \case InL (Const ())                      -> s0
                        InR (Pair (Const a) (Identity acc)) -> add a acc )
@@ -155,7 +153,7 @@ testFoldRNN = do
   let ns      = "neural.fold_rnn"
       defName = "fold_rnn"
 
-      mod_ = recModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
+      mod_ = hyloModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
                ( id
                , \case InL (Const ())                    -> s0
                        InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
@@ -181,7 +179,7 @@ testTreeRNN = do
   let ns      = "neural.tree_rnn"
       defName = "tree_rnn"
 
-      mod_ = recModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
+      mod_ = hyloModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
                ( id
                , \case InL (Const a)                        -> multiply w a
                        InR (Pair (Identity l) (Identity r)) -> add l r )
@@ -208,7 +206,7 @@ testHyloRNN = do
   let ns      = "neural.hylo_rnn"
       defName = "hylo_rnn"
 
-      mod_ = recModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
+      mod_ = hyloModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
                ( id
                , \case InL (Const ())                    -> s0
                        InR (Pair (Const a) (Identity s)) -> add a s )
@@ -235,12 +233,12 @@ main = do
   testTreeRNN
   testHyloRNN
   putStrLn "\n=== TF comparison ==="
-  let foldMod = recModule @(SeqF Tensor)
+  let foldMod = hyloModule @(SeqF Tensor)
                   "neural.fold_rnn" "fold_rnn" [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
                   ( id
                   , \case InL (Const ())                    -> s0
                           InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
-      treeMod = recModule @(RTreeF Tensor)
+      treeMod = hyloModule @(RTreeF Tensor)
                   "neural.tree_rnn" "tree_rnn" [Namespace "numpy"] ["w"] $ \[w] ->
                   ( id
                   , \case InL (Const a)                        -> multiply w a

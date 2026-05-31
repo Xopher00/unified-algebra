@@ -15,15 +15,14 @@ import Hydra.Languages (hydraLanguage)
 
 import qualified Hydra.Python.Coder as PythonCoder
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend
   ( BackendContext(..)
   , backendContextSpec
   , loadBackendContext
   )
 
-import UniAlg.Pipeline.Externals (backendExternalModules)
-import UniAlg.Pipeline.Lowering (lowerModule)
-import UniAlg.Domain.Tensors
+import UniAlg.Backend (backendExternalModules, lowerModule)
+import UniAlg.Tensor
 
 import TestUtils
   ( assertBool

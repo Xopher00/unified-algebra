@@ -10,10 +10,8 @@ import System.Process (callProcess)
 
 import Hydra.Kernel (Module(..))
 
-import UniAlg.Pipeline.Backend (backendContextSpec, loadBackendContext)
-import UniAlg.Pipeline.Codegen (generatePythonString, evalPython)
-import UniAlg.Pipeline.Externals (backendExternalModules)
-import UniAlg.Pipeline.Lowering (lowerModule)
+import UniAlg.Backend (backendContextSpec, backendExternalModules, loadBackendContext, lowerModule)
+import UniAlg.Codegen (generatePythonString, evalPython)
 
 import Laws
 import Seed (seedLabel, seedModule, SeedEntry)

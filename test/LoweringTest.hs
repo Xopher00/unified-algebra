@@ -13,7 +13,7 @@ import Hydra.Kernel
 
 import qualified Hydra.Dsl.Terms as Terms
 
-import UniAlg.Pipeline.Lowering
+import UniAlg.Backend
   ( lowerDefinition
   , lowerDefinitions
   , lowerModule
@@ -21,7 +21,7 @@ import UniAlg.Pipeline.Lowering
   , lowerTerm
   )
 
-import UniAlg.Pipeline.Backend
+import UniAlg.Backend
   ( loadBackendSpec
   )
 

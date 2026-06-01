@@ -319,24 +319,56 @@ hyloModule @(EdgeF Tensor)
     )
 ```
 
-### 4. Use backend-declared op aliases only
+### 4. Choose a semiring and use backend-declared op aliases
 
-Op names must come from `backends/*.json`.  Using an alias not declared in those
-files will fail at lowering time.  Common aliases:
+A `Semiring` parameterises how tensor contractions are compiled.  It has three
+fields:
 
-| Alias | Semiring |
-|-------|----------|
-| `add`, `multiply` | real |
-| `maximum`, `add` | tropical (ops are swapped: `maximum` is ⊕, `add` is ⊗) |
-| `subtract` | right adjoint of `add` |
-| `relu` | torch and tensorflow only |
-| `tanh`, `sigmoid` | all backends |
+```haskell
+data Semiring = Semiring
+  { semiringPlus    :: String        -- reduction op  (the ⊕ of the semiring)
+  , semiringTimes   :: String        -- element-wise product op  (the ⊗)
+  , semiringAdjoint :: Maybe String  -- adjoint of ⊗, needed for backward passes
+  }
+```
 
-Use `Seed.contraction` to apply a tensor contraction parameterised on a semiring:
+A contraction `"ij,j->i"` over a semiring compiles to:
+`reduce_plus (times w x)` — element-wise product along the contracted index,
+then reduction.  The op names must match keys declared in `backends/*.json`.
+
+Common semirings:
 
 ```haskell
 real     = Semiring "add"     "multiply" (Just "subtract")
 tropical = Semiring "maximum" "add"      Nothing
+```
+
+In the **real** semiring ⊕ = `add`, ⊗ = `multiply` — the standard dot product.
+In the **tropical** semiring the roles swap: ⊕ = `maximum` (or `minimum`), ⊗ =
+`add`.  A contraction over tropical becomes `max(w + x)` rather than `sum(w *
+x)`, which is the correct lowering for max-plus networks and shortest-path
+architectures.
+
+The `semiringAdjoint` field is the right-adjoint of ⊗ — `divide` for real,
+`subtract` for tropical.  It is used by `adjointContract` and hylomorphism
+coalgebras that decompose by inverting the algebra's forward operation.  Set it
+to `Nothing` if no backward decomposition is needed.
+
+Op names must come from `backends/*.json`; using an undeclared alias fails at
+lowering time.  Common aliases by backend availability:
+
+| Alias | Available |
+|-------|-----------|
+| `add`, `multiply`, `subtract`, `maximum` | all backends |
+| `tanh`, `sigmoid` | all backends |
+| `relu` | torch and tensorflow only |
+| `matmul` | all backends (contraction kind) |
+
+Use `Seed.contraction` to apply a named Einstein equation over a semiring:
+
+```haskell
+-- "ij,j->i" is a matrix-vector multiply
+lin mat vec = contraction real "ij,j->i" mat vec
 ```
 
 ### 5. Register in cabal and catalogue

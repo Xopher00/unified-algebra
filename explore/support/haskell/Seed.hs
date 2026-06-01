@@ -4,13 +4,14 @@
 Shared types and utilities for the Explore seed catalogue.
 
 Individual seeds live in their own modules under "explore/archs/*/".
-This module provides only the common types and the 'contraction' helper
-parameterized on an explicit 'Semiring'.
+This module provides the common types and the 'contraction' /
+'adjointContraction' helpers parameterized on an explicit 'Semiring'.
 -}
 module Seed
   ( SeedEntry(..)
   , ArchClass(..)
   , contraction
+  , adjointContraction
   ) where
 
 import Hydra.Kernel ( Module(..) )
@@ -65,4 +66,21 @@ contraction :: Semiring -> String -> TTerm Tensor -> TTerm Tensor -> TTerm Tenso
 contraction sr eqStr w x = case applyEquation Forward sr eq [w, x] of
   Right t -> t
   Left  e -> error ("contraction " <> eqStr <> " failed: " <> e)
+  where Right eq = parseEquation eqStr
+
+-- | Adjoint contraction: uses the semiring's adjoint op for element products
+-- and @times@ for reduction.  Fails at runtime if the semiring has no adjoint
+-- (i.e. 'semiringAdjoint' is 'Nothing').
+--
+-- Typical use in a hylomorphism coalgebra whose algebra uses 'contraction':
+--
+-- @
+-- real = Semiring "add" "multiply" (Just "subtract")
+-- -- algebra:   contraction real "ij,j->i" w x  →  sum(w * x)
+-- -- coalgebra: adjointContraction real "ij,j->i" w x  →  prod(w - x)
+-- @
+adjointContraction :: Semiring -> String -> TTerm Tensor -> TTerm Tensor -> TTerm Tensor
+adjointContraction sr eqStr w x = case applyEquation Adjoint sr eq [w, x] of
+  Right t -> t
+  Left  e -> error ("adjointContraction " <> eqStr <> " failed: " <> e)
   where Right eq = parseEquation eqStr

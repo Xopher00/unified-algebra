@@ -364,11 +364,15 @@ lowering time.  Common aliases by backend availability:
 | `relu` | torch and tensorflow only |
 | `matmul` | all backends (contraction kind) |
 
-Use `Seed.contraction` to apply a named Einstein equation over a semiring:
+Use `Seed.contraction` for the forward direction and `Seed.adjointContraction`
+for the adjoint (requires `semiringAdjoint /= Nothing`):
 
 ```haskell
--- "ij,j->i" is a matrix-vector multiply
-lin mat vec = contraction real "ij,j->i" mat vec
+-- forward: sum(w * x)  — standard matrix-vector multiply
+lin     mat vec = contraction        real "ij,j->i" mat vec
+
+-- adjoint: prod(w - x)  — used in hylo coalgebras that invert the algebra
+linAdj  mat vec = adjointContraction real "ij,j->i" mat vec
 ```
 
 ### 5. Register in cabal and catalogue

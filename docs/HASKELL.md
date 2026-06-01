@@ -69,7 +69,7 @@ library combinators produced static one-liners — those combinators bottomed
 out in `arr` before the structure could be captured.
 
 **The fix:** write all combinators as explicit `TArr` wrappers in
-`UniAlg.Semantics.Category`. They use the same operator symbols (`>>>`,
+`UniAlg.Term`. They use the same operator symbols (`>>>`,
 `&&&`, `|||`, `***`, `+++`) so the user-facing syntax is identical to
 standard arrow notation, but the implementations build `TTerm` nodes
 directly and never call `arr`.
@@ -92,9 +92,9 @@ This means `(Shape f, Shape g) => Shape (Sum f g)` is already provided; there is
 nothing extra to write when combining atoms.
 
 The plain Haskell recursion schemes (`cata`, `ana`, `hylo` in
-`UniAlg.Scheme.Internal`) still operate on `Fix`-structured real values for
-building test inputs in `arch.py`; the `Shape` constraint is only required for
-the code-generating variants (`cataT`, `anaT`, `hyloT`).
+`UniAlg.Scheme.Internal`) operate on `Fix`-structured real values and are used
+in Haskell-side tests; the `Shape` constraint is only required for the
+code-generating variants (`cataT`, `anaT`, `hyloT`).
 
 ---
 
@@ -183,11 +183,15 @@ Both branches use the same JSON format:
 ```json
 {
   "backend": "numpy",
+  "structural": {
+    "expand_dims": "numpy.expand_dims",
+    "transpose":   "numpy.transpose"
+  },
   "ops": {
-    "matmul":                   { "path": "numpy.matmul",        "arity": 2 },
-    "reduce.add":               { "path": "numpy.sum",           "arity": 2 },
-    "structural.expand_dims":   { "path": "numpy.expand_dims",   "arity": 2 },
-    "structural.transpose":     { "path": "numpy.transpose",     "arity": 2 }
+    "add":        { "kind": "elementwise_binary", "path": "numpy.add",    "arity": 2 },
+    "tanh":       { "kind": "unary",              "path": "numpy.tanh",   "arity": 1 },
+    "matmul":     { "kind": "contraction",        "path": "numpy.matmul", "arity": 2 },
+    "reduce.add": { "kind": "reduce",             "path": "numpy.sum",    "arity": 2 }
   }
 }
 ```
@@ -205,20 +209,11 @@ list but are not emitted as output.
 
 ## Known open issues
 
-**`Transformer.hs` executable** — the transformer example in `test/Transformer.hs`
-does not compile. It exercises optics and `cataT` together in a way that
-triggers type ambiguities. This is the primary known issue and is the next
-thing to address.
-
 **`arr` at the boundary** — if a user accidentally uses a standard library
 combinator that calls `arr`, the error is a runtime panic rather than a
 compile error. There is no way to make this a type error given Haskell's
 `Arrow` class definition. The current mitigation is documentation; a future
 option is to provide a custom `Arrow`-like class that omits `arr`.
-
-**Duplicate export warning** — `UniAlg.hs` re-exports `reify` from both
-`UniAlg.Semantics.Category` and `UniAlg.Semantics.Arrows`. GHC emits
-`-Wduplicate-exports`. One of the re-exports should be removed.
 
 ---
 

@@ -20,3 +20,4 @@ src/hydra_local_backup/
 *.hi
 *.o
 python/
+hydra-src/

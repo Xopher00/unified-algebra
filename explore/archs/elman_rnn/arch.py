@@ -64,11 +64,15 @@ def _tf_reference(backend, v, bv, w, u, bh, s0, inputs):
         hidden, activation="tanh", use_bias=True, dtype=tf.float64
     )
     cell.build((None, inp_size))
-    # TODO: assign weights according to TF row-vector convention
-    h = s0[None]
+    # TF row-vector convention: inp @ kernel + h @ recurrent_kernel + bias
+    # kernel: (input_dim, hidden)  ← u.T   (our u is (hidden, input))
+    # recurrent_kernel: (hidden, hidden) ← w.T  (our w is (hidden, hidden))
+    cell.set_weights([u.numpy().T, w.numpy().T, bh.numpy()])
+    h = s0[None]  # (1, hidden)
     outputs = []
     for inp in inputs:
-        outputs.append(np.array(h.numpy().squeeze()))
+        out = tf.matmul(h, tf.transpose(v)) + bv  # (1, output_dim)
+        outputs.append(np.array(out.numpy().squeeze()))
         h, _ = cell(inp[None], [h])
     return outputs
 
@@ -79,11 +83,16 @@ def _torch_reference(backend, v, bv, w, u, bh, s0, inputs):
     inp_size = inputs[0].shape[0]
     cell = torch.nn.RNNCell(inp_size, hidden, nonlinearity="tanh").double()
     with torch.no_grad():
-        pass  # TODO: assign weights according to Torch column-vector convention
-    h = s0.unsqueeze(0)
+        # Torch convention: weight_ih (hidden, input), weight_hh (hidden, hidden)
+        cell.weight_ih.copy_(u)
+        cell.weight_hh.copy_(w)
+        cell.bias_ih.copy_(bh)
+        cell.bias_hh.zero_()
+    h = s0.unsqueeze(0)  # (1, hidden)
     outputs = []
     for inp in inputs:
-        outputs.append(np.array(h.squeeze().detach()))
+        out = torch.mv(v, h.squeeze()) + bv  # (output_dim,)
+        outputs.append(np.array(out.detach()))
         h = cell(inp.unsqueeze(0), h)
     return outputs
 

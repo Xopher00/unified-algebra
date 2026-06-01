@@ -14,6 +14,9 @@ against NumPy, TensorFlow, and PyTorch.
 -- Fold over a list spine  F(X) = 1 + (A × X)
 type SeqF a = Sum (Const ()) (Product (Const (TTerm a)) Identity)
 
+real :: Semiring
+real = Semiring "add" "multiply" (Just "divide")
+
 seqRnn :: SeedEntry
 seqRnn = SeedEntry "seqCata" CataArch (KUnit :+: (KConst :*: Hole)) $
   cataModule @(SeqF Tensor)
@@ -25,19 +28,26 @@ seqRnn = SeedEntry "seqCata" CataArch (KUnit :+: (KConst :*: Hole)) $
       )
 ```
 
+This compact example omits the bias term for clarity. The full `SeqRnn.hs`
+seed uses `["wIn", "wRec", "b", "s0"]`.
+
 ## Quick start
 
-Requires GHC 9.10+ (via [ghcup](https://www.haskell.org/ghcup/)) and cabal 3.14+.
+Requires GHC 9.10+ (via [ghcup](https://www.haskell.org/ghcup/)),
+cabal 3.14+, and [uv](https://docs.astral.sh/uv/).
 
 ```bash
+uv sync
 cabal build lib:unialg lib:explore
 cabal test explore-test --test-show-details=direct
 ```
 
-For the Python differential tests:
+`explore-test` calls `.venv/bin/python3 -m pytest`, so `uv sync` must run before
+the Haskell test suite on a fresh checkout.
+
+To run the Python differential tests directly:
 
 ```bash
-uv sync
 uv run pytest explore/archs/ -v
 ```
 

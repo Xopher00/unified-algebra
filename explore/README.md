@@ -30,8 +30,12 @@ evidence of correctness, not a proof.
 Both arms run in sequence when you run:
 
 ```bash
+uv sync
 cabal test explore-test --test-show-details=direct
 ```
+
+`explore-test` calls `.venv/bin/python3 -m pytest`, so `uv sync` must run first
+on a fresh checkout.
 
 ---
 
@@ -44,6 +48,9 @@ explore/
 ├── conftest.py             # pytest setup — discovers arch.py files automatically
 │
 ├── archs/                  # One subdirectory per architecture
+│   ├── elman_rnn/          # Elman RNN — F(X) = O × (I → X)
+│   ├── mealy/              # Mealy machine — F(X) = (I → O) × (I → X)
+│   ├── moore/              # Moore machine — F(X) = O × (I → X)
 │   ├── seq_rnn/            # Folding RNN — F(X) = 1 + (A × X)
 │   │   ├── SeqRnn.hs       #   Haskell: functor definition, seed entries
 │   │   ├── arch.py         #   Python: backends, reference impl, Hypothesis tests
@@ -52,9 +59,8 @@ explore/
 │   │       ├── numpy/      #     numpy backend
 │   │       ├── tensorflow/ #     TensorFlow backend
 │   │       └── torch/      #     PyTorch backend
-│   ├── tree_rnn/           # Recursive NN — F(X) = A + (X × X)
 │   ├── stream_rnn/         # Unfolding RNN — F(X) = A × X
-│   └── moore/              # Moore machine — F(X) = O × (I → X)
+│   └── tree_rnn/           # Recursive NN — F(X) = A + (X × X)
 │
 └── support/
     ├── haskell/            # Shared Haskell modules (part of the explore library)
@@ -73,15 +79,17 @@ explore/
 
 Each architecture is defined by a polynomial endofunctor `F`. The fixed point of `F`
 gives you the recursive data structure the architecture folds or unfolds over. The
-seed catalogue currently includes four:
+seed catalogue currently includes:
 
 | Architecture | Functor F(X) | Kind | Library native |
 |---|---|---|---|
+| `elman_rnn` | `O × (I → X)` | anamorphism (unfold) | Elman RNN reference |
+| `mealyStep` | `(I → O) × (I → X)` | anamorphism (unfold) | structural transition test |
+| `mooreAna` | `O × (I → X)` | anamorphism (unfold) | no library native — structural test only |
 | `seqCata` | `1 + (A × X)` | catamorphism (fold) | `tf.keras.layers.SimpleRNN(activation='linear')` |
 | `seqCataTanh` | `1 + (A × X)` | catamorphism (fold) | `torch.nn.RNN(nonlinearity='tanh')` |
+| `streamLinear` | `A × (() → X)` | anamorphism (unfold) | linear stream reference |
 | `treeCata` | `A + (X × X)` | catamorphism (fold) | no exact library native — constrained linear invariant |
-| `streamAna` | `A × X` | anamorphism (unfold) | no library native — structural test only |
-| `mooreCata` | `O × (I → X)` | anamorphism (unfold) | no library native — structural test only |
 
 `seqCata` and `seqCataTanh` are the same functor shape with different nonlinearities.
 They are tested against different backends because TF's SimpleRNN uses linear
@@ -183,29 +191,41 @@ additionally asserts numerical agreement against the library-native output.
 ## Adding a new architecture
 
 Here is the complete workflow. As a running example, assume you are adding a Mealy
-machine with functor `F(X) = O × (I → X)`.
+machine with functor `F(X) = (I → O) × (I → X)`.
 
 ### 1. Write the Haskell seed
 
 Create `explore/archs/mealy/Mealy.hs`:
 
 ```haskell
-module Mealy (MealyF, mealyCata, backendSeeds) where
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications  #-}
+
+module Mealy (MealyF, mealyStep, backendSeeds) where
 
 import UniAlg
-import Seed (SeedEntry(..), ArchClass(..))
+import Grammar (PolyF(..))
+import Seed (SeedEntry(..), ArchClass(..), contraction)
 
-type MealyF o i = Product (Const (TTerm o)) (Exp (TTerm i))
+real :: Semiring
+real = Semiring "add" "multiply" (Just "divide")
 
-mealyCata :: SeedEntry
-mealyCata = SeedEntry "mealyCata" AnaArch $
-  anaModule @(MealyF Tensor Tensor)
+lin mat vec = contraction real "ij,j->i" mat vec
+linSum a b s inp = add (lin a s) (lin b inp)
+
+type MealyF i o = Product (Const (i -> o)) (Exp i)
+
+mealyStep :: SeedEntry
+mealyStep = SeedEntry "mealyStep" AnaArch (ExpF KConst :*: ExpF Hole) $
+  anaModule @(MealyF (TTerm Tensor) (TTerm Tensor))
     "seed.mealy" "mealy_step"
-    [Namespace "numpy"] [] $ \[] ->
-      \s -> (s, \_inp -> s)
+    [Namespace "numpy"] ["v", "c", "w", "u"] $ \[v, c, w, u] ->
+      \s -> ( linSum v c s
+            , linSum w u s
+            )
 
 backendSeeds :: [(String, SeedEntry)]
-backendSeeds = [("numpy", mealyCata)]
+backendSeeds = [("numpy", mealyStep)]
 ```
 
 ### 2. Register in cabal
@@ -224,7 +244,7 @@ In `unialg.cabal`, under `library explore`, add two lines:
 
 ### 3. Regenerate the catalogue
 
-From `haskell/`:
+From the project root:
 
 ```bash
 runghc explore/gen-catalogue.hs
@@ -262,9 +282,19 @@ def spec(request):
 class TestMealy:
     def test_output_structure(self, spec):
         mealy_step = spec.load(GENERATED_ROOT)
-        pair = (np.float64(1.0), lambda inp: np.float64(inp + 1.0))
-        result = mealy_step(pair)
-        assert isinstance(result, tuple) and len(result) == 2
+        v = np.ones((1, 2))
+        c = np.ones((1, 2))
+        w = np.eye(2)
+        u = np.eye(2)
+        s0 = np.ones(2)
+        inp = np.ones(2)
+
+        out_fn, trans_fn = mealy_step(v, c, w, u, s0)
+        out = out_fn(inp)
+        next_step = trans_fn(inp)
+
+        assert np.shape(out) == (1,)
+        assert isinstance(next_step, tuple) and len(next_step) == 2
 ```
 
 For architectures with a library-native equivalent, provide a `reference` callable
@@ -274,6 +304,7 @@ See `seq_rnn/arch.py` for a full example with TensorFlow and PyTorch.
 ### 5. Run
 
 ```bash
+uv sync
 cabal test explore-test --test-show-details=direct
 ```
 
@@ -330,13 +361,13 @@ Test suite explore-test: PASS
 **Run only the Python harness** (after modules are already generated):
 
 ```bash
-cd haskell && .venv/bin/python -m pytest explore/archs/ -v --tb=short
+uv run pytest explore/archs/ -v --tb=short
 ```
 
 **Run only one architecture's tests:**
 
 ```bash
-.venv/bin/python -m pytest explore/archs/seq_rnn/ -v
+uv run pytest explore/archs/seq_rnn/ -v
 ```
 
 **Inspect a generated module** — after a test run, generated Python lives at:

@@ -29,8 +29,8 @@ import Grammar (PolyF)
 --
 --   * 'HyloArch' — hylomorphism (unfold then fold): the coalgebra decomposes
 --     the input, the algebra reassembles it.  The coalgebra typically uses the
---     right adjoint of the algebra's forward operation (e.g. @subtract@ paired
---     with @add@).  Example: @EdgeConv@.
+--     right adjoint of the algebra's forward operation (e.g. @divide@ paired
+--     with @multiply@).  Example: @EdgeConv@.
 --
 --   * 'NoStructure' — architectures that do not fit a single recursion scheme.
 data ArchClass
@@ -75,9 +75,9 @@ contraction sr eqStr w x = case applyEquation Forward sr eq [w, x] of
 -- Typical use in a hylomorphism coalgebra whose algebra uses 'contraction':
 --
 -- @
--- real = Semiring "add" "multiply" (Just "subtract")
+-- real = Semiring "add" "multiply" (Just "divide")
 -- -- algebra:   contraction real "ij,j->i" w x  →  sum(w * x)
--- -- coalgebra: adjointContraction real "ij,j->i" w x  →  prod(w - x)
+-- -- coalgebra: adjointContraction real "ij,j->i" w x  →  prod(w / x)
 -- @
 adjointContraction :: Semiring -> String -> TTerm Tensor -> TTerm Tensor -> TTerm Tensor
 adjointContraction sr eqStr w x = case applyEquation Adjoint sr eq [w, x] of

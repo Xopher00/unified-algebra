@@ -18,6 +18,20 @@ import UniAlg
 import Grammar (PolyF)
 
 
+-- | The recursion-scheme direction of an architecture.
+--
+--   * 'CataArch' — catamorphism (fold): consumes a recursive input structure.
+--     Example: @SeqRnn@ folds a list; @TreeRnn@ folds a binary tree.
+--
+--   * 'AnaArch' — anamorphism (unfold): generates a corecursive output from a seed.
+--     Example: @Moore@, @Mealy@, @StreamRnn@.
+--
+--   * 'HyloArch' — hylomorphism (unfold then fold): the coalgebra decomposes
+--     the input, the algebra reassembles it.  The coalgebra typically uses the
+--     right adjoint of the algebra's forward operation (e.g. @subtract@ paired
+--     with @add@).  Example: @EdgeConv@.
+--
+--   * 'NoStructure' — architectures that do not fit a single recursion scheme.
 data ArchClass
   = CataArch
   | AnaArch
@@ -26,6 +40,18 @@ data ArchClass
   deriving (Eq, Show)
 
 
+-- | A catalog entry for one generated architecture.
+--
+-- Each 'SeedEntry' fixes four coordinates on the architecture classification lattice:
+--
+--   * @'seedLabel'@ — unique identifier used to name the generated Python function.
+--   * @'seedClass'@ — recursion direction ('CataArch', 'AnaArch', 'HyloArch').
+--   * @'seedPolyF'@ — the polynomial endofunctor @F@ as a value-level 'PolyF'
+--     expression (used by the catalog agent for enumeration and classification).
+--   * @'seedModule'@ — the Hydra 'Module' carrying the fully built Hydra IR.
+--
+-- Construct entries with 'cataModule', 'anaModule', or 'hyloModule' and
+-- wrap them in this record.
 data SeedEntry = SeedEntry
   { seedLabel  :: String
   , seedClass  :: ArchClass

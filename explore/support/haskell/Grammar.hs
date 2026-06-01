@@ -6,6 +6,22 @@ Raw @[]@ is excluded (non-lowering). 'PolyF' represents this grammar as a
 value-level ADT so the explore layer can enumerate and classify functors
 programmatically.
 
+Each 'PolyF' atom has a direct Haskell type counterpart in "UniAlg.Shape":
+
+@
+PolyF atom   Haskell type           Pretty
+-----------  ---------------------  ------
+KUnit        Const ()               1
+KConst       Const (TTerm a)        A
+Hole         Identity               X
+a :+: b      Sum f g                (a + b)
+a :*: b      Product f g            (a × b)
+ExpF a       Exp (TTerm i)          (I → a)
+@
+
+'polyArity' counts the number of 'Hole' positions; it equals the number of
+recursive children each node has (0 for leaves, 1 for lists, 2 for binary trees, …).
+
 'enumerate' generates all well-formed 'PolyF' up to a given depth.
 -}
 module Grammar

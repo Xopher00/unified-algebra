@@ -30,6 +30,8 @@ lin mat vec = contraction real "ij,j->i" mat vec
 linSum a b s inp = add (lin a s) (lin b inp)
 
 -- | Mealy functor: output function (non-recursive) × transition function (recursive).
+-- Note: @Const (i -> o)@ is a special case for functions that should not receive a self-call.
+-- An alternative encoding nests @Const@ inside @Exp@, but the current form is more direct.
 type MealyF i o = Product (Const (i -> o)) (Exp i)
 
 

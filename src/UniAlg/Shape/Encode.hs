@@ -6,6 +6,7 @@
 module UniAlg.Shape.Encode
   ( Shape(..)
   , Exp(..)
+  , ConstFn(..)
   ) where
 
 import Data.Coerce (coerce)
@@ -46,6 +47,12 @@ instance Shape (Const (TTerm k)) where
   matchLayer alg x = alg (Const (coerce x))
   buildLayer (Const k) = coerce k
 
+instance Shape (Const (TTerm i -> TTerm o)) where
+  matchLayer alg x =
+    alg (Const (\inp -> coerce (tApp (coerce x :: TTerm i) inp)))
+  buildLayer (Const f) =
+    coerce (tLam "inp" (f (tVar "inp")))
+
 instance (Shape f, Shape g) => Shape (Sum f g) where
   matchLayer alg x =
     tEither
@@ -75,3 +82,18 @@ instance Shape (Exp (TTerm i)) where
 
   buildLayer (Exp g) =
     tLam "inp" (g (tVar "inp"))
+
+-- | Constant-output exponential: @ConstFn i o@ represents @i → o@,
+--   independent of the recursive carrier.  @fmap@ is a no-op so the
+--   anamorphism never substitutes a self-call into this position.
+newtype ConstFn i o a = ConstFn { runConstFn :: i -> o }
+
+instance Functor (ConstFn i o) where
+  fmap _ (ConstFn f) = ConstFn f
+
+instance Shape (ConstFn (TTerm i) (TTerm o)) where
+  matchLayer alg x =
+    alg (ConstFn (\inp -> coerce (tApp (coerce x :: TTerm i) inp)))
+
+  buildLayer (ConstFn f) =
+    tLam "inp" (coerce (f (tVar "inp")))

@@ -1,0 +1,2 @@
+label,arch_class,poly_f,tensor_equations,activation,semiring_add,semiring_mul,ref_strength,arm,depth,notes
+elman_rnn,Ana,C × X^X,"ab,b->a",tanh,add,multiply,single-class,A,2,smoke-test spec; round-trip validated

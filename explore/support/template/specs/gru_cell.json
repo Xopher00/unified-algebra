@@ -1,0 +1,364 @@
+{
+  "label": "gru_cell",
+  "arm": "A",
+  "arch": {
+    "class": "Ana",
+    "poly_f": {
+      "tag": "Product",
+      "left": {
+        "tag": "KConst"
+      },
+      "right": {
+        "tag": "Exp",
+        "arg": {
+          "tag": "Hole"
+        }
+      }
+    },
+    "monad": null,
+    "weight_tying": [],
+    "lax": false
+  },
+  "cell": {
+    "params": [
+      "w_z",
+      "w_r",
+      "w_h",
+      "u_z",
+      "u_r",
+      "u_h",
+      "b_z",
+      "b_r",
+      "b_h"
+    ],
+    "bindings": [
+      {
+        "name": "lin_xz",
+        "expr": {
+          "tag": "Contraction",
+          "semiring": {
+            "label": "real",
+            "add": "add",
+            "multiply": "multiply",
+            "divide": "divide",
+            "zero": "0.0",
+            "one": "1.0"
+          },
+          "equation": "hi,i->h",
+          "args": [
+            "w_z",
+            "inp"
+          ]
+        }
+      },
+      {
+        "name": "lin_hz",
+        "expr": {
+          "tag": "Contraction",
+          "semiring": {
+            "label": "real",
+            "add": "add",
+            "multiply": "multiply",
+            "divide": "divide",
+            "zero": "0.0",
+            "one": "1.0"
+          },
+          "equation": "hi,i->h",
+          "args": [
+            "u_z",
+            "s"
+          ]
+        }
+      },
+      {
+        "name": "pre_z",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "add",
+          "args": [
+            "lin_xz",
+            "lin_hz"
+          ]
+        }
+      },
+      {
+        "name": "gate_z_raw",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "add",
+          "args": [
+            "pre_z",
+            "b_z"
+          ]
+        }
+      },
+      {
+        "name": "z",
+        "expr": {
+          "tag": "Activation",
+          "kind": "sigmoid",
+          "arg": "gate_z_raw"
+        }
+      },
+      {
+        "name": "lin_xr",
+        "expr": {
+          "tag": "Contraction",
+          "semiring": {
+            "label": "real",
+            "add": "add",
+            "multiply": "multiply",
+            "divide": "divide",
+            "zero": "0.0",
+            "one": "1.0"
+          },
+          "equation": "hi,i->h",
+          "args": [
+            "w_r",
+            "inp"
+          ]
+        }
+      },
+      {
+        "name": "lin_hr",
+        "expr": {
+          "tag": "Contraction",
+          "semiring": {
+            "label": "real",
+            "add": "add",
+            "multiply": "multiply",
+            "divide": "divide",
+            "zero": "0.0",
+            "one": "1.0"
+          },
+          "equation": "hi,i->h",
+          "args": [
+            "u_r",
+            "s"
+          ]
+        }
+      },
+      {
+        "name": "pre_r",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "add",
+          "args": [
+            "lin_xr",
+            "lin_hr"
+          ]
+        }
+      },
+      {
+        "name": "gate_r_raw",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "add",
+          "args": [
+            "pre_r",
+            "b_r"
+          ]
+        }
+      },
+      {
+        "name": "r",
+        "expr": {
+          "tag": "Activation",
+          "kind": "sigmoid",
+          "arg": "gate_r_raw"
+        }
+      },
+      {
+        "name": "r_s",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "mul",
+          "args": [
+            "r",
+            "s"
+          ]
+        }
+      },
+      {
+        "name": "lin_xh",
+        "expr": {
+          "tag": "Contraction",
+          "semiring": {
+            "label": "real",
+            "add": "add",
+            "multiply": "multiply",
+            "divide": "divide",
+            "zero": "0.0",
+            "one": "1.0"
+          },
+          "equation": "hi,i->h",
+          "args": [
+            "w_h",
+            "inp"
+          ]
+        }
+      },
+      {
+        "name": "lin_rh",
+        "expr": {
+          "tag": "Contraction",
+          "semiring": {
+            "label": "real",
+            "add": "add",
+            "multiply": "multiply",
+            "divide": "divide",
+            "zero": "0.0",
+            "one": "1.0"
+          },
+          "equation": "hi,i->h",
+          "args": [
+            "u_h",
+            "r_s"
+          ]
+        }
+      },
+      {
+        "name": "pre_h",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "add",
+          "args": [
+            "lin_xh",
+            "lin_rh"
+          ]
+        }
+      },
+      {
+        "name": "cand_raw",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "add",
+          "args": [
+            "pre_h",
+            "b_h"
+          ]
+        }
+      },
+      {
+        "name": "h_cand",
+        "expr": {
+          "tag": "Activation",
+          "kind": "tanh",
+          "arg": "cand_raw"
+        }
+      },
+      {
+        "name": "z_h_cand",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "mul",
+          "args": [
+            "z",
+            "h_cand"
+          ]
+        }
+      },
+      {
+        "name": "z_s",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "mul",
+          "args": [
+            "z",
+            "s"
+          ]
+        }
+      },
+      {
+        "name": "h_from_old",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "sub",
+          "args": [
+            "s",
+            "z_s"
+          ]
+        }
+      },
+      {
+        "name": "h_next",
+        "expr": {
+          "tag": "ElemOp",
+          "op": "add",
+          "args": [
+            "h_from_old",
+            "z_h_cand"
+          ]
+        }
+      }
+    ],
+    "result": {
+      "tag": "Ana",
+      "state_var": "s",
+      "input_var": "inp",
+      "output_bindings": [
+        "lin_xz",
+        "lin_hz",
+        "pre_z",
+        "gate_z_raw",
+        "z",
+        "lin_xr",
+        "lin_hr",
+        "pre_r",
+        "gate_r_raw",
+        "r",
+        "r_s",
+        "lin_xh",
+        "lin_rh",
+        "pre_h",
+        "cand_raw",
+        "h_cand",
+        "z_h_cand",
+        "z_s",
+        "h_from_old",
+        "h_next"
+      ],
+      "output": "h_next",
+      "next_state_bindings": [
+        "lin_xz",
+        "lin_hz",
+        "pre_z",
+        "gate_z_raw",
+        "z",
+        "lin_xr",
+        "lin_hr",
+        "pre_r",
+        "gate_r_raw",
+        "r",
+        "r_s",
+        "lin_xh",
+        "lin_rh",
+        "pre_h",
+        "cand_raw",
+        "h_cand",
+        "z_h_cand",
+        "z_s",
+        "h_from_old",
+        "h_next"
+      ],
+      "next_state": "h_next"
+    }
+  },
+  "ref": {
+    "strength": "single-class",
+    "torch": {
+      "tag": "SingleClass",
+      "class": "torch.nn.GRUCell(inp_size, hidden)",
+      "kwargs": {}
+    },
+    "tensorflow": {
+      "tag": "SingleClass",
+      "class": "tf.keras.layers.GRUCell(hidden, activation='tanh', recurrent_activation='sigmoid', reset_after=True)",
+      "kwargs": {}
+    },
+    "numpy": {
+      "tag": "NumpyOnly",
+      "equation": "z=sigmoid(w_z@x+u_z@h+b_z); r=sigmoid(w_r@x+u_r@h+b_r); hc=tanh(w_h@x+u_h@(r*h)+b_h); h_next=(1-z)*h+z*hc"
+    }
+  }
+}

@@ -2,8 +2,10 @@
 {-# LANGUAGE TypeApplications  #-}
 
 {-|
-Moore machine: polynomial functor @F(X) = Tensor × (Tensor → X)@.
-Uses the 'Exp' functor. Structural test only (2-tuple output).
+Moore machine: @F(X) = Output × (Input → X)@.
+
+Coalgebra: @s ↦ (V·s, λinp. W·s + U·inp)@.
+Output depends only on state; state transitions are input-driven.
 -}
 module Moore
   ( MooreF
@@ -15,21 +17,31 @@ import Hydra.Kernel (Module(..))
 import UniAlg
 
 import Grammar (PolyF(..))
-import Seed (SeedEntry(..), ArchClass(..))
+import Seed (SeedEntry(..), ArchClass(..), contraction)
 
 
-type MooreF o i = Product (Const (TTerm o)) (Exp (TTerm i))
+real :: Semiring
+real = Semiring "add" "multiply" (Just "divide")
+
+lin mat vec = contraction real "ij,j->i" mat vec
+linSum a b s inp = add (lin a s) (lin b inp)
+
+type MooreF o i = Product (Const o) (Exp i)
 
 
 mooreAna :: SeedEntry
 mooreAna = SeedEntry "mooreAna" AnaArch (KConst :*: ExpF Hole) $
-  anaModule @(MooreF Tensor Tensor)
+  anaModule @(MooreF (TTerm Tensor) (TTerm Tensor))
     "seed.moore" "moore_step"
-    [Namespace "numpy"] [] $ \[] ->
-      \s -> (s, \_ -> s)
+    [Namespace "numpy"] ["v", "w", "u"] $ \[v, w, u] ->
+      \s -> ( lin v s
+            , linSum w u s
+            )
 
 
 backendSeeds :: [(String, SeedEntry)]
 backendSeeds =
-  [ ("numpy", mooreAna)
+  [ ("numpy",      mooreAna)
+  , ("tensorflow", mooreAna)
+  , ("torch",      mooreAna)
   ]

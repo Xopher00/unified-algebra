@@ -5,6 +5,9 @@ module Catalogue (allArchSeeds, seeds) where
 import Data.Function (on)
 import Data.List (nubBy)
 import Seed (SeedEntry(..), seedLabel)
+import qualified ElmanRnn
+import qualified GruCell
+import qualified Mealy
 import qualified Moore
 import qualified SeqRnn
 import qualified StreamRnn
@@ -12,7 +15,10 @@ import qualified TreeRnn
 
 allArchSeeds :: [(String, [(String, SeedEntry)])]
 allArchSeeds =
-  [ ("moore", Moore.backendSeeds)
+  [ ("elman_rnn", ElmanRnn.backendSeeds)
+  , ("gru_cell", GruCell.backendSeeds)
+  , ("mealy", Mealy.backendSeeds)
+  , ("moore", Moore.backendSeeds)
   , ("seq_rnn", SeqRnn.backendSeeds)
   , ("stream_rnn", StreamRnn.backendSeeds)
   , ("tree_rnn", TreeRnn.backendSeeds)

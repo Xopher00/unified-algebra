@@ -79,7 +79,7 @@ seed catalogue currently includes four:
 |---|---|---|---|
 | `seqCata` | `1 + (A × X)` | catamorphism (fold) | `tf.keras.layers.SimpleRNN(activation='linear')` |
 | `seqCataTanh` | `1 + (A × X)` | catamorphism (fold) | `torch.nn.RNN(nonlinearity='tanh')` |
-| `treeCata` | `A + (X × X)` | catamorphism (fold) | no library native — structural test only |
+| `treeCata` | `A + (X × X)` | catamorphism (fold) | no exact library native — constrained linear invariant |
 | `streamAna` | `A × X` | anamorphism (unfold) | no library native — structural test only |
 | `mooreCata` | `O × (I → X)` | anamorphism (unfold) | no library native — structural test only |
 

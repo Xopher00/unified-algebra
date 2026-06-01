@@ -42,16 +42,20 @@ library
 library explore
   visibility:       public
   hs-source-dirs:
-    explore/support/haskell
-    explore/archs/seq_rnn
-    explore/archs/tree_rnn
-    explore/archs/stream_rnn
+    explore/archs/elman_rnn
+    explore/archs/mealy
     explore/archs/moore
+    explore/archs/seq_rnn
+    explore/archs/stream_rnn
+    explore/archs/tree_rnn
+    explore/support/haskell
   exposed-modules:
     Catalogue
+    ElmanRnn
     Generate
     Grammar
     Laws
+    Mealy
     Moore
     Seed
     SeqRnn
@@ -171,6 +175,13 @@ test-suite op-arity-test
   hs-source-dirs:   test
   other-modules:    TestUtils
   build-depends:    base, unialg, hydra, text, test-utils
+  default-language: Haskell2010
+
+executable explore-render
+  main-is:          render.hs
+  hs-source-dirs:   explore/support/template
+  other-modules:    ArchSpec
+  build-depends:    base >= 4.18, aeson, bytestring, containers, directory, filepath
   default-language: Haskell2010
 
 executable neural-recursion-schemes

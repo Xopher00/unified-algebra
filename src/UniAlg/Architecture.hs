@@ -98,6 +98,7 @@ type family CoElim (f :: Kind.Type -> Kind.Type) (a :: Kind.Type) :: Kind.Type w
   CoElim (Sum f g)         a = Either (CoElim f a) (CoElim g a)
   CoElim (Product f g)     a = (CoElim f a, CoElim g a)
   CoElim (Exp (TTerm i))   a = TTerm i -> TTerm a
+  CoElim (Const (TTerm i -> TTerm o)) a = TTerm i -> TTerm o
 
 class Shape f => TCoElim f where
   coElimToTerm :: CoElim f a -> TTerm a
@@ -120,6 +121,9 @@ instance (TCoElim f, TCoElim g) => TCoElim (Product f g) where
 
 instance TCoElim (Exp (TTerm i)) where
   coElimToTerm fn = tLam "inp" (fn (tVar "inp"))
+
+instance TCoElim (Const (TTerm i -> TTerm o)) where
+  coElimToTerm fn = coerce (tLam "inp" (fn (tVar "inp")))
 
 polyFnScheme :: Int -> TypeScheme
 polyFnScheme n = TypeScheme

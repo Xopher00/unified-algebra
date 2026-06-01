@@ -209,6 +209,15 @@ list but are not emitted as output.
 
 ## Known open issues
 
+**Composite semiring operations** — `Semiring` holds string op keys that must
+be registered in `backends/*.json`.  This covers all atomic semirings (real,
+tropical, log-sum-exp, boolean) but not composite reduction forms such as
+`-logsumexp(-x)` (soft-min), where the ⊕ is a wrapped composition rather than
+a single backend primitive.  The fix requires changing `Semiring` to hold
+`TTerm` functions and adding a combinator layer to keep axis-index internals
+out of user code — a non-trivial redesign deferred until an architecture that
+needs it is ready to build.
+
 **`arr` at the boundary** — if a user accidentally uses a standard library
 combinator that calls `arr`, the error is a runtime panic rather than a
 compile error. There is no way to make this a type error given Haskell's

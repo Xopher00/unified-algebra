@@ -21,3 +21,8 @@ src/hydra_local_backup/
 *.o
 python/
 hydra-src/
+explore/
+dist-newstyle/
+*.dyn_hi
+*.dyn_o
+.ipynb_checkpoints/

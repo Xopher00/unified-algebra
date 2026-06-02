@@ -65,7 +65,7 @@ mkModule defName sr eq orientation =
 
 main :: IO ()
 main = do
-  let sr = Semiring "add" "multiply" (Just "divide")
+  let sr = Semiring "add" "multiply" (Just "divide") 0 1
 
   -- ── Simple contract (arity-inferred reduce) ──────────────
   putStrLn "=== simple contract ==="

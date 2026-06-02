@@ -7,6 +7,7 @@ library
   exposed-modules:
     UniAlg
     UniAlg.Architecture
+    UniAlg.RuntimeArchitecture
     UniAlg.Backend
     UniAlg.Codegen
     UniAlg.Core.Ops
@@ -15,6 +16,7 @@ library
     UniAlg.Shape
     UniAlg.Tensor
     UniAlg.Term
+    UniAlg.Term.Internal
   other-modules:
     UniAlg.Backend.Externals
     UniAlg.Backend.Lowering
@@ -24,7 +26,6 @@ library
     UniAlg.Core.Reduce
     UniAlg.Scheme.Internal
     UniAlg.Shape.Encode
-    UniAlg.Term.Internal
   build-depends:
     base             >= 4.18,
     aeson,
@@ -54,6 +55,12 @@ library explore
     ElmanRnn
     Generate
     Grammar
+    Hegg.Behavior
+    Hegg.Canonical
+    Hegg.Enumerate
+    Hegg.ProbeBuild
+    Hegg.RuntimeBuild
+    Hegg.Topology
     Laws
     Mealy
     Moore
@@ -177,16 +184,22 @@ test-suite op-arity-test
   build-depends:    base, unialg, hydra, text, test-utils
   default-language: Haskell2010
 
-executable explore-render
-  main-is:          render.hs
-  hs-source-dirs:   explore/support/template
-  other-modules:    ArchSpec
-  build-depends:    base >= 4.18, aeson, bytestring, containers, directory, filepath
-  default-language: Haskell2010
-
 executable neural-recursion-schemes
   main-is:          GenerateNeuralRecursionSchemes.hs
   hs-source-dirs:   test
   ghc-options:      -main-is NeuralRecursionSchemes
   build-depends:    base, unialg, explore
+  default-language: Haskell2010
+
+executable hegg-shapes
+  main-is:          HeggArchitectures.hs
+  hs-source-dirs:   explore/support/haskell
+  build-depends:    base, explore
+  default-language: Haskell2010
+
+executable gen-manifest
+  main-is:          gen-manifest.hs
+  hs-source-dirs:   explore
+  build-depends:    base, explore, unialg, hydra, text, aeson, bytestring,
+                    directory, filepath, process
   default-language: Haskell2010

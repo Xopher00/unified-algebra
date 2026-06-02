@@ -11,6 +11,7 @@ module UniAlg
   , module UniAlg.Shape
   , module UniAlg.Scheme
   , module UniAlg.Architecture
+  , module UniAlg.RuntimeArchitecture
   , module UniAlg.Tensor
   , module UniAlg.Optics
   , writePythonWithBackend
@@ -40,6 +41,7 @@ import Hydra.Dsl.Meta.Terms
 import Hydra.Phantoms
 
 import UniAlg.Architecture
+import UniAlg.RuntimeArchitecture
 import UniAlg.Codegen
   ( generatePythonTerms
   , loadBackendAndWritePython

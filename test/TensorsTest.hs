@@ -46,7 +46,7 @@ ix = Index
 main :: IO ()
 main = do
   -- ── Semiring basics ──────────────────────────────────────
-  let sr = Semiring "add" "multiply" (Just "divide")
+  let sr = Semiring "add" "multiply" (Just "divide") 0 1
 
   assertEqual "semiring plus is add" "add" (semiringPlus sr)
   assertEqual "semiring times is multiply" "multiply" (semiringTimes sr)

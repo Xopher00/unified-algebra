@@ -8,7 +8,7 @@ import qualified Prelude as P
 
 import UniAlg hiding ((++))
 import SeqRnn (SeqF)
-import StreamRnn (StreamF)
+import StreamRnn (StreamLazyF)
 import TreeRnn (RTreeF)
 
 

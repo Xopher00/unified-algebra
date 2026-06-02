@@ -36,10 +36,15 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import Hydra.Kernel
-  ( Definition(..)
+  ( Binding
+  , Definition(..)
   , Module(..)
+  , Name(..)
   , Namespace(..)
   )
+
+import Hydra.Dsl.Bootstrap (defineType)
+import qualified Hydra.Dsl.Types as T
 
 import Hydra.Phantoms
   ( TTerm(..)
@@ -81,6 +86,23 @@ import UniAlg.Scheme
 -- | Phantom type tag for tensor-typed 'TTerm' values.
 data Tensor
 
+-- | Hydra-side namespace for UniAlg's domain types.
+unialgNs :: Namespace
+unialgNs = Namespace "unialg"
+
+-- | Qualified name of the 'Tensor' Hydra type. Use as a 'TypeVariable' or via
+-- the 'AsType' class when building schemes that mention tensor-valued slots.
+_Tensor :: Name
+_Tensor = Name "unialg.Tensor"
+
+-- | The 'Tensor' Hydra type binding. A nominal wrap around a backend-native
+-- ndarray; the wrapped representation is opaque (a string placeholder), since
+-- Hydra has no domain knowledge of tensor storage. The point is that
+-- generated schemes can now name 'Tensor' instead of falling back to a
+-- generic type variable.
+tensorBinding :: Binding
+tensorBinding = defineType unialgNs "Tensor" $ T.wrap T.string
+
 
 -- | A single Einstein index label (a single character, e.g. @\'i\'@, @\'j\'@).
 newtype Index = Index Char
@@ -101,13 +123,15 @@ data Orientation
 -- | An algebraic structure parameterising tensor contractions.
 --
 -- @
--- real     = Semiring \"add\"     \"multiply\" (Just \"divide\")
--- tropical = Semiring \"minimum\" \"add\"      Nothing
+-- real     = Semiring \"add\"     \"multiply\" (Just \"divide\") 0    1
+-- tropical = Semiring \"maximum\" \"add\"      Nothing          (-1/0) 0
 -- @
 data Semiring = Semiring
-  { semiringPlus    :: String        -- ^ Op key for reduction (e.g. @\"add\"@).
-  , semiringTimes   :: String        -- ^ Op key for element products (e.g. @\"multiply\"@).
-  , semiringAdjoint :: Maybe String  -- ^ Op key for the adjoint of @times@ (e.g. @\"divide\"@), if any.
+  { semiringPlus     :: String        -- ^ Op key for reduction (e.g. @\"add\"@).
+  , semiringTimes    :: String        -- ^ Op key for element products (e.g. @\"multiply\"@).
+  , semiringAdjoint  :: Maybe String  -- ^ Op key for the adjoint of @times@ (e.g. @\"divide\"@), if any.
+  , semiringPlusId   :: Double        -- ^ Additive identity (neutral element of @plus@).
+  , semiringTimesId  :: Double        -- ^ Multiplicative identity (neutral element of @times@).
   } deriving (Eq, Show)
 
 

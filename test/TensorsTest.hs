@@ -46,11 +46,14 @@ ix = Index
 main :: IO ()
 main = do
   -- ── Semiring basics ──────────────────────────────────────
-  let sr = Semiring "add" "multiply" (Just "divide") 0 1
+  let sr = Semiring "add" "multiply" (Just "multiply") (Just "divide") 0 1
 
   assertEqual "semiring plus is add" "add" (semiringPlus sr)
   assertEqual "semiring times is multiply" "multiply" (semiringTimes sr)
-  assertEqual "semiring adjoint is divide" (Just "divide") (semiringAdjoint sr)
+  assertEqual "semiring adjoint plus is multiply"
+    (Just "multiply") (semiringAdjointPlus sr)
+  assertEqual "semiring adjoint times is divide"
+    (Just "divide") (semiringAdjointTimes sr)
 
   -- ── Simple contract ──────────────────────────────────────
   assertBool "contract references unialg.backend.multiply"
@@ -102,6 +105,12 @@ main = do
 
   assertEqual "outer product reduced" [] (eqReduced outer)
 
+  let Right single = parseEquation "i->i"
+
+  assertEqual "single input equation inputs" [[ix 'i']] (eqInputs single)
+  assertEqual "single input equation output" [ix 'i'] (eqOutput single)
+  assertEqual "single input equation reduced" [] (eqReduced single)
+
   let Right trace_ = parseEquation "ii->"
 
   assertEqual "trace reduced" [ix 'i'] (eqReduced trace_)
@@ -123,6 +132,18 @@ main = do
 
   assertBool "duplicate output label is error"
     (case parseEquation "i->ii" of Left e -> "unique" `isInfixOf` e; _ -> False)
+
+  assertBool "multiple arrows is error"
+    (case parseEquation "i->j->i" of Left e -> "exactly one" `isInfixOf` e; _ -> False)
+
+  assertBool "malformed arrow fragment is error"
+    (case parseEquation "i-j->i" of Left e -> "arrow" `isInfixOf` e; _ -> False)
+
+  assertBool "empty input list is error"
+    (case parseEquation "->i" of Left e -> "input list" `isInfixOf` e; _ -> False)
+
+  assertBool "empty operand is error"
+    (case parseEquation "i,,j->ij" of Left e -> "operands" `isInfixOf` e; _ -> False)
 
   -- ── Orientation ──────────────────────────────────────────
   assertEqual "forward orientation" Forward Forward
@@ -152,6 +173,13 @@ main = do
   assertBool "adjoint contractEq references reduce.multiply"
     (containsName "unialg.backend.reduce.multiply" adjTerm)
 
+  let Right singleTerm = compileEquation Forward sr single
+  assertBool "single input compile references transpose"
+    (containsName "unialg.backend.structural.transpose" singleTerm)
+
+  assertBool "zero-input equation compile is error"
+    (case compileEquation Forward sr (Equation [] [] []) of Left e -> "at least one" `isInfixOf` e; _ -> False)
+
   -- ── applyEquation ────────────────────────────────────────
   let x = TTerm (TermVariable (Name "unialg.backend.x_tensor")) :: TTerm Tensor
       w = TTerm (TermVariable (Name "unialg.backend.w_tensor")) :: TTerm Tensor
@@ -168,6 +196,12 @@ main = do
 
   assertBool "applyEquation produces a term with w_tensor"
     (containsName "unialg.backend.w_tensor" applied)
+
+  assertBool "applyEquation too few args is error"
+    (case applyEquation Forward sr matmul [x] of Left e -> "expected 2" `isInfixOf` e; _ -> False)
+
+  assertBool "applyEquation too many args is error"
+    (case applyEquation Forward sr matmul [x, w, x] of Left e -> "expected 2" `isInfixOf` e; _ -> False)
 
   -- ── Equation fusion ──────────────────────────────────────
   let Right inner = parseEquation "ij,jk->ik"

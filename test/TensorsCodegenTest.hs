@@ -65,7 +65,7 @@ mkModule defName sr eq orientation =
 
 main :: IO ()
 main = do
-  let sr = Semiring "add" "multiply" (Just "divide") 0 1
+  let sr = Semiring "add" "multiply" (Just "multiply") (Just "divide") 0 1
 
   -- ── Simple contract (arity-inferred reduce) ──────────────
   putStrLn "=== simple contract ==="
@@ -114,7 +114,7 @@ main = do
   assertBool "fused: defines chain_fused" ("chain_fused" `isInfixOf` fusedPy)
 
   -- ── Tropical semiring ────────────────────────────────────
-  let tropical = Semiring "minimum" "add" Nothing
+  let tropical = Semiring "minimum" "add" Nothing Nothing (1/0) 0
       Right matvecEq = parseEquation "ij,j->i"
 
   putStrLn "\n=== tropical matvec (ij,j->i) ==="

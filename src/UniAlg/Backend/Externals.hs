@@ -163,22 +163,11 @@ etaExpand n name =
 
 externalTypeScheme :: OpSpec -> TypeScheme
 externalTypeScheme op =
-  case arity op of
-    Just 1 ->
-      Types.poly ["a"] $
-        Types.var "a" Types.~> Types.var "a"
-
-    Just 2 ->
-      Types.poly ["a"] $
-        Types.var "a" Types.~> Types.var "a" Types.~> Types.var "a"
-
-    Just 3 ->
-      Types.poly ["a"] $
-        Types.var "a" Types.~> Types.var "a" Types.~> Types.var "a" Types.~> Types.var "a"
-
-    _ ->
-      Types.poly ["a"] $
-        Types.var "a"
+  Types.poly ["a"] $ case arity op of
+    Just n | n `elem` [1, 2, 3] -> foldr (Types.~>) a (replicate n a)
+    _                           -> a
+  where
+    a = Types.var "a"
 
 
 pathNamespace :: Text -> Text

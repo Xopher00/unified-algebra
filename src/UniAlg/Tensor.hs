@@ -31,77 +31,25 @@ module UniAlg.Tensor
   , equationModule
   ) where
 
-import Data.List (isInfixOf, nub)
+import Data.List (nub)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Hydra.Kernel
-  ( Binding
-  , Definition(..)
-  , Module(..)
-  , Name(..)
-  , Namespace(..)
-  )
-
-import Hydra.Dsl.Bootstrap (defineType)
-import qualified Hydra.Dsl.Types as T
-
-import Hydra.Phantoms
-  ( TTerm(..)
-  )
-
-import Hydra.Dsl.Meta.Phantoms
-  ( var
-  , (@@)
-  , definitionInNamespace
-  , toDefinition
-  )
-
-import UniAlg.Term
-  ( reify2
-  )
+import Hydra.Kernel (Definition(..), Module(..), Namespace(..))
+import Hydra.Phantoms (TTerm(..))
+import Hydra.Dsl.Meta.Phantoms (var, (@@), definitionInNamespace, toDefinition)
+import UniAlg.Term (reify2)
 
 import qualified Hydra.Dsl.Terms as Terms
 
-import UniAlg.Core.Reduce
-  ( reduceTerm
-  )
-
-import UniAlg.Core.Ops
-  ( op
-  )
-
-import UniAlg.Shape
-  ( Const(..)
-  , Product(..)
-  , RoseF
-  )
-
-import UniAlg.Scheme
-  ( Fix(..)
-  , cata
-  )
+import UniAlg.Core.Reduce (reduceTerm)
+import UniAlg.Core.Ops (op)
+import UniAlg.Shape (Const(..), Product(..), RoseF)
+import UniAlg.Scheme (Fix(..), cata)
 
 
 -- | Phantom type tag for tensor-typed 'TTerm' values.
 data Tensor
-
--- | Hydra-side namespace for UniAlg's domain types.
-unialgNs :: Namespace
-unialgNs = Namespace "unialg"
-
--- | Qualified name of the 'Tensor' Hydra type. Use as a 'TypeVariable' or via
--- the 'AsType' class when building schemes that mention tensor-valued slots.
-_Tensor :: Name
-_Tensor = Name "unialg.Tensor"
-
--- | The 'Tensor' Hydra type binding. A nominal wrap around a backend-native
--- ndarray; the wrapped representation is opaque (a string placeholder), since
--- Hydra has no domain knowledge of tensor storage. The point is that
--- generated schemes can now name 'Tensor' instead of falling back to a
--- generic type variable.
-tensorBinding :: Binding
-tensorBinding = defineType unialgNs "Tensor" $ T.wrap T.string
 
 
 -- | A single Einstein index label (a single character, e.g. @\'i\'@, @\'j\'@).
@@ -112,8 +60,8 @@ newtype Index = Index Char
 -- | Whether to use the forward or adjoint semiring operations.
 --
 -- 'Forward' uses @times@ for element products and @plus@ for reduction.
--- 'Adjoint' uses @adjoint@ for element products and @times@ for reduction
--- (i.e. the dual contraction for backward passes).
+-- 'Adjoint' uses @adjointTimes@ for element products and @adjointPlus@ for
+-- reduction (i.e. the dual contraction for backward passes).
 data Orientation
   = Forward
   | Adjoint
@@ -123,15 +71,16 @@ data Orientation
 -- | An algebraic structure parameterising tensor contractions.
 --
 -- @
--- real     = Semiring \"add\"     \"multiply\" (Just \"divide\") 0    1
--- tropical = Semiring \"maximum\" \"add\"      Nothing          (-1/0) 0
+-- real     = Semiring \"add\" \"multiply\" (Just \"multiply\") (Just \"divide\") 0 1
+-- tropical = Semiring \"maximum\" \"add\" Nothing Nothing (-1/0) 0
 -- @
 data Semiring = Semiring
-  { semiringPlus     :: String        -- ^ Op key for reduction (e.g. @\"add\"@).
-  , semiringTimes    :: String        -- ^ Op key for element products (e.g. @\"multiply\"@).
-  , semiringAdjoint  :: Maybe String  -- ^ Op key for the adjoint of @times@ (e.g. @\"divide\"@), if any.
-  , semiringPlusId   :: Double        -- ^ Additive identity (neutral element of @plus@).
-  , semiringTimesId  :: Double        -- ^ Multiplicative identity (neutral element of @times@).
+  { semiringPlus         :: String        -- ^ Op key for reduction (e.g. @\"add\"@).
+  , semiringTimes        :: String        -- ^ Op key for element products (e.g. @\"multiply\"@).
+  , semiringAdjointPlus  :: Maybe String  -- ^ Adjoint reduction op key, if any.
+  , semiringAdjointTimes :: Maybe String  -- ^ Adjoint element-product op key, if any.
+  , semiringPlusId       :: Double        -- ^ Additive identity (neutral element of @plus@).
+  , semiringTimesId      :: Double        -- ^ Multiplicative identity (neutral element of @times@).
   } deriving (Eq, Show)
 
 
@@ -157,11 +106,16 @@ data Equation = Equation
 parseEquation :: String -> Either String Equation
 parseEquation raw = do
   (lhs, rhs) <- splitArrow (filter (/= ' ') raw)
-  let inputs     = (fmap . fmap) Index (splitOn ',' lhs)
+  check (not (null lhs)) "equation input list must not be empty"
+  check (all (\c -> c /= '-' && c /= '>') (lhs <> rhs))
+    "index labels cannot contain arrow characters"
+  let inputParts = splitOn ',' lhs
+      inputs     = (fmap . fmap) Index inputParts
       output     = fmap Index rhs
       distinctIn = nub (concat inputs)
       inSet      = Set.fromList distinctIn
       outSet     = Set.fromList output
+  check (all (not . null) inputParts) "equation operands must not be empty"
   check (Set.size outSet == length output) "output labels must be unique"
   check (outSet `Set.isSubsetOf` inSet)    "output labels not in any input"
   pure Equation
@@ -172,10 +126,18 @@ parseEquation raw = do
 
 
 splitArrow :: String -> Either String (String, String)
-splitArrow s
-  | "->" `isInfixOf` s = Right (a, drop 2 b)
-  | otherwise          = Left "equation must contain '->'"
-  where (a, b) = break (== '-') s
+splitArrow s =
+  case go s of
+    [lhs, rhs] -> Right (lhs, rhs)
+    [_]        -> Left "equation must contain exactly one '->'"
+    _          -> Left "equation must contain exactly one '->'"
+  where
+    go [] = [""]
+    go ('-':'>':rest) = "" : go rest
+    go (c:cs) =
+      case go cs of
+        []      -> [[c]]
+        part:xs -> (c:part) : xs
 
 
 check :: Bool -> String -> Either String ()
@@ -258,17 +220,17 @@ fuseTree = cata algebra
 contract :: Semiring -> TTerm (Tensor -> Tensor -> Tensor)
 contract sr =
   reify2 $ \x y ->
-    op ("reduce." <> semiringPlus sr) @@ (op (semiringTimes sr) @@ x @@ y)
+    op (reduceKey (semiringPlus sr)) @@ (op (semiringTimes sr) @@ x @@ y)
 
 
 -- | Adjoint contraction: uses @adjoint@ for element product and @times@
 -- for reduction.  Fails at runtime if the semiring has no adjoint.
 adjointContract :: Semiring -> TTerm (Tensor -> Tensor -> Tensor)
 adjointContract sr =
-  case semiringAdjoint sr of
-    Nothing  -> error "adjointContract: semiring has no adjoint"
-    Just adj -> reify2 $ \x y ->
-      op ("reduce." <> semiringTimes sr) @@ (op adj @@ x @@ y)
+  case adjointKeys sr of
+    Left err -> error ("adjointContract: " <> err)
+    Right (plusKey, timesKey) -> reify2 $ \x y ->
+      op (reduceKey plusKey) @@ (op timesKey @@ x @@ y)
 
 
 -- ── Equation-aware contractions ──────────────────────────────────────────────
@@ -276,26 +238,32 @@ adjointContract sr =
 -- | Compile an 'Equation' to a curried 'TTerm' lambda.
 compileEquation :: Orientation -> Semiring -> Equation -> Either String (TTerm a)
 compileEquation orientation sr eq = do
-  (timesKey, reduceKey) <- case (orientation, semiringAdjoint sr) of
-    (Forward, _)        -> pure (semiringTimes sr, "reduce." <> semiringPlus sr)
-    (Adjoint, Just adj) -> pure (adj,              "reduce." <> semiringTimes sr)
-    (Adjoint, Nothing)  -> Left "Adjoint orientation requires a semiring with an adjoint"
+  (plusKey, timesKey) <- orientationKeys orientation sr
   let target   = eqOutput eq ++ eqReduced eq
       alignOp inp t =
         let existing    = Set.fromList inp
             expanded    = inp ++ filter (`Set.notMember` existing) target
             posOf       = Map.fromList (zip expanded [0..])
             axes        = [length inp .. length expanded - 1]
+            -- @target ⊆ expanded@ by construction (the @filter notMember@ above
+            -- adds every label in @target@ that is missing from @inp@), so the
+            -- @0@ default below is unreachable for any 'Equation' satisfying
+            -- the structural invariants enforced by 'parseEquation' /
+            -- 'fuseEquation'.
             permutation = fmap (\v -> Map.findWithDefault 0 v posOf) target
-            unsqueezed  = foldl (\acc ax -> op "structural.expand_dims" @@ acc @@
-                                   TTerm (Terms.int32 ax)) t axes
+            unsqueezed  = foldl (\acc ax ->
+                            op "structural.expand_dims" @@ acc @@ TTerm (Terms.int32 ax))
+                          t axes
         in  op "structural.transpose" @@ unsqueezed @@
               TTerm (Terms.list (fmap Terms.int32 permutation))
       params   = ["t" <> show i | i <- [0 .. length (eqInputs eq) - 1]]
       aligned  = zipWith (\inp p -> alignOp inp (var p)) (eqInputs eq) params
-      product_ = foldl1 (\a b -> op timesKey @@ a @@ b) aligned
-      body     = foldl (\acc ax -> op reduceKey @@ acc @@ TTerm (Terms.int32 ax))
-                       product_ [length (eqOutput eq) .. length target - 1]
+  product_ <- case aligned of
+    []     -> Left "equation must have at least one input"
+    [x]    -> Right x
+    x:xs   -> Right (foldl (\a b -> op timesKey @@ a @@ b) x xs)
+  let body = foldl (\acc ax -> op (reduceKey plusKey) @@ acc @@ TTerm (Terms.int32 ax))
+                   product_ [length (eqOutput eq) .. length target - 1]
   pure (TTerm (Terms.lambdas params (unTTerm body)))
 
 
@@ -307,6 +275,8 @@ compileEquation orientation sr eq = do
 -- to embed in algebras or pass directly to 'writePythonWithBackend'.
 applyEquation :: Orientation -> Semiring -> Equation -> [TTerm Tensor] -> Either String (TTerm Tensor)
 applyEquation orientation sr eq args = do
+  check (length args == length (eqInputs eq)) $
+    "expected " <> show (length (eqInputs eq)) <> " tensor arguments, got " <> show (length args)
   compiled <- compileEquation orientation sr eq
   pure $ TTerm $ reduceTerm $ foldl Terms.apply (unTTerm compiled) (fmap unTTerm args)
 
@@ -365,3 +335,17 @@ splitOn delim s =
   case break (== delim) s of
     (chunk, [])     -> [chunk]
     (chunk, _:rest) -> chunk : splitOn delim rest
+
+
+reduceKey :: String -> String
+reduceKey key = "reduce." <> key
+orientationKeys :: Orientation -> Semiring -> Either String (String, String)
+orientationKeys Forward sr = Right (semiringPlus sr, semiringTimes sr)
+orientationKeys Adjoint sr = adjointKeys sr
+adjointKeys :: Semiring -> Either String (String, String)
+adjointKeys sr =
+  case (semiringAdjointPlus sr, semiringAdjointTimes sr) of
+    (Just plusKey, Just timesKey) -> Right (plusKey, timesKey)
+    (Nothing, Nothing) -> Left "Adjoint orientation requires adjointPlus and adjointTimes"
+    (Nothing, Just _)  -> Left "Adjoint orientation requires adjointPlus"
+    (Just _, Nothing)  -> Left "Adjoint orientation requires adjointTimes"

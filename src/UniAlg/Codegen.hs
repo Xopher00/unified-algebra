@@ -25,6 +25,7 @@ module UniAlg.Codegen
   , generatePythonString
   ) where
 
+import qualified Data.List as List
 import Data.Text (Text)
 import qualified Data.Text as Text
 import System.Exit (ExitCode(..))
@@ -218,7 +219,7 @@ evalPython pyBin code expr = do
     ExitSuccess   -> Right (dropTrailingNewline out)
     ExitFailure _ -> Left err
   where
-    dropTrailingNewline s = reverse (dropWhile (== '\n') (reverse s))
+    dropTrailingNewline = List.dropWhileEnd (== '\n')
 
 
 loadContextFromJson :: FilePath -> IO BackendContext

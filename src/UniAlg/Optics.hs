@@ -78,10 +78,7 @@ import UniAlg.Shape
 
 import UniAlg.Term
   ( TArr(..)
-  )
-
-import UniAlg.Term
-  ( fst
+  , fst
   , snd
   , pair
   )

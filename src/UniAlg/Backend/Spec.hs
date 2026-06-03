@@ -151,11 +151,9 @@ resolveBackendOp spec op =
 
 -- | Resolve a Hydra 'Name' to a 'BackendBinding'.
 resolveBinding :: BackendSpec -> Name -> Maybe BackendBinding
-resolveBinding spec name = do
-  resolvedPath <- resolveName spec name
-  pure BackendBinding
-    { bindingPath = resolvedPath
-    }
+resolveBinding spec name =
+  fmap (\resolvedPath -> BackendBinding { bindingPath = resolvedPath })
+       (resolveName spec name)
 
 
 -- | Resolve a 'TermVariable' to a 'BackendBinding'; returns 'Nothing' for

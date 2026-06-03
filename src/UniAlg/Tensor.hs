@@ -3,10 +3,8 @@
 {-|
 Einstein-notation tensor contractions over semirings, compiled to Hydra IR.
 
-Parse an equation string with 'parseEquation', compose equations with
-'fuseEquation' or a 'FusionTree', then compile to a 'TTerm' with
-'applyEquation' \/ 'applyTree', or to a codegen 'Module' with
-'equationModule' \/ 'treeModule'.
+Parse an equation string with 'parseEquation' (any arity), then compile to
+a 'TTerm' with 'applyEquation' or to a codegen 'Module' with 'equationModule'.
 -}
 module UniAlg.Tensor
   ( Tensor
@@ -14,28 +12,22 @@ module UniAlg.Tensor
   , Orientation(..)
   , Semiring(..)
   , Equation(..)
-  , FusionTree
   , parseEquation
-  , fuseEquation
-  , fusionLeaf
-  , fusionNode
-  , fuseTree
   , contract
   , adjointContract
   , compileEquation
   , applyEquation
-  , compileTree
-  , applyTree
-  , treeModule
   , contractModule
   , equationModule
   ) where
 
-import Data.List (nub)
+import Control.Monad (foldM)
+import qualified Data.List.Split as Split
+import Data.List (nub, sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Hydra.Kernel (Definition(..), Module(..), Namespace(..))
+import Hydra.Kernel (Module(..), Namespace(..))
 import Hydra.Phantoms (TTerm(..))
 import Hydra.Dsl.Meta.Phantoms (var, (@@), definitionInNamespace, toDefinition)
 import UniAlg.Term (reify2)
@@ -44,17 +36,10 @@ import qualified Hydra.Dsl.Terms as Terms
 
 import UniAlg.Core.Reduce (reduceTerm)
 import UniAlg.Core.Ops (op)
-import UniAlg.Shape (Const(..), Product(..), RoseF)
-import UniAlg.Scheme (Fix(..), cata)
 
 
 -- | Phantom type tag for tensor-typed 'TTerm' values.
 data Tensor
-
-
--- | A single Einstein index label (a single character, e.g. @\'i\'@, @\'j\'@).
-newtype Index = Index Char
-  deriving (Eq, Ord, Show)
 
 
 -- | Whether to use the forward or adjoint semiring operations.
@@ -84,8 +69,6 @@ data Semiring = Semiring
   } deriving (Eq, Show)
 
 
--- ── Equation ─────────────────────────────────────────────────────────────────
-
 -- | A parsed Einstein notation equation.
 data Equation = Equation
   { eqInputs  :: [[Index]]  -- ^ Index set for each input operand.
@@ -93,6 +76,28 @@ data Equation = Equation
   , eqReduced :: [Index]    -- ^ Indices that are summed over (contracted).
   } deriving (Eq, Show)
 
+
+-- | A single Einstein index label (a single character, e.g. @\'i\'@, @\'j\'@).
+newtype Index = Index Char
+  deriving (Eq, Ord, Show)
+
+type Factor = ([Index], TTerm Tensor)
+
+
+-- ── Equation ─────────────────────────────────────────────────────────────────
+
+mkEquation :: [[Index]] -> [Index] -> Either String Equation
+mkEquation inputs output = do
+  let distinctIn = nub (concat inputs)
+      inSet      = Set.fromList distinctIn
+      outSet     = Set.fromList output
+  check (Set.size outSet == length output) "output labels must be unique"
+  check (outSet `Set.isSubsetOf` inSet)    "output labels not in any input"
+  pure Equation
+    { eqInputs  = inputs
+    , eqOutput  = output
+    , eqReduced = filter (`Set.notMember` outSet) distinctIn
+    }
 
 -- | Parse an Einstein notation string into an 'Equation'.
 --
@@ -105,113 +110,18 @@ data Equation = Equation
 -- @
 parseEquation :: String -> Either String Equation
 parseEquation raw = do
-  (lhs, rhs) <- splitArrow (filter (/= ' ') raw)
+  (lhs, rhs) <-
+    case Split.splitOn "->" (filter (/= ' ') raw) of
+      [lhs', rhs'] -> Right (lhs', rhs')
+      _            -> Left "equation must contain exactly one '->'"
   check (not (null lhs)) "equation input list must not be empty"
   check (all (\c -> c /= '-' && c /= '>') (lhs <> rhs))
     "index labels cannot contain arrow characters"
-  let inputParts = splitOn ',' lhs
-      inputs     = (fmap . fmap) Index inputParts
-      output     = fmap Index rhs
-      distinctIn = nub (concat inputs)
-      inSet      = Set.fromList distinctIn
-      outSet     = Set.fromList output
+  let inputParts = Split.splitOn "," lhs
   check (all (not . null) inputParts) "equation operands must not be empty"
-  check (Set.size outSet == length output) "output labels must be unique"
-  check (outSet `Set.isSubsetOf` inSet)    "output labels not in any input"
-  pure Equation
-    { eqInputs  = inputs
-    , eqOutput  = output
-    , eqReduced = filter (`Set.notMember` outSet) distinctIn
-    }
-
-
-splitArrow :: String -> Either String (String, String)
-splitArrow s =
-  case go s of
-    [lhs, rhs] -> Right (lhs, rhs)
-    [_]        -> Left "equation must contain exactly one '->'"
-    _          -> Left "equation must contain exactly one '->'"
-  where
-    go [] = [""]
-    go ('-':'>':rest) = "" : go rest
-    go (c:cs) =
-      case go cs of
-        []      -> [[c]]
-        part:xs -> (c:part) : xs
-
-
-check :: Bool -> String -> Either String ()
-check True  _ = pure ()
-check False e = Left e
-
-
--- | Fuse an inner equation into one slot of an outer equation.
---
--- Substitutes the output of @inner@ for the @slot@-th input of @outer@,
--- producing a combined equation over all inputs of both.  The inner
--- output labels must exactly match the replaced outer input labels.
---
--- @
--- -- ij,jk->ik  fused with  kl,lm->km  at slot 1 gives  ij,kl,lm->im
--- @
-fuseEquation :: Equation -> Int -> Equation -> Either String Equation
-fuseEquation outer slot inner = do
-  check (slot >= 0 && slot < length (eqInputs outer))
-    ("slot " <> show slot <> " out of range for equation with "
-      <> show (length (eqInputs outer)) <> " inputs")
-  check (eqOutput inner == eqInputs outer !! slot)
-    "inner output labels must match the replaced outer input"
-  let inputs    = take slot (eqInputs outer)
-               ++ eqInputs inner
-               ++ drop (slot + 1) (eqInputs outer)
-      allInSet  = Set.fromList (concat inputs)
-      outLbls   = eqOutput outer
-      outLblSet = Set.fromList outLbls
-      reduced   = filter (`Set.notMember` outLblSet) $
-                    nub (eqReduced inner ++ eqReduced outer)
-  pure Equation
-    { eqInputs  = inputs
-    , eqOutput  = outLbls
-    , eqReduced = filter (`Set.member` allInSet) reduced
-    }
-
-
--- ── Fusion tree ──────────────────────────────────────────────────────────────
-
--- | A rose tree of 'Equation's to be fused by catamorphism.
---
--- Each node carries a parent 'Equation' and zero or more child sub-trees.
--- 'fuseTree' collapses the tree into a single flat 'Equation' by fusing
--- children into their parent's input slots from deepest to shallowest.
-type FusionTree = Fix (RoseF (Const Equation))
-
-
--- | A leaf node — a single 'Equation' with no children to fuse.
-fusionLeaf :: Equation -> FusionTree
-fusionLeaf eq = Fix (Pair (Const eq) [])
-
-
--- | An internal node whose children are fused into the parent equation's
--- corresponding input slots (in order, highest slot first for index stability).
-fusionNode :: Equation -> [FusionTree] -> FusionTree
-fusionNode eq children = Fix (Pair (Const eq) children)
-
-
--- | Collapse a 'FusionTree' into a single 'Equation' by catamorphism.
-fuseTree :: FusionTree -> Either String Equation
-fuseTree = cata algebra
-  where
-    algebra :: RoseF (Const Equation) (Either String Equation) -> Either String Equation
-    algebra (Pair (Const eq) childResults) =
-      -- Highest slot first: keeps lower slot indices stable as each fusion
-      -- prepends inner inputs at the targeted position.
-      foldr step (Right eq) (zip [0..] childResults)
-
-    step :: (Int, Either String Equation) -> Either String Equation -> Either String Equation
-    step (slot, child) acc = do
-      a <- acc
-      c <- child
-      fuseEquation a slot c
+  mkEquation
+    (fmap (fmap Index) inputParts)
+    (fmap Index rhs)
 
 
 -- ── Simple contractions (no equation, arity-inferred reduce) ─────────────────
@@ -239,31 +149,11 @@ adjointContract sr =
 compileEquation :: Orientation -> Semiring -> Equation -> Either String (TTerm a)
 compileEquation orientation sr eq = do
   (plusKey, timesKey) <- orientationKeys orientation sr
-  let target   = eqOutput eq ++ eqReduced eq
-      alignOp inp t =
-        let existing    = Set.fromList inp
-            expanded    = inp ++ filter (`Set.notMember` existing) target
-            posOf       = Map.fromList (zip expanded [0..])
-            axes        = [length inp .. length expanded - 1]
-            -- @target ⊆ expanded@ by construction (the @filter notMember@ above
-            -- adds every label in @target@ that is missing from @inp@), so the
-            -- @0@ default below is unreachable for any 'Equation' satisfying
-            -- the structural invariants enforced by 'parseEquation' /
-            -- 'fuseEquation'.
-            permutation = fmap (\v -> Map.findWithDefault 0 v posOf) target
-            unsqueezed  = foldl (\acc ax ->
-                            op "structural.expand_dims" @@ acc @@ TTerm (Terms.int32 ax))
-                          t axes
-        in  op "structural.transpose" @@ unsqueezed @@
-              TTerm (Terms.list (fmap Terms.int32 permutation))
-      params   = ["t" <> show i | i <- [0 .. length (eqInputs eq) - 1]]
-      aligned  = zipWith (\inp p -> alignOp inp (var p)) (eqInputs eq) params
-  product_ <- case aligned of
-    []     -> Left "equation must have at least one input"
-    [x]    -> Right x
-    x:xs   -> Right (foldl (\a b -> op timesKey @@ a @@ b) x xs)
-  let body = foldl (\acc ax -> op (reduceKey plusKey) @@ acc @@ TTerm (Terms.int32 ax))
-                   product_ [length (eqOutput eq) .. length target - 1]
+  let params = ["t" <> show i | i <- [0 .. length (eqInputs eq) - 1]]
+      factors = zip (eqInputs eq) (fmap var params)
+  (firstFactor, rest) <- contractPlan eq factors
+  factor <- foldM (stepFactor plusKey timesKey) firstFactor rest
+  body <- snd <$> (alignFactor (eqOutput eq) =<< reduceFactor plusKey (eqOutput eq) factor)
   pure (TTerm (Terms.lambdas params (unTTerm body)))
 
 
@@ -281,6 +171,62 @@ applyEquation orientation sr eq args = do
   pure $ TTerm $ reduceTerm $ foldl Terms.apply (unTTerm compiled) (fmap unTTerm args)
 
 
+contractPlan :: Equation -> [Factor] -> Either String (Factor, [(Factor, [Index])])
+contractPlan eq factors =
+  case factors of
+    []     -> Left "equation must have at least one input"
+    f : fs -> Right (f, zip fs (fmap liveAfter (drop 2 suffixes)))
+  where
+    output = eqOutput eq
+    live = output ++ eqReduced eq
+    suffixes = scanr (Set.union . Set.fromList) Set.empty (fmap fst factors)
+    liveAfter later =
+      filter (`Set.member` (Set.fromList output `Set.union` later)) live
+
+
+stepFactor :: String -> String -> Factor -> (Factor, [Index]) -> Either String Factor
+stepFactor plusKey timesKey acc (factor, live) =
+  reduceFactor plusKey live =<< mulFactor timesKey acc factor
+
+
+mulFactor :: String -> Factor -> Factor -> Either String Factor
+mulFactor timesKey left right = do
+  let ctx = unionLabels (fst left) (fst right)
+  l <- alignFactor ctx left
+  r <- alignFactor ctx right
+  pure (ctx, op timesKey @@ snd l @@ snd r)
+
+
+alignFactor :: [Index] -> Factor -> Either String Factor
+alignFactor target (labels, term) = do
+  let expanded = unionLabels labels target
+      posOf = positions expanded
+      axes = [length labels .. length expanded - 1]
+      unsqueezed = foldl (\acc ax ->
+                     op "structural.expand_dims" @@ acc @@ TTerm (Terms.int32 ax))
+                   term axes
+  perm <- maybe (Left "target labels must be present after expansion") Right $
+    traverse (`Map.lookup` posOf) target
+  pure (target, op "structural.transpose" @@ unsqueezed @@
+    TTerm (Terms.list (fmap Terms.int32 perm)))
+
+
+reduceFactor :: String -> [Index] -> Factor -> Either String Factor
+reduceFactor plusKey target (labels, term) =
+  foldM reduceAxis (labels, term) axes
+  where
+    posOf = positions labels
+    axes = sortOn (negate . fst)
+      [(axis, label)
+      | label <- nub (filter (`Set.notMember` Set.fromList target) labels)
+      , Just axis <- [Map.lookup label posOf]]
+    reduceAxis (ls, t) (axis, _) =
+      Right
+        ( take axis ls ++ drop (axis + 1) ls
+        , op (reduceKey plusKey) @@ t @@ TTerm (Terms.int32 axis)
+        )
+
+
 -- ── Module builder ───────────────────────────────────────────────────────────
 
 contractModule :: String -> Semiring -> Module
@@ -292,28 +238,6 @@ equationModule :: String -> String -> [Namespace] -> Semiring -> Equation -> Ori
 equationModule ns name deps sr eq orient = do
   t <- compileEquation orient sr eq
   pure (moduleFromTerm ns name deps t)
-
-
--- | Collapse a 'FusionTree', then compile the resulting flat 'Equation'.
---
--- Fuses child equations automatically via 'fuseTree', then delegates to
--- 'compileEquation'.  Returns @'Left' err@ on any fusion or orientation error.
-compileTree :: Orientation -> Semiring -> FusionTree -> Either String (TTerm a)
-compileTree orientation sr tree = fuseTree tree >>= compileEquation orientation sr
-
-
--- | Collapse a 'FusionTree', compile, and immediately apply to input tensors.
-applyTree :: Orientation -> Semiring -> FusionTree -> [TTerm Tensor]
-          -> Either String (TTerm Tensor)
-applyTree orientation sr tree args =
-  fuseTree tree >>= \eq -> applyEquation orientation sr eq args
-
-
--- | Collapse a 'FusionTree' and build a codegen-ready 'Module'.
-treeModule :: String -> String -> [Namespace] -> Semiring -> FusionTree -> Orientation
-           -> Either String Module
-treeModule ns name deps sr tree orient =
-  fuseTree tree >>= \eq -> equationModule ns name deps sr eq orient
 
 
 moduleFromTerm :: String -> String -> [Namespace] -> TTerm a -> Module
@@ -329,23 +253,28 @@ moduleFromTerm ns name deps t = Module
 
 -- ── Utilities ────────────────────────────────────────────────────────────────
 
-splitOn :: Char -> String -> [String]
-splitOn _ [] = [""]
-splitOn delim s =
-  case break (== delim) s of
-    (chunk, [])     -> [chunk]
-    (chunk, _:rest) -> chunk : splitOn delim rest
+note :: e -> Maybe a -> Either e a
+note e = maybe (Left e) Right
 
+check :: Bool -> String -> Either String ()
+check True  _ = pure ()
+check False e = Left e
+
+unionLabels :: [Index] -> [Index] -> [Index]
+unionLabels xs ys = xs ++ filter (`Set.notMember` Set.fromList xs) ys
+
+positions :: [Index] -> Map.Map Index Int
+positions labels = Map.fromList (zip labels [0..])
 
 reduceKey :: String -> String
 reduceKey key = "reduce." <> key
+
 orientationKeys :: Orientation -> Semiring -> Either String (String, String)
 orientationKeys Forward sr = Right (semiringPlus sr, semiringTimes sr)
 orientationKeys Adjoint sr = adjointKeys sr
+
 adjointKeys :: Semiring -> Either String (String, String)
 adjointKeys sr =
-  case (semiringAdjointPlus sr, semiringAdjointTimes sr) of
-    (Just plusKey, Just timesKey) -> Right (plusKey, timesKey)
-    (Nothing, Nothing) -> Left "Adjoint orientation requires adjointPlus and adjointTimes"
-    (Nothing, Just _)  -> Left "Adjoint orientation requires adjointPlus"
-    (Just _, Nothing)  -> Left "Adjoint orientation requires adjointTimes"
+  (,)
+    <$> note "Adjoint orientation requires adjointPlus"  (semiringAdjointPlus sr)
+    <*> note "Adjoint orientation requires adjointTimes" (semiringAdjointTimes sr)

@@ -35,6 +35,7 @@ library
     hydra,
     process,
     profunctors,
+    split,
     tagged,
     template-haskell >= 2.20,
     text

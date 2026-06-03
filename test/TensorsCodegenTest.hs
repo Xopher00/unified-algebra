@@ -97,21 +97,14 @@ main = do
   assertBool "adj: calls numpy.divide" ("numpy.divide" `isInfixOf` adj)
   assertBool "adj: calls numpy.prod" ("numpy.prod" `isInfixOf` adj)
 
-  -- ── Fused three-way equation (via fusion tree) ───────────
-  let Right inner  = parseEquation "ij,jk->ik"
-      Right outer_ = parseEquation "ik,kl->il"
-      tree = fusionNode outer_ [fusionLeaf inner]
+  let Right chain4Eq = parseEquation "ij,jk,kl,lm->im"
+  putStrLn "\n=== chain4 (ij,jk,kl,lm->im) ==="
+  chain4Py <- generate "/tmp/unialg-codegen-chain4" (mkModule "chain4" sr chain4Eq Forward)
+  putStrLn chain4Py
 
-  putStrLn "\n=== fused (ij,jk,kl->il) ==="
-  fusedPy <- generate "/tmp/unialg-codegen-fused"
-    (case treeModule "unialg.tensors" "chain_fused" deps sr tree Forward of
-       Left err -> error err
-       Right m   -> m { moduleDescription = Just "Tensor codegen test" })
-  putStrLn fusedPy
-
-  assertBool "fused: calls numpy.multiply" ("numpy.multiply" `isInfixOf` fusedPy)
-  assertBool "fused: calls numpy.sum" ("numpy.sum" `isInfixOf` fusedPy)
-  assertBool "fused: defines chain_fused" ("chain_fused" `isInfixOf` fusedPy)
+  assertBool "chain4: calls numpy.multiply" ("numpy.multiply" `isInfixOf` chain4Py)
+  assertBool "chain4: calls numpy.sum" ("numpy.sum" `isInfixOf` chain4Py)
+  assertBool "chain4: defines chain4" ("chain4" `isInfixOf` chain4Py)
 
   -- ── Tropical semiring ────────────────────────────────────
   let tropical = Semiring "minimum" "add" Nothing Nothing (1/0) 0

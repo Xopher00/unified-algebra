@@ -2,7 +2,7 @@
 
 module Main where
 
-import Data.List (isInfixOf)
+import Data.List (isInfixOf, isPrefixOf, tails)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -37,6 +37,11 @@ assertEqual label expected actual =
 containsName :: String -> TTerm a -> Bool
 containsName needle t =
   needle `isInfixOf` show (unTTerm t)
+
+
+countName :: String -> TTerm a -> Int
+countName needle t =
+  length (filter (isPrefixOf needle) (tails (show (unTTerm t))))
 
 
 ix :: Char -> Index
@@ -177,6 +182,28 @@ main = do
   assertBool "single input compile references transpose"
     (containsName "unialg.backend.structural.transpose" singleTerm)
 
+  let Right outerTerm = compileEquation Forward sr outer
+  assertBool "outer product compile has no reduction"
+    (not (containsName "unialg.backend.reduce." outerTerm))
+
+  let Right swapEq = parseEquation "ij->ji"
+      Right swapTerm = compileEquation Forward sr swapEq
+  assertBool "axis swap compile references transpose"
+    (containsName "unialg.backend.structural.transpose" swapTerm)
+  assertBool "axis swap compile has no reduction"
+    (not (containsName "unialg.backend.reduce." swapTerm))
+
+  let Right rowSumEq = parseEquation "ij->i"
+      Right rowSumTerm = compileEquation Forward sr rowSumEq
+  assertEqual "single-axis reduction count"
+    1
+    (countName "unialg.backend.reduce.add" rowSumTerm)
+
+  let Right chain4 = parseEquation "ij,jk,kl,lm->im"
+      Right chain4Term = compileEquation Forward sr chain4
+  assertBool "four-factor chain compiles with reductions"
+    (containsName "unialg.backend.reduce.add" chain4Term)
+
   assertBool "zero-input equation compile is error"
     (case compileEquation Forward sr (Equation [] [] []) of Left e -> "at least one" `isInfixOf` e; _ -> False)
 
@@ -203,64 +230,3 @@ main = do
   assertBool "applyEquation too many args is error"
     (case applyEquation Forward sr matmul [x, w, x] of Left e -> "expected 2" `isInfixOf` e; _ -> False)
 
-  -- ── Equation fusion ──────────────────────────────────────
-  let Right inner = parseEquation "ij,jk->ik"
-      Right outer_ = parseEquation "ik,kl->il"
-      Right fused = fuseEquation outer_ 0 inner
-
-  assertEqual "fused inputs"
-    [[ix 'i', ix 'j'], [ix 'j', ix 'k'], [ix 'k', ix 'l']]
-    (eqInputs fused)
-
-  assertEqual "fused output" [ix 'i', ix 'l'] (eqOutput fused)
-
-  assertEqual "fused reduced" [ix 'j', ix 'k'] (eqReduced fused)
-
-  let Right inner2 = parseEquation "km,ml->kl"
-      Right fused2 = fuseEquation outer_ 1 inner2
-
-  assertEqual "fused at slot 1 inputs"
-    [[ix 'i', ix 'k'], [ix 'k', ix 'm'], [ix 'm', ix 'l']]
-    (eqInputs fused2)
-
-  assertEqual "fused at slot 1 output" [ix 'i', ix 'l'] (eqOutput fused2)
-
-  assertBool "slot out of range is error"
-    (case fuseEquation outer_ 5 inner of Left _ -> True; _ -> False)
-
-  assertBool "mismatched inner output is error"
-    (case fuseEquation outer_ 0 (let Right e = parseEquation "ab,bc->ac" in e)
-     of Left _ -> True; _ -> False)
-
-  -- ── FusionTree ────────────────────────────────────────────
-  assertEqual "fuseTree single-child equals fuseEquation outer_ 0 inner"
-    (fuseEquation outer_ 0 inner)
-    (fuseTree (fusionNode outer_ [fusionLeaf inner]))
-
-  -- Multi-child ordering: parent ab,cd->ad; child0 ax,xb->ab at slot 0;
-  -- child1 cy,yd->cd at slot 1. Returns Left under the old reverse, Right here.
-  let Right parent2 = parseEquation "ab,cd->ad"
-      Right child0  = parseEquation "ax,xb->ab"
-      Right child1  = parseEquation "cy,yd->cd"
-      Right multi   = fuseTree (fusionNode parent2 [fusionLeaf child0, fusionLeaf child1])
-  assertEqual "fuseTree multi-child inputs"
-    [[ix 'a', ix 'x'], [ix 'x', ix 'b'], [ix 'c', ix 'y'], [ix 'y', ix 'd']]
-    (eqInputs multi)
-  assertEqual "fuseTree multi-child output" [ix 'a', ix 'd'] (eqOutput multi)
-
-  let Right cTree = compileTree Forward sr (fusionNode outer_ [fusionLeaf inner])
-  assertBool "compileTree references multiply"
-    (containsName "unialg.backend.multiply" cTree)
-  assertBool "compileTree references reduce.add"
-    (containsName "unialg.backend.reduce.add" cTree)
-
-  let ta = TTerm (TermVariable (Name "unialg.backend.ta")) :: TTerm Tensor
-      tb = TTerm (TermVariable (Name "unialg.backend.tb")) :: TTerm Tensor
-      tc = TTerm (TermVariable (Name "unialg.backend.tc")) :: TTerm Tensor
-      Right aTree = applyTree Forward sr (fusionNode outer_ [fusionLeaf inner]) [ta, tb, tc]
-  assertBool "applyTree references multiply"
-    (containsName "unialg.backend.multiply" aTree)
-  assertBool "applyTree references reduce.add"
-    (containsName "unialg.backend.reduce.add" aTree)
-  assertBool "applyTree references ta"
-    (containsName "unialg.backend.ta" aTree)

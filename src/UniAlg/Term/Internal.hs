@@ -23,7 +23,7 @@ import Hydra.Sources.Libraries
 
 
 tApp :: TTerm a -> TTerm a -> TTerm a
-tApp f x = TTerm (Terms.apply (unTTerm f) (unTTerm x))
+tApp = tApply
 
 tLam :: String -> TTerm a -> TTerm a
 tLam p body = TTerm (Terms.lambda p (unTTerm body))

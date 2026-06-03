@@ -46,6 +46,8 @@ import qualified Hydra.Dsl.Terms as Terms
 
 import UniAlg.Shape.Encode
   ( Shape(..)
+  , CoElim
+  , TCoElim(..)
   )
 
 
@@ -93,24 +95,28 @@ cataT alg x =
 
 -- | Code-generating anamorphism over functor @f@.
 --
--- Implemented as a hylomorphism with 'buildLayer' as the algebra — the
--- coalgebra unfolds the seed and 'buildLayer' re-encodes the Haskell functor
--- value back into a @TTerm@.
-anaT :: forall f a. (Shape f, ?self :: TTerm a)
-     => (TTerm a -> TTerm a)
+-- Implemented as a hylomorphism with 'buildLayer' as the algebra: the
+-- coalgebra returns an explicit 'CoElim'-shaped Haskell value, which
+-- 'hyloT' re-encodes into a 'TTerm' via 'coElimToTerm' before
+-- reconstructing the layer with 'buildLayer'.
+anaT :: forall f a. (TCoElim f, ?self :: TTerm a)
+     => (TTerm a -> CoElim f a)
      -> TTerm a -> TTerm a
 anaT coalg = hyloT @f coalg (buildLayer @f)
 
 -- | Code-generating hylomorphism over functor @f@.
 --
--- Applies @coalg@ to the input, pattern-matches the result against @f@
--- via 'matchLayer', replaces recursive positions with self-calls, then
--- applies @alg@.  Combining @coalg = id@ recovers 'cataT'.
-hyloT :: forall f a. (Shape f, ?self :: TTerm a)
-      => (TTerm a -> TTerm a)
+-- The coalgebra returns an explicit 'CoElim'-shaped Haskell value, which is
+-- re-encoded into a 'TTerm' via 'coElimToTerm' and then pattern-matched
+-- against @f@ via 'matchLayer'.  Recursive positions are replaced with
+-- self-calls, then @alg@ is applied.  This is the deforested form of
+-- @cata alg . ana coalg@: the intermediate fixed-point structure is never
+-- materialised.
+hyloT :: forall f a. (TCoElim f, ?self :: TTerm a)
+      => (TTerm a -> CoElim f a)
       -> (f (TTerm a) -> TTerm a)
       -> TTerm a -> TTerm a
 hyloT coalg alg x =
-  matchLayer @f (\layer -> alg (fmap step layer)) (coalg x)
+  matchLayer @f (\layer -> alg (fmap step layer)) (coElimToTerm @f @a (coalg x))
   where
     step arg = TTerm (Terms.apply (unTTerm ?self) (unTTerm arg))

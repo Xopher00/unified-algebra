@@ -25,9 +25,14 @@ hyloModuleR   ≈ hyloModule  \@f
 module UniAlg.RuntimeArchitecture
   ( Shape'(..)
   , RAlg(..)
+  , RCoElim(..)
+  , rcoElimToTerm
   , moduleR
+  , cataDefR
   , cataModuleR
+  , anaDefR
   , anaModuleR
+  , hyloDefR
   , hyloModuleR
   , rebuildAlg
   , rebuildBranch
@@ -38,16 +43,12 @@ import qualified Hydra.Dsl.Terms as Terms
 import Hydra.Dsl.Meta.Phantoms (var, (~>))
 import Hydra.Kernel
   ( Definition(..)
-  , FunctionType(..)
   , Module(..)
-  , Name(..)
   , Namespace(..)
-  , TermDefinition(..)
-  , Type(..)
-  , TypeScheme(..)
+  , TermDefinition
   )
 
-import UniAlg.Core.Reduce (reduceTerm)
+import UniAlg.Architecture (hyloDefWith, plainDefWith)
 import UniAlg.Scheme.Internal (withSelf)
 import UniAlg.Term.Internal
   ( tApply
@@ -161,58 +162,124 @@ rebuildBranch shape slots = fst (go shape slots)
     go _ _ = error "rebuildBranch: shape/slots mismatch"
 
 
--- ── Runtime hyloT ────────────────────────────────────────────────────────────
+-- ── Runtime co-eliminator (value-level CoElim) ──────────────────────────────
 
--- | Runtime equivalent of 'UniAlg.Scheme.Internal.hyloT'.
+-- | Runtime equivalent of 'UniAlg.Shape.Encode.CoElim'.
 --
--- Takes 'Shape'' instead of the typeclass-dispatched @\@f@.
--- Requires @?self@ to be bound by an enclosing 'withSelf' call.
-hyloTR :: (?self :: TTerm a) => Shape' -> (TTerm a -> TTerm a) -> RAlg a -> TTerm a -> TTerm a
-hyloTR shape coalg alg x = applyAlgR shape step alg (coalg x)
+-- Mirrors the structure of 'RAlg': a leaf carries the flat slot list a
+-- non-sum branch must produce, and a node selects a sum branch.
+--
+--   * @RCoElimLeaf slots@ — the user's coalgebra has produced the slot
+--     list expected by 'rebuildBranch' for the surrounding non-sum shape.
+--   * @RCoElimNode (Left v)@ / @RCoElimNode (Right v)@ — sum dispatch,
+--     mirroring 'SSum' / 'RAlgNode'.
+--
+-- Used by 'hyloDefR' / 'anaDefR' so that runtime coalgebras can return an
+-- explicit layer value (parallel to the static side's 'CoElim'), rather
+-- than an opaque @'TTerm' a@ that 'applyAlgR' would have to decode.
+data RCoElim a
+  = RCoElimLeaf [TTerm a]
+  | RCoElimNode (Either (RCoElim a) (RCoElim a))
+
+
+-- | Encode an 'RCoElim' value back into the @'TTerm'@ representation that
+-- 'applyAlgR' consumes.  Sum branches wrap via 'tLeft' / 'tRight'; leaf
+-- branches delegate to 'rebuildBranch' at the surrounding shape.
+rcoElimToTerm :: Shape' -> RCoElim a -> TTerm a
+rcoElimToTerm shape       (RCoElimLeaf slots)        = rebuildBranch shape slots
+rcoElimToTerm (SSum l _)  (RCoElimNode (Left v))     = tLeft  (rcoElimToTerm l v)
+rcoElimToTerm (SSum _ r)  (RCoElimNode (Right v))    = tRight (rcoElimToTerm r v)
+rcoElimToTerm _           _                          =
+  error "rcoElimToTerm: Shape' / RCoElim structural mismatch"
+
+
+-- ── Runtime cata / ana / hylo ────────────────────────────────────────────────
+
+-- | Runtime catamorphism over 'Shape''.  Equivalent to
+-- 'UniAlg.Scheme.Internal.cataT', value-level dispatch.  No coalgebra
+-- phase: the input @x@ is already a 'TTerm' encoding the structure.
+cataTR :: (?self :: TTerm a) => Shape' -> RAlg a -> TTerm a -> TTerm a
+cataTR shape alg x = applyAlgR shape step alg x
   where step arg = TTerm (Terms.apply (unTTerm ?self) (unTTerm arg))
 
 
--- ── Shared internals ──────────────────────────────────────────────────────────
+-- | Runtime anamorphism over 'Shape''.  Equivalent to
+-- 'UniAlg.Scheme.Internal.anaT', value-level dispatch.  Fixed algebra is
+-- @'rebuildAlg' shape@.
+anaTR :: (?self :: TTerm a) => Shape' -> (TTerm a -> RCoElim a) -> TTerm a -> TTerm a
+anaTR shape coalg = hyloTR shape coalg (rebuildAlg shape)
 
--- | Type scheme for an n-argument function: @_a0 → … → _a{n-1}@.
--- Identical in purpose to the private @polyFnScheme@ in 'UniAlg.Architecture'.
-rPolyFnScheme :: Int -> TypeScheme
-rPolyFnScheme n = TypeScheme
-  { typeSchemeVariables   = vars
-  , typeSchemeBody        = foldr step ret (init tvars)
-  , typeSchemeConstraints = Nothing
-  }
-  where
-    vars  = [Name ("_a" <> show i) | i <- [0 .. n - 1]]
-    tvars = fmap TypeVariable vars
-    ret   = last tvars
-    step a b = TypeFunction FunctionType
-      { functionTypeDomain   = a
-      , functionTypeCodomain = b
-      }
 
-hyloDefR
-  :: String -> String -> [String]
+-- | Runtime hylomorphism over 'Shape''.  Equivalent to
+-- 'UniAlg.Scheme.Internal.hyloT', value-level dispatch.
+--
+-- The coalgebra returns an explicit 'RCoElim' value; 'rcoElimToTerm'
+-- re-encodes it into the @'TTerm'@ representation that 'applyAlgR'
+-- consumes.  Recursive positions are replaced with self-calls before the
+-- algebra is applied.
+--
+-- Requires @?self@ to be bound by an enclosing 'withSelf' call.
+hyloTR :: (?self :: TTerm a) => Shape' -> (TTerm a -> RCoElim a) -> RAlg a -> TTerm a -> TTerm a
+hyloTR shape coalg alg x = applyAlgR shape step alg (rcoElimToTerm shape (coalg x))
+  where step arg = TTerm (Terms.apply (unTTerm ?self) (unTTerm arg))
+
+
+-- ── Single-definition builders (cataDefR / anaDefR / hyloDefR) ──────────────
+
+-- | Build a recursive 'TermDefinition' for a runtime catamorphism.
+--
+-- Lower-level than 'cataModuleR'; use when combining multiple
+-- definitions in one module.  Mirrors 'UniAlg.Architecture.cataDef'.
+cataDefR
+  :: forall a
+   . String -> String -> [String]
   -> Shape'
-  -> ([TTerm a] -> (TTerm a -> TTerm a, RAlg a))
+  -> ([TTerm a] -> RAlg a)
   -> TermDefinition
-hyloDefR ns name outerArgNames shape k = TermDefinition
-  { termDefinitionName       = Name (ns <> "." <> name)
-  , termDefinitionTerm       = reduceTerm $ foldr Terms.lambda (unTTerm innerTerm) outerArgNames
-  , termDefinitionTypeScheme = Just (rPolyFnScheme (length outerArgNames + 2))
-  }
-  where
-    vars         = map var outerArgNames
-    (coalg, alg) = k vars
-    appliedSelf  = foldl (\s n -> tApply s (var n)) (var (ns <> "." <> name)) outerArgNames
-    innerTerm    = "x" ~> withSelf appliedSelf (hyloTR shape coalg alg (var "x"))
+cataDefR ns name outerArgNames shape k =
+  hyloDefWith ns name outerArgNames $ \self vs ->
+    withSelf self (cataTR shape (k vs) (var "x"))
+
+
+-- | Build a recursive 'TermDefinition' for a runtime anamorphism.
+--
+-- Lower-level than 'anaModuleR'.  Mirrors 'UniAlg.Architecture.anaDef'.
+-- The user's coalgebra returns an explicit 'RCoElim' value; the fixed
+-- algebra is @'rebuildAlg' shape@.
+anaDefR
+  :: forall a
+   . String -> String -> [String]
+  -> Shape'
+  -> ([TTerm a] -> (TTerm a -> RCoElim a))
+  -> TermDefinition
+anaDefR ns name outerArgNames shape k =
+  hyloDefWith ns name outerArgNames $ \self vs ->
+    withSelf self (anaTR shape (k vs) (var "x"))
+
+
+-- | Build a recursive 'TermDefinition' for a runtime hylomorphism.
+--
+-- Lower-level than 'hyloModuleR'.  Mirrors 'UniAlg.Architecture.hyloDef'.
+-- The coalgebra returns an explicit 'RCoElim' value (re-encoded via
+-- 'rcoElimToTerm' before 'applyAlgR' consumes it).
+hyloDefR
+  :: forall a
+   . String -> String -> [String]
+  -> Shape'
+  -> ([TTerm a] -> (TTerm a -> RCoElim a, RAlg a))
+  -> TermDefinition
+hyloDefR ns name outerArgNames shape k =
+  hyloDefWith ns name outerArgNames $ \self vs ->
+    let (coalg, alg) = k vs
+    in withSelf self (hyloTR shape coalg alg (var "x"))
 
 
 -- ── Public module builders ────────────────────────────────────────────────────
 
 -- | Build a 'Module' for a non-recursive top-level function definition.
 moduleR
-  :: String      -- ^ Namespace (e.g. @"seed.generated"@)
+  :: forall a
+   . String      -- ^ Namespace (e.g. @"seed.generated"@)
   -> String      -- ^ Function name
   -> [Namespace] -- ^ Term dependencies
   -> [String]    -- ^ Outer parameter names (weights, biases, …)
@@ -223,41 +290,42 @@ moduleR ns name deps outerArgNames k = Module
   , moduleNamespace        = Namespace ns
   , moduleTermDependencies = deps
   , moduleTypeDependencies = []
-  , moduleDefinitions      = [DefinitionTerm defn]
+  , moduleDefinitions      = [DefinitionTerm (plainDefWith ns name outerArgNames k)]
   }
-  where
-    defn = TermDefinition
-      { termDefinitionName       = Name (ns <> "." <> name)
-      , termDefinitionTerm       = reduceTerm $ foldr Terms.lambda (unTTerm body) outerArgNames
-      , termDefinitionTypeScheme = Just (rPolyFnScheme (length outerArgNames + 1))
-      }
-    body = k (map var outerArgNames)
 
 -- | Build a 'Module' for a catamorphism (fold) over a runtime 'Shape''.
 --
--- Mirrors 'UniAlg.Architecture.cataModule'; passes @id@ as the coalgebra.
+-- Mirrors 'UniAlg.Architecture.cataModule'.
 cataModuleR
   :: String -> String -> [Namespace] -> [String]
   -> Shape'
   -> ([TTerm a] -> RAlg a)
   -> Module
-cataModuleR ns name deps outerArgNames shape k =
-  hyloModuleR ns name deps outerArgNames shape $ \vs -> (id, k vs)
+cataModuleR ns name deps outerArgNames shape k = Module
+  { moduleDescription      = Just "Runtime catamorphic recursive definition"
+  , moduleNamespace        = Namespace ns
+  , moduleTermDependencies = deps
+  , moduleTypeDependencies = []
+  , moduleDefinitions      = [DefinitionTerm (cataDefR ns name outerArgNames shape k)]
+  }
 
 -- | Build a 'Module' for an anamorphism (unfold) over a runtime 'Shape''.
 --
--- The coalgebra @k@ should build a functor-layer TTerm from the seed,
--- typically via @'rebuildAlg'@-compatible encoding.
--- Mirrors 'UniAlg.Architecture.anaModule'; uses @'rebuildAlg' shape@ as the
--- fixed fold algebra.
+-- The coalgebra returns an explicit 'RCoElim' value describing the
+-- functor layer to build.  Mirrors 'UniAlg.Architecture.anaModule'; uses
+-- @'rebuildAlg' shape@ as the fixed fold algebra.
 anaModuleR
   :: String -> String -> [Namespace] -> [String]
   -> Shape'
-  -> ([TTerm a] -> (TTerm a -> TTerm a))
+  -> ([TTerm a] -> (TTerm a -> RCoElim a))
   -> Module
-anaModuleR ns name deps outerArgNames shape k =
-  hyloModuleR ns name deps outerArgNames shape $ \vs ->
-    (k vs, rebuildAlg shape)
+anaModuleR ns name deps outerArgNames shape k = Module
+  { moduleDescription      = Just "Runtime anamorphic recursive definition"
+  , moduleNamespace        = Namespace ns
+  , moduleTermDependencies = deps
+  , moduleTypeDependencies = []
+  , moduleDefinitions      = [DefinitionTerm (anaDefR ns name outerArgNames shape k)]
+  }
 
 -- | Build a 'Module' for a hylomorphism over a runtime 'Shape''.
 --
@@ -265,7 +333,7 @@ anaModuleR ns name deps outerArgNames shape k =
 hyloModuleR
   :: String -> String -> [Namespace] -> [String]
   -> Shape'
-  -> ([TTerm a] -> (TTerm a -> TTerm a, RAlg a))
+  -> ([TTerm a] -> (TTerm a -> RCoElim a, RAlg a))
   -> Module
 hyloModuleR ns name deps outerArgNames shape k = Module
   { moduleDescription      = Just "Runtime hylomorphic recursive definition"

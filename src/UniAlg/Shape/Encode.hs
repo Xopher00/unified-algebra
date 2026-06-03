@@ -2,11 +2,15 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module UniAlg.Shape.Encode
   ( Shape(..)
   , Exp(..)
   , ConstFn(..)
+  , CoElim
+  , TCoElim(..)
   ) where
 
 import Data.Coerce (coerce)
@@ -14,6 +18,7 @@ import Data.Functor.Const (Const(..))
 import Data.Functor.Identity (Identity(..))
 import Data.Functor.Product (Product(..))
 import Data.Functor.Sum (Sum(..))
+import qualified Data.Kind as Kind
 
 import Hydra.Phantoms (TTerm(..))
 import qualified Hydra.Dsl.Terms as Terms
@@ -97,3 +102,55 @@ instance Shape (ConstFn (TTerm i) (TTerm o)) where
 
   buildLayer (ConstFn f) =
     tLam "inp" (coerce (f (tVar "inp")))
+
+-- | Type-level co-eliminator that converts a functor shape into the Haskell
+-- value a coalgebra must produce for 'UniAlg.Architecture.anaModule' and
+-- (after this refactor) 'UniAlg.Architecture.hyloModule'.
+--
+-- Each atom maps to a natural Haskell carrier:
+--
+-- @
+-- CoElim (Const ())        a = ()
+-- CoElim (Const (TTerm k)) a = TTerm k
+-- CoElim Identity          a = TTerm a
+-- CoElim (Sum f g)         a = Either (CoElim f a) (CoElim g a)
+-- CoElim (Product f g)     a = (CoElim f a, CoElim g a)
+-- CoElim (Exp (TTerm i))   a = TTerm i -> TTerm a
+-- @
+type family CoElim (f :: Kind.Type -> Kind.Type) (a :: Kind.Type) :: Kind.Type where
+  CoElim (Const ())        a = ()
+  CoElim (Const (TTerm k)) a = TTerm k
+  CoElim Identity          a = TTerm a
+  CoElim (Sum f g)         a = Either (CoElim f a) (CoElim g a)
+  CoElim (Product f g)     a = (CoElim f a, CoElim g a)
+  CoElim (Exp (TTerm i))   a = TTerm i -> TTerm a
+  CoElim (Const (TTerm i -> TTerm o)) a = TTerm i -> TTerm o
+
+-- | Witness that a 'CoElim'-shaped Haskell value can be re-encoded as a
+-- 'TTerm'.  Used by 'UniAlg.Scheme.Internal.hyloT' to bridge between the
+-- user-facing coalgebra (which returns explicit Haskell layer values) and
+-- 'matchLayer' (which decodes from terms).
+class Shape f => TCoElim f where
+  coElimToTerm :: CoElim f a -> TTerm a
+
+instance TCoElim (Const ()) where
+  coElimToTerm () = TTerm Terms.unit
+
+instance TCoElim (Const (TTerm k)) where
+  coElimToTerm k = coerce k
+
+instance TCoElim Identity where
+  coElimToTerm x = x
+
+instance (TCoElim f, TCoElim g) => TCoElim (Sum f g) where
+  coElimToTerm (Left fv) = tLeft (coElimToTerm @f fv)
+  coElimToTerm (Right gv) = tRight (coElimToTerm @g gv)
+
+instance (TCoElim f, TCoElim g) => TCoElim (Product f g) where
+  coElimToTerm (fv, gv) = tPair (coElimToTerm @f fv) (coElimToTerm @g gv)
+
+instance TCoElim (Exp (TTerm i)) where
+  coElimToTerm fn = tLam "inp" (fn (tVar "inp"))
+
+instance TCoElim (Const (TTerm i -> TTerm o)) where
+  coElimToTerm fn = coerce (tLam "inp" (fn (tVar "inp")))

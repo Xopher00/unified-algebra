@@ -2,6 +2,10 @@
   "backend": "jax",
   "structural": {
     "expand_dims": "jax.numpy.expand_dims",
+    "reshape": "jax.numpy.reshape",
+    "squeeze": "jax.numpy.squeeze",
+    "stack": "jax.numpy.stack",
+    "concat": "jax.numpy.concatenate",
     "transpose": "jax.numpy.transpose",
     "take_diagonal": "jax.numpy.diagonal"
   },
@@ -19,6 +23,7 @@
     "less":             { "kind": "elementwise_binary", "path": "jax.numpy.less",             "arity": 2 },
     "and":              { "kind": "elementwise_binary", "path": "jax.numpy.logical_and",      "arity": 2 },
     "or":               { "kind": "elementwise_binary", "path": "jax.numpy.logical_or",       "arity": 2 },
+    "xor":              { "kind": "elementwise_binary", "path": "jax.numpy.logical_xor",      "arity": 2 },
 
     "tanh":             { "kind": "unary",  "path": "jax.numpy.tanh",                  "arity": 1 },
     "exp":              { "kind": "unary",  "path": "jax.numpy.exp",                   "arity": 1 },
@@ -39,23 +44,33 @@
     "relu":             { "kind": "unary",  "path": "jax.nn.relu",                     "arity": 1 },
     "sigmoid":          { "kind": "unary",  "path": "jax.nn.sigmoid",                  "arity": 1 },
     "softmax":          { "kind": "unary",  "path": "jax.nn.softmax",                  "arity": 2 },
+    "log_softmax":      { "kind": "unary",  "path": "jax.nn.log_softmax",              "arity": 2 },
     "softplus":         { "kind": "unary",  "path": "jax.nn.softplus",                 "arity": 1 },
+    "erf":              { "kind": "unary",  "path": "jax.scipy.special.erf",           "arity": 1 },
+    "erfc":             { "kind": "unary",  "path": "jax.scipy.special.erfc",          "arity": 1 },
+    "gammaln":          { "kind": "unary",  "path": "jax.scipy.special.gammaln",       "arity": 1 },
+    "digamma":          { "kind": "unary",  "path": "jax.scipy.special.digamma",       "arity": 1 },
 
     "reduce.add":       { "kind": "reduce", "path": "jax.numpy.sum",                   "arity": 2 },
     "reduce.multiply":  { "kind": "reduce", "path": "jax.numpy.prod",                  "arity": 2 },
     "reduce.minimum":   { "kind": "reduce", "path": "jax.numpy.min",                   "arity": 2 },
     "reduce.maximum":   { "kind": "reduce", "path": "jax.numpy.max",                   "arity": 2 },
-    "reduce.logaddexp": { "kind": "reduce", "path": "jax.scipy.special.logsumexp",     "arity": 2 },
+    "reduce.logaddexp": { "kind": "reduce", "path": "jax.nn.logsumexp",     "arity": 2 },
     "reduce.and":       { "kind": "reduce", "path": "jax.numpy.all",                   "arity": 2 },
     "reduce.or":        { "kind": "reduce", "path": "jax.numpy.any",                   "arity": 2 },
 
     "structural.expand_dims":  { "kind": "structural", "path": "jax.numpy.expand_dims",  "arity": 2 },
+    "structural.reshape":      { "kind": "structural", "path": "jax.numpy.reshape",      "arity": 2 },
+    "structural.squeeze":      { "kind": "structural", "path": "jax.numpy.squeeze",      "arity": 2 },
+    "structural.stack":        { "kind": "structural", "path": "jax.numpy.stack",        "arity": 2 },
+    "structural.concat":       { "kind": "structural", "path": "jax.numpy.concatenate",  "arity": 2 },
     "structural.transpose":    { "kind": "structural", "path": "jax.numpy.transpose",    "arity": 2 },
     "structural.take_diagonal":{ "kind": "structural", "path": "jax.numpy.diagonal",     "arity": 3 },
 
     "clip":             { "kind": "ternary",     "path": "jax.numpy.clip",              "arity": 3 },
     "where":            { "kind": "ternary",     "path": "jax.numpy.where",             "arity": 3 },
     "matmul":           { "kind": "contraction",  "path": "jax.numpy.matmul",           "arity": 2 },
+    "einsum":           { "kind": "contraction",  "path": "jax.numpy.einsum",           "arity": 3 },
     "norm":             { "kind": "reduce",       "path": "jax.numpy.linalg.norm",      "arity": 1 },
     "mean":             { "kind": "reduce",       "path": "jax.numpy.mean",             "arity": 2 },
     "std":              { "kind": "reduce",       "path": "jax.numpy.std",              "arity": 2 }

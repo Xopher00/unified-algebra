@@ -2,6 +2,10 @@
   "backend": "cupy",
   "structural": {
     "expand_dims": "cupy.expand_dims",
+    "reshape": "cupy.reshape",
+    "squeeze": "cupy.squeeze",
+    "stack": "cupy.stack",
+    "concat": "cupy.concatenate",
     "transpose": "cupy.transpose",
     "take_diagonal": "cupy.diagonal"
   },
@@ -19,6 +23,7 @@
     "less":             { "kind": "elementwise_binary", "path": "cupy.less",             "arity": 2 },
     "and":              { "kind": "elementwise_binary", "path": "cupy.logical_and",      "arity": 2 },
     "or":               { "kind": "elementwise_binary", "path": "cupy.logical_or",       "arity": 2 },
+    "xor":              { "kind": "elementwise_binary", "path": "cupy.logical_xor",      "arity": 2 },
 
     "tanh":             { "kind": "unary",  "path": "cupy.tanh",              "arity": 1 },
     "exp":              { "kind": "unary",  "path": "cupy.exp",               "arity": 1 },
@@ -36,21 +41,34 @@
     "floor":            { "kind": "unary",  "path": "cupy.floor",             "arity": 1 },
     "round":            { "kind": "unary",  "path": "cupy.round",             "arity": 1 },
     "not":              { "kind": "unary",  "path": "cupy.logical_not",       "arity": 1 },
+    "sigmoid":          { "kind": "unary",  "path": "cupyx.scipy.special.expit",       "arity": 1 },
+    "softmax":          { "kind": "unary",  "path": "cupyx.scipy.special.softmax",     "arity": 2 },
+    "log_softmax":      { "kind": "unary",  "path": "cupyx.scipy.special.log_softmax", "arity": 2 },
+    "erf":              { "kind": "unary",  "path": "cupyx.scipy.special.erf",         "arity": 1 },
+    "erfc":             { "kind": "unary",  "path": "cupyx.scipy.special.erfc",        "arity": 1 },
+    "gammaln":          { "kind": "unary",  "path": "cupyx.scipy.special.gammaln",     "arity": 1 },
+    "digamma":          { "kind": "unary",  "path": "cupyx.scipy.special.digamma",     "arity": 1 },
 
     "reduce.add":       { "kind": "reduce", "path": "cupy.sum",               "arity": 2 },
     "reduce.multiply":  { "kind": "reduce", "path": "cupy.prod",              "arity": 2 },
     "reduce.minimum":   { "kind": "reduce", "path": "cupy.min",               "arity": 2 },
     "reduce.maximum":   { "kind": "reduce", "path": "cupy.max",               "arity": 2 },
+    "reduce.logaddexp": { "kind": "reduce", "path": "cupyx.scipy.special.logsumexp", "arity": 2 },
     "reduce.and":       { "kind": "reduce", "path": "cupy.all",               "arity": 2 },
     "reduce.or":        { "kind": "reduce", "path": "cupy.any",               "arity": 2 },
 
     "structural.expand_dims":  { "kind": "structural", "path": "cupy.expand_dims",   "arity": 2 },
+    "structural.reshape":      { "kind": "structural", "path": "cupy.reshape",       "arity": 2 },
+    "structural.squeeze":      { "kind": "structural", "path": "cupy.squeeze",       "arity": 2 },
+    "structural.stack":        { "kind": "structural", "path": "cupy.stack",         "arity": 2 },
+    "structural.concat":       { "kind": "structural", "path": "cupy.concatenate",   "arity": 2 },
     "structural.transpose":    { "kind": "structural", "path": "cupy.transpose",     "arity": 2 },
     "structural.take_diagonal":{ "kind": "structural", "path": "cupy.diagonal",      "arity": 3 },
 
     "clip":             { "kind": "ternary",     "path": "cupy.clip",          "arity": 3 },
     "where":            { "kind": "ternary",     "path": "cupy.where",         "arity": 3 },
     "matmul":           { "kind": "contraction",  "path": "cupy.matmul",       "arity": 2 },
+    "einsum":           { "kind": "contraction",  "path": "cupy.einsum",       "arity": 3 },
     "norm":             { "kind": "reduce",       "path": "cupy.linalg.norm",  "arity": 1 },
     "mean":             { "kind": "reduce",       "path": "cupy.mean",         "arity": 2 },
     "std":              { "kind": "reduce",       "path": "cupy.std",          "arity": 2 }

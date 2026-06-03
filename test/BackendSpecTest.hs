@@ -6,14 +6,72 @@ import Hydra.Kernel
   ( Name(..)
   )
 
+import Data.Text (Text)
+import qualified Data.Text as T
+
 import qualified Hydra.Dsl.Terms as Terms
 
 import UniAlg.Backend
 
 import TestUtils
   ( assertEqual
+  , assertBool
   , backendsDir
   )
+
+
+commonBackendOps :: [Text]
+commonBackendOps =
+  [ "einsum"
+  , "log_softmax"
+  , "reduce.logaddexp"
+  , "structural.reshape"
+  , "structural.squeeze"
+  , "structural.stack"
+  , "structural.concat"
+  , "xor"
+  , "sigmoid"
+  , "softmax"
+  , "erf"
+  , "erfc"
+  , "gammaln"
+  , "digamma"
+  ]
+
+
+backendNames :: [Text]
+backendNames =
+  [ "numpy"
+  , "cupy"
+  , "jax"
+  , "tensorflow"
+  , "torch"
+  ]
+
+
+loadSpecOrFail :: Text -> IO BackendSpec
+loadSpecOrFail backendName = do
+  loaded <- loadBackendSpec (backendsDir <> "/" <> T.unpack backendName <> ".json")
+  case loaded of
+    Left err ->
+      error ("Could not load backend spec " <> T.unpack backendName <> ": " <> err)
+
+    Right s ->
+      pure s
+
+
+assertCommonBackendCoverage :: IO ()
+assertCommonBackendCoverage =
+  mapM_ assertBackend backendNames
+  where
+    assertBackend backendName = do
+      spec <- loadSpecOrFail backendName
+      mapM_
+        (\opKey ->
+          assertBool
+            ("backend " <> backendName <> " resolves " <> opKey)
+            (lookupOpPath opKey spec /= Nothing))
+        commonBackendOps
 
 
 main :: IO ()
@@ -99,3 +157,28 @@ main = do
     "missing symbolic BackendOp"
     Nothing
     (resolveBackendOp spec (backendOp "unialg.backend.doesNotExist"))
+
+  assertCommonBackendCoverage
+
+  tensorflowSpec <- loadSpecOrFail "tensorflow"
+  cupySpec <- loadSpecOrFail "cupy"
+
+  assertEqual
+    "tensorflow reduction logaddexp uses stable Keras logsumexp"
+    (Just "tensorflow.keras.ops.logsumexp")
+    (lookupOpPath "reduce.logaddexp" tensorflowSpec)
+
+  assertEqual
+    "tensorflow diagonal uses native linalg diag_part"
+    (Just "tensorflow.linalg.diag_part")
+    (lookupOpPath "structural.take_diagonal" tensorflowSpec)
+
+  assertEqual
+    "cupy reduction logaddexp uses stable SciPy-compatible logsumexp"
+    (Just "cupyx.scipy.special.logsumexp")
+    (lookupOpPath "reduce.logaddexp" cupySpec)
+
+  assertEqual
+    "numpy einsum resolves as contraction primitive"
+    (Just "numpy.einsum")
+    (lookupOpPath "einsum" spec)

@@ -2,6 +2,10 @@
   "backend": "numpy",
   "structural": {
     "expand_dims": "numpy.expand_dims",
+    "reshape": "numpy.reshape",
+    "squeeze": "numpy.squeeze",
+    "stack": "numpy.stack",
+    "concat": "numpy.concatenate",
     "transpose": "numpy.transpose",
     "take_diagonal": "numpy.diagonal"
   },
@@ -19,6 +23,7 @@
     "less":             { "kind": "elementwise_binary", "path": "numpy.less",             "arity": 2 },
     "and":              { "kind": "elementwise_binary", "path": "numpy.logical_and",      "arity": 2 },
     "or":               { "kind": "elementwise_binary", "path": "numpy.logical_or",       "arity": 2 },
+    "xor":              { "kind": "elementwise_binary", "path": "numpy.logical_xor",      "arity": 2 },
 
     "tanh":             { "kind": "unary",  "path": "numpy.tanh",             "arity": 1 },
     "exp":              { "kind": "unary",  "path": "numpy.exp",              "arity": 1 },
@@ -38,7 +43,12 @@
     "not":              { "kind": "unary",  "path": "numpy.logical_not",      "arity": 1 },
     "sigmoid":          { "kind": "unary",  "path": "scipy.special.expit",    "arity": 1 },
     "softmax":          { "kind": "unary",  "path": "scipy.special.softmax",  "arity": 2 },
+    "log_softmax":      { "kind": "unary",  "path": "scipy.special.log_softmax", "arity": 2 },
     "softplus":         { "kind": "unary",  "path": "scipy.special.softplus", "arity": 1 },
+    "erf":              { "kind": "unary",  "path": "scipy.special.erf",      "arity": 1 },
+    "erfc":             { "kind": "unary",  "path": "scipy.special.erfc",     "arity": 1 },
+    "gammaln":          { "kind": "unary",  "path": "scipy.special.gammaln",  "arity": 1 },
+    "digamma":          { "kind": "unary",  "path": "scipy.special.digamma",  "arity": 1 },
 
     "reduce.add":       { "kind": "reduce", "path": "numpy.sum",              "arity": 2 },
     "reduce.multiply":  { "kind": "reduce", "path": "numpy.prod",             "arity": 2 },
@@ -49,12 +59,17 @@
     "reduce.or":        { "kind": "reduce", "path": "numpy.any",              "arity": 2 },
 
     "structural.expand_dims":  { "kind": "structural", "path": "numpy.expand_dims",  "arity": 2 },
+    "structural.reshape":      { "kind": "structural", "path": "numpy.reshape",      "arity": 2 },
+    "structural.squeeze":      { "kind": "structural", "path": "numpy.squeeze",      "arity": 2 },
+    "structural.stack":        { "kind": "structural", "path": "numpy.stack",        "arity": 2 },
+    "structural.concat":       { "kind": "structural", "path": "numpy.concatenate",  "arity": 2 },
     "structural.transpose":    { "kind": "structural", "path": "numpy.transpose",    "arity": 2 },
     "structural.take_diagonal":{ "kind": "structural", "path": "numpy.diagonal",     "arity": 3 },
 
     "clip":             { "kind": "ternary",     "path": "numpy.clip",         "arity": 3 },
     "where":            { "kind": "ternary",     "path": "numpy.where",        "arity": 3 },
     "matmul":           { "kind": "contraction",  "path": "numpy.matmul",      "arity": 2 },
+    "einsum":           { "kind": "contraction",  "path": "numpy.einsum",      "arity": 3 },
     "norm":             { "kind": "reduce",       "path": "numpy.linalg.norm", "arity": 1 },
     "mean":             { "kind": "reduce",       "path": "numpy.mean",        "arity": 2 },
     "std":              { "kind": "reduce",       "path": "numpy.std",         "arity": 2 }

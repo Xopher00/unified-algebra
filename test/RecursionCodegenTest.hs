@@ -56,10 +56,10 @@ testListCata = do
   let ns      = "test_rec.fold"
       defName = "sum_list"
 
-      mod_ = hyloModule @(ListF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
-               ( id
-               , \case InL (Const ())                      -> s0
-                       InR (Pair (Const a) (Identity acc)) -> add a acc )
+      mod_ = cataModule @(ListF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
+               ( s0
+               , \a acc -> add a acc
+               )
 
   putStrLn "=== cataT with ListF ==="
   py <- generateFor mod_
@@ -81,10 +81,10 @@ testTreeCata = do
   let ns      = "test_rec.tree"
       defName = "sum_tree"
 
-      mod_ = hyloModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
-               ( id
-               , \case InL (Const a)                        -> multiply w a
-                       InR (Pair (Identity l) (Identity r)) -> add l r )
+      mod_ = cataModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
+               ( \a -> multiply w a
+               , \l r -> add l r
+               )
 
   putStrLn "\n=== cataT with RTreeF ==="
   py <- generateFor mod_
@@ -129,12 +129,12 @@ testHylo = do
   let ns      = "test_rec.hylo"
       defName = "hylo_sum"
 
-      mod_ = hyloModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
-               ( id
-               , \case InL (Const ())                      -> s0
-                       InR (Pair (Const a) (Identity acc)) -> add a acc )
+      mod_ = cataModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
+               ( s0
+               , \a acc -> add a acc
+               )
 
-  putStrLn "\n=== hyloT with SeqF (coalg=id) ==="
+  putStrLn "\n=== cataT with SeqF ==="
   py <- generateFor mod_
   putStrLn py
 
@@ -153,10 +153,10 @@ testFoldRNN = do
   let ns      = "neural.fold_rnn"
       defName = "fold_rnn"
 
-      mod_ = hyloModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
-               ( id
-               , \case InL (Const ())                    -> s0
-                       InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
+      mod_ = cataModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
+               ( s0
+               , \a s -> add (multiply w a) s
+               )
 
   putStrLn "\n=== FoldRNN cataT ==="
   py <- generateFor mod_
@@ -179,10 +179,10 @@ testTreeRNN = do
   let ns      = "neural.tree_rnn"
       defName = "tree_rnn"
 
-      mod_ = hyloModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
-               ( id
-               , \case InL (Const a)                        -> multiply w a
-                       InR (Pair (Identity l) (Identity r)) -> add l r )
+      mod_ = cataModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
+               ( \a -> multiply w a
+               , \l r -> add l r
+               )
 
   putStrLn "\n=== TreeRNN cataT ==="
   py <- generateFor mod_
@@ -206,12 +206,12 @@ testHyloRNN = do
   let ns      = "neural.hylo_rnn"
       defName = "hylo_rnn"
 
-      mod_ = hyloModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
-               ( id
-               , \case InL (Const ())                    -> s0
-                       InR (Pair (Const a) (Identity s)) -> add a s )
+      mod_ = cataModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
+               ( s0
+               , \a s -> add a s
+               )
 
-  putStrLn "\n=== HyloRNN hyloT ==="
+  putStrLn "\n=== HyloRNN cataT ==="
   py <- generateFor mod_
   putStrLn py
 
@@ -233,16 +233,16 @@ main = do
   testTreeRNN
   testHyloRNN
   putStrLn "\n=== TF comparison ==="
-  let foldMod = hyloModule @(SeqF Tensor)
+  let foldMod = cataModule @(SeqF Tensor)
                   "neural.fold_rnn" "fold_rnn" [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
-                  ( id
-                  , \case InL (Const ())                    -> s0
-                          InR (Pair (Const a) (Identity s)) -> add (multiply w a) s )
-      treeMod = hyloModule @(RTreeF Tensor)
+                  ( s0
+                  , \a s -> add (multiply w a) s
+                  )
+      treeMod = cataModule @(RTreeF Tensor)
                   "neural.tree_rnn" "tree_rnn" [Namespace "numpy"] ["w"] $ \[w] ->
-                  ( id
-                  , \case InL (Const a)                        -> multiply w a
-                          InR (Pair (Identity l) (Identity r)) -> add l r )
+                  ( \a -> multiply w a
+                  , \l r -> add l r
+                  )
   writeModuleToDisk "/tmp/unialg-neural-fold" foldMod
   writeModuleToDisk "/tmp/unialg-neural-tree" treeMod
   let scriptPath = "test/neural_comparison.py"

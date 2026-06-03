@@ -55,7 +55,6 @@ module UniAlg.Architecture
   , plainDefWith
   ) where
 
-import Data.Coerce (coerce)
 import Data.Functor.Const (Const(..))
 import Data.Functor.Identity (Identity(..))
 import Data.Functor.Product (Product(..))
@@ -65,9 +64,7 @@ import qualified Data.Kind as Kind
 import Hydra.Phantoms (TTerm(..), unTTerm)
 import qualified Hydra.Dsl.Terms as Terms
 import Hydra.Dsl.Meta.Phantoms
-  ( var
-  , (~>)
-  )
+  ( var )
 import Hydra.Kernel
   ( Definition(..)
   , FunctionType(..)
@@ -94,13 +91,7 @@ import UniAlg.Scheme.Internal
   , withSelf
   )
 import UniAlg.Term.Internal
-  ( tApply
-  , tLam
-  , tLeft
-  , tPair
-  , tRight
-  , tVar
-  )
+  ( tApply )
 
 
 -- | Type-level eliminator that converts a functor shape into the curried

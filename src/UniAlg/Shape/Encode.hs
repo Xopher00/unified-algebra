@@ -24,7 +24,7 @@ import Hydra.Phantoms (TTerm(..))
 import qualified Hydra.Dsl.Terms as Terms
 
 import UniAlg.Term.Internal
-  ( tApp
+  ( tApply
   , tEither
   , tFst
   , tLam
@@ -54,7 +54,7 @@ instance Shape (Const (TTerm k)) where
 
 instance Shape (Const (TTerm i -> TTerm o)) where
   matchLayer alg x =
-    alg (Const (\inp -> coerce (tApp (coerce x :: TTerm i) inp)))
+    alg (Const (\inp -> coerce (tApply (coerce x :: TTerm i) inp)))
   buildLayer (Const f) =
     coerce (tLam "inp" (f (tVar "inp")))
 
@@ -83,7 +83,7 @@ instance Functor (Exp r) where
 
 instance Shape (Exp (TTerm i)) where
   matchLayer alg x =
-    alg (Exp (\inp -> coerce (tApp (coerce x :: TTerm i) inp)))
+    alg (Exp (\inp -> coerce (tApply (coerce x :: TTerm i) inp)))
 
   buildLayer (Exp g) =
     tLam "inp" (g (tVar "inp"))
@@ -98,7 +98,7 @@ instance Functor (ConstFn i o) where
 
 instance Shape (ConstFn (TTerm i) (TTerm o)) where
   matchLayer alg x =
-    alg (ConstFn (\inp -> coerce (tApp (coerce x :: TTerm i) inp)))
+    alg (ConstFn (\inp -> coerce (tApply (coerce x :: TTerm i) inp)))
 
   buildLayer (ConstFn f) =
     tLam "inp" (coerce (f (tVar "inp")))

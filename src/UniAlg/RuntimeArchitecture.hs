@@ -1,14 +1,13 @@
-{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
-Runtime (value-level) module builders for neural recursion schemes.
+Runtime (value-level) convenience wrappers for neural recursion schemes.
 
-Parallel to the typeclass-dispatched builders in 'UniAlg.Architecture', but
-take a value-level 'Shape'' descriptor instead of a type application @\@f@.
-Use when the functor shape is known only at runtime (e.g. derived from a
-grammar term at generation time).
+These builders sit on the shared definition-emission machinery in
+'UniAlg.Architecture', but take a value-level 'Shape'' descriptor instead of
+a type application @\@f@. Use when the functor shape is known only at runtime
+(e.g. derived from a grammar term at generation time).
 
 The compile-time builders in 'UniAlg.Architecture' remain the preferred API
 when @f@ is statically known.
@@ -38,9 +37,9 @@ module UniAlg.RuntimeArchitecture
   , rebuildBranch
   ) where
 
-import Hydra.Phantoms (TTerm(..), unTTerm)
+import Hydra.Phantoms (TTerm(..))
 import qualified Hydra.Dsl.Terms as Terms
-import Hydra.Dsl.Meta.Phantoms (var, (~>))
+import Hydra.Dsl.Meta.Phantoms (var)
 import Hydra.Kernel
   ( Definition(..)
   , Module(..)
@@ -49,7 +48,6 @@ import Hydra.Kernel
   )
 
 import UniAlg.Architecture (hyloDefWith, plainDefWith)
-import UniAlg.Scheme.Internal (withSelf)
 import UniAlg.Term.Internal
   ( tApply
   , tEither
@@ -126,8 +124,8 @@ collectSlotsR (SSum _ _)   _    _ =
 -- ── Algebra application ───────────────────────────────────────────────────────
 
 -- | Apply a runtime algebra to a layer term, threading @step@ through
--- recursive positions.  Replaces @matchLayer \@f (alg . fmap step)@ from
--- 'UniAlg.Scheme.Internal.hyloT'.
+-- recursive positions. This is the value-level counterpart of applying an
+-- algebra after the shape layer has been exposed.
 applyAlgR :: Shape' -> (TTerm a -> TTerm a) -> RAlg a -> TTerm a -> TTerm a
 applyAlgR (SSum l r)  step (RAlgNode lt rt) x =
   tEither
@@ -193,37 +191,6 @@ rcoElimToTerm _           _                          =
   error "rcoElimToTerm: Shape' / RCoElim structural mismatch"
 
 
--- ── Runtime cata / ana / hylo ────────────────────────────────────────────────
-
--- | Runtime catamorphism over 'Shape''.  Equivalent to
--- 'UniAlg.Scheme.Internal.cataT', value-level dispatch.  No coalgebra
--- phase: the input @x@ is already a 'TTerm' encoding the structure.
-cataTR :: (?self :: TTerm a) => Shape' -> RAlg a -> TTerm a -> TTerm a
-cataTR shape alg x = applyAlgR shape step alg x
-  where step arg = TTerm (Terms.apply (unTTerm ?self) (unTTerm arg))
-
-
--- | Runtime anamorphism over 'Shape''.  Equivalent to
--- 'UniAlg.Scheme.Internal.anaT', value-level dispatch.  Fixed algebra is
--- @'rebuildAlg' shape@.
-anaTR :: (?self :: TTerm a) => Shape' -> (TTerm a -> RCoElim a) -> TTerm a -> TTerm a
-anaTR shape coalg = hyloTR shape coalg (rebuildAlg shape)
-
-
--- | Runtime hylomorphism over 'Shape''.  Equivalent to
--- 'UniAlg.Scheme.Internal.hyloT', value-level dispatch.
---
--- The coalgebra returns an explicit 'RCoElim' value; 'rcoElimToTerm'
--- re-encodes it into the @'TTerm'@ representation that 'applyAlgR'
--- consumes.  Recursive positions are replaced with self-calls before the
--- algebra is applied.
---
--- Requires @?self@ to be bound by an enclosing 'withSelf' call.
-hyloTR :: (?self :: TTerm a) => Shape' -> (TTerm a -> RCoElim a) -> RAlg a -> TTerm a -> TTerm a
-hyloTR shape coalg alg x = applyAlgR shape step alg (rcoElimToTerm shape (coalg x))
-  where step arg = TTerm (Terms.apply (unTTerm ?self) (unTTerm arg))
-
-
 -- ── Single-definition builders (cataDefR / anaDefR / hyloDefR) ──────────────
 
 -- | Build a recursive 'TermDefinition' for a runtime catamorphism.
@@ -238,7 +205,7 @@ cataDefR
   -> TermDefinition
 cataDefR ns name outerArgNames shape k =
   hyloDefWith ns name outerArgNames $ \self vs ->
-    withSelf self (cataTR shape (k vs) (var "x"))
+    applyAlgR shape (selfCall self) (k vs) (var "x")
 
 
 -- | Build a recursive 'TermDefinition' for a runtime anamorphism.
@@ -254,7 +221,12 @@ anaDefR
   -> TermDefinition
 anaDefR ns name outerArgNames shape k =
   hyloDefWith ns name outerArgNames $ \self vs ->
-    withSelf self (anaTR shape (k vs) (var "x"))
+    let coalg = k vs
+    in applyAlgR
+         shape
+         (selfCall self)
+         (rebuildAlg shape)
+         (rcoElimToTerm shape (coalg (var "x")))
 
 
 -- | Build a recursive 'TermDefinition' for a runtime hylomorphism.
@@ -271,7 +243,15 @@ hyloDefR
 hyloDefR ns name outerArgNames shape k =
   hyloDefWith ns name outerArgNames $ \self vs ->
     let (coalg, alg) = k vs
-    in withSelf self (hyloTR shape coalg alg (var "x"))
+    in applyAlgR
+         shape
+         (selfCall self)
+         alg
+         (rcoElimToTerm shape (coalg (var "x")))
+
+-- | Self-call for the recursive worker being emitted by 'hyloDefWith'.
+selfCall :: TTerm a -> TTerm a -> TTerm a
+selfCall = tApply
 
 
 -- ── Public module builders ────────────────────────────────────────────────────

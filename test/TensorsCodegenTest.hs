@@ -16,12 +16,12 @@ import Hydra.Languages (hydraLanguage)
 import qualified Hydra.Python.Coder as PythonCoder
 
 import UniAlg.Backend
-  ( BackendContext(..)
+  ( backendExternalModules
+  , BackendContext(..)
   , backendContextSpec
   , loadBackendContext
+  , lowerModule
   )
-
-import UniAlg.Backend (backendExternalModules, lowerModule)
 import UniAlg.Tensor
 
 import TestUtils

@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 {-|
 Backend lowering: rewrite symbolic UniAlg op names to backend-specific paths.
 
@@ -57,12 +55,7 @@ import UniAlg.Backend.Spec
 -- a known @unialg.backend.*@ symbol; otherwise returns the name unchanged.
 lowerName :: BackendSpec -> Name -> Name
 lowerName spec name =
-  case resolveName spec name of
-    Nothing ->
-      name
-
-    Just resolved ->
-      textToName resolved
+  maybe name textToName (resolveName spec name)
 
 
 -- | Rewrite all symbolic UniAlg backend names throughout a Hydra 'Term'.

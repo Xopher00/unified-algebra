@@ -1,12 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module UniAlg
   ( module Hydra.Dsl.Meta.Phantoms
   , module Hydra.Phantoms
   , Name(..)
   , Namespace(..)
   , varPhantom
-  , module UniAlg.Core.Ops
   , module UniAlg.Term
   , module UniAlg.Shape
   , module UniAlg.Scheme
@@ -49,7 +46,6 @@ import UniAlg.Codegen
   , writePythonWithBackend
   , writePythonWithBackendRec
   )
-import UniAlg.Core.Ops
 import UniAlg.Optics
 import UniAlg.Scheme
 import UniAlg.Shape

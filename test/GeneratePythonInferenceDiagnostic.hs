@@ -31,17 +31,11 @@ import qualified Hydra.Python.Coder as PythonCoder
 import UniAlg.Backend
   ( BackendContext(..)
   , OpSpec(..)
+  , backendExternalModules
   , backendContextSpec
   , loadBackendContext
+  , lowerModule
   , ops
-  )
-
-import UniAlg.Backend
-  ( backendExternalModules
-  )
-
-import UniAlg.Backend
-  ( lowerModule
   )
 
 import TestUtils

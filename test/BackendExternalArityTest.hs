@@ -11,10 +11,7 @@ import Hydra.Kernel
 
 import UniAlg.Backend
   ( backendExternalModules
-  )
-
-import UniAlg.Backend
-  ( loadBackendSpec
+  , loadBackendSpec
   )
 
 import TestUtils
@@ -27,7 +24,7 @@ findTermDefinition :: Name -> [Module] -> Maybe TermDefinition
 findTermDefinition wanted modules =
   firstJust $
     concatMap
-      (\m -> fmap definitionTermMaybe (moduleDefinitions m))
+      (fmap definitionTermMaybe . moduleDefinitions)
       modules
   where
     definitionTermMaybe def =

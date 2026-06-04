@@ -88,8 +88,8 @@ withSelf s k = let ?self = s in k
 cataT :: forall f a. (Shape f, ?self :: TTerm a)
       => (f (TTerm a) -> TTerm a)
       -> TTerm a -> TTerm a
-cataT alg x =
-  matchLayer @f (\layer -> alg (fmap step layer)) x
+cataT alg =
+  matchLayer @f (alg . fmap step)
   where
     step arg = TTerm (Terms.apply (unTTerm ?self) (unTTerm arg))
 
@@ -117,6 +117,6 @@ hyloT :: forall f a. (TCoElim f, ?self :: TTerm a)
       -> (f (TTerm a) -> TTerm a)
       -> TTerm a -> TTerm a
 hyloT coalg alg x =
-  matchLayer @f (\layer -> alg (fmap step layer)) (coElimToTerm @f @a (coalg x))
+  matchLayer @f (alg . fmap step) (coElimToTerm @f @a (coalg x))
   where
     step arg = TTerm (Terms.apply (unTTerm ?self) (unTTerm arg))

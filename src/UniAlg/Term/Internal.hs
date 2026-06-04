@@ -1,6 +1,5 @@
 module UniAlg.Term.Internal
-  ( tApp
-  , tLam
+  ( tLam
   , tVar
   , tPair
   , tFst
@@ -20,10 +19,6 @@ import Hydra.Sources.Libraries
   , _pairs_first
   , _pairs_second
   )
-
-
-tApp :: TTerm a -> TTerm a -> TTerm a
-tApp = tApply
 
 tLam :: String -> TTerm a -> TTerm a
 tLam p body = TTerm (Terms.lambda p (unTTerm body))

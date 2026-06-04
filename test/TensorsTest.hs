@@ -13,7 +13,6 @@ import Hydra.Kernel
 
 import Hydra.Phantoms (TTerm(..), unTTerm)
 
-import UniAlg.Core.Ops (op)
 import UniAlg.Tensor
 
 

@@ -72,8 +72,9 @@ backendExternalModules spec =
     backendOps :: [(Text, OpSpec)]
     backendOps =
       dedupeByPath $
-        fmap (\op -> (path op, op)) $
-          Map.elems (ops spec)
+        opEntry <$> Map.elems (ops spec)
+      where
+        opEntry op = (path op, op)
 
     groupedByNamespace :: [(Text, [(Text, OpSpec)])]
     groupedByNamespace =
@@ -164,7 +165,7 @@ etaExpand n name =
 externalTypeScheme :: OpSpec -> TypeScheme
 externalTypeScheme op =
   Types.poly ["a"] $ case arity op of
-    Just n | n `elem` [1, 2, 3] -> foldr (Types.~>) a (replicate n a)
+    Just n | n >= 1 -> foldr (Types.~>) a (replicate n a)
     _                           -> a
   where
     a = Types.var "a"

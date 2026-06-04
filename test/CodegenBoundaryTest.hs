@@ -19,10 +19,7 @@ import Hydra.Kernel
 import UniAlg.Backend
   ( backendContextSpec
   , loadBackendContext
-  )
-
-import UniAlg.Backend
-  ( lowerModule
+  , lowerModule
   )
 
 import TestUtils
@@ -92,8 +89,7 @@ definitionName def =
 moduleDefinitionNames :: Module -> Set Name
 moduleDefinitionNames modu =
   Set.fromList $
-    foldMap maybeToList $
-      fmap definitionName (moduleDefinitions modu)
+    foldMap (maybeToList . definitionName) (moduleDefinitions modu)
 
 
 moduleReferencedVariables :: Module -> Set Name

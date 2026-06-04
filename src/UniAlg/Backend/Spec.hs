@@ -48,6 +48,7 @@ import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -58,7 +59,7 @@ import Hydra.Kernel
 
 import qualified Hydra.Dsl.Terms as Terms
 
-import UniAlg.Core.BackendSpec
+import UniAlg.Backend.Schema
   ( BackendSpec(..)
   , OpSpec(..)
   )
@@ -84,11 +85,10 @@ backendOp =
 --
 -- The result is a curried application: @primitive(name) arg1 arg2 ...@
 call :: BackendOp -> [Term] -> Term
-call (BackendOp name) args =
-  foldl (Terms.@@) (Terms.primitive name) args
+call (BackendOp name) = foldl (Terms.@@) (Terms.primitive name)
 
 
--- BackendSpec and OpSpec are defined in UniAlg.Core.BackendSpec and re-exported.
+-- BackendSpec and OpSpec are defined in UniAlg.Backend.Schema and re-exported.
 
 -- | A resolved backend binding: the backend-specific qualified path that
 -- Hydra codegen treats as an ordinary module-qualified name.
@@ -97,7 +97,7 @@ call (BackendOp name) args =
 --
 -- This is /not/ Python source — it is a Hydra name that the Python coder
 -- renders as a qualified attribute access.
-data BackendBinding = BackendBinding
+newtype BackendBinding = BackendBinding
   { bindingPath :: Text -- ^ Qualified path, e.g. @\"numpy.matmul\"@.
   } deriving (Eq, Show)
 
@@ -176,11 +176,7 @@ resolveContextName context =
 
 nameToBackendOpKey :: Name -> Text
 nameToBackendOpKey (Name raw) =
-  case T.stripPrefix "unialg.backend." fullName of
-    Just opKey ->
-      opKey
-
-    Nothing ->
-      fullName
+  fromMaybe fullName $
+    T.stripPrefix "unialg.backend." fullName
   where
     fullName = T.pack raw

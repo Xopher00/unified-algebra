@@ -69,8 +69,8 @@ import qualified Hydra.Dsl.Meta.Lib.Eithers as Eithers
 newtype TArr a b = TArr { runTArr :: TTerm a -> TTerm b }
 
 instance Cat.Category TArr where
-  id = TArr (\x -> x)
-  TArr f . TArr g = TArr (\x -> f (g x))
+  id = TArr Cat.id
+  TArr f . TArr g = TArr (f Cat.. g)
 
 instance Arr.Arrow TArr where
   arr _ = error "TArr: arr cannot inspect Haskell functions to generate code"
@@ -80,9 +80,9 @@ instance Arr.Arrow TArr where
   TArr f &&& TArr g = TArr (\x -> pair (f x) (g x))
 
 instance Arr.ArrowChoice TArr where
-  left (TArr f) = TArr (\e -> either (\l -> leftTerm (f l)) rightTerm e)
-  right (TArr f) = TArr (\e -> either leftTerm (\r -> rightTerm (f r)) e)
-  TArr f +++ TArr g = TArr (\e -> either (\l -> leftTerm (f l)) (\r -> rightTerm (g r)) e)
+  left (TArr f) = TArr (either (leftTerm Cat.. f) rightTerm)
+  right (TArr f) = TArr (either leftTerm (rightTerm Cat.. f))
+  TArr f +++ TArr g = TArr (either (leftTerm Cat.. f) (rightTerm Cat.. g))
   TArr f ||| TArr g = TArr (either f g)
 
 -- | Lift a Haskell function over @TTerm@ values into a lambda @TTerm@ node.
@@ -97,7 +97,7 @@ reify2 f = "x" ~> "y" ~> f (var "x") (var "y")
 
 infixr 1 >>>
 (>>>) :: TArr a b -> TArr b c -> TArr a c
-TArr f >>> TArr g = TArr (\x -> g (f x))
+TArr f >>> TArr g = TArr (g Cat.. f)
 
 infixr 3 &&&
 (&&&) :: TArr a b -> TArr a c -> TArr a (b, c)
@@ -113,7 +113,7 @@ TArr f ||| TArr g = TArr (either f g)
 
 infixr 2 +++
 (+++) :: TArr a b -> TArr c d -> TArr (Either a c) (Either b d)
-TArr f +++ TArr g = TArr (\e -> either (\l -> leftTerm (f l)) (\r -> rightTerm (g r)) e)
+TArr f +++ TArr g = TArr (either (leftTerm Cat.. f) (rightTerm Cat.. g))
 
 -- | First projection from a pair @TTerm@.
 fst :: TTerm (a, b) -> TTerm a
@@ -157,13 +157,13 @@ assoc = TArr (\p -> pair (fst (fst p)) (pair (snd (fst p)) (snd p)))
 
 -- | Codiagonal: eliminate a sum where both branches have the same type.
 merge :: TArr (Either a a) a
-merge = TArr (\e -> either (\x -> x) (\x -> x) e)
+merge = TArr (either Cat.id Cat.id)
 
 distributeLeft :: TArr (a, Either b c) (Either (a, b) (a, c))
 distributeLeft = TArr (\p ->
   either
-    (\l -> leftTerm (pair (fst p) l))
-    (\r -> rightTerm (pair (fst p) r))
+    (leftTerm Cat.. pair (fst p))
+    (rightTerm Cat.. pair (fst p))
     (snd p))
 
 distributeRight :: TArr (Either a b, c) (Either (a, c) (b, c))

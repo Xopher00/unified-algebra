@@ -5,11 +5,11 @@
 Backend specification data model.
 
 'BackendSpec' and 'OpSpec' are the parsed form of a backend JSON file.
-They live in Core so that both the pipeline layer (resolution\/lowering) and
-the generated op surface ('UniAlg.Core.Ops') can depend on them without
-introducing a layer inversion.
+They live in 'UniAlg.Backend' so that both the runtime resolution\/lowering
+pipeline and the compile-time op generator ('UniAlg.Backend.Generate') can
+depend on them without introducing a layer inversion.
 -}
-module UniAlg.Core.BackendSpec
+module UniAlg.Backend.Schema
   ( OpSpec(..)
   , BackendSpec(..)
   ) where

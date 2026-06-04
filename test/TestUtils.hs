@@ -15,22 +15,17 @@ import qualified Data.Text as T
 import Hydra.Kernel (Module)
 
 import UniAlg.Backend
-  ( BackendContext
+  ( backendExternalModules
+  , BackendContext
   , backendContextSpec
   , loadBackendContext
+  , lowerModule
   )
 
 import UniAlg.Codegen
   ( generatePythonString
   )
 
-import UniAlg.Backend
-  ( backendExternalModules
-  )
-
-import UniAlg.Backend
-  ( lowerModule
-  )
 
 
 -- | Test assertion for equality

@@ -7,6 +7,7 @@ import Hydra.Kernel
   )
 
 import Data.Text (Text)
+import Data.Maybe (isJust)
 import qualified Data.Text as T
 
 import qualified Hydra.Dsl.Terms as Terms
@@ -70,7 +71,7 @@ assertCommonBackendCoverage =
         (\opKey ->
           assertBool
             ("backend " <> backendName <> " resolves " <> opKey)
-            (lookupOpPath opKey spec /= Nothing))
+            (isJust (lookupOpPath opKey spec)))
         commonBackendOps
 
 

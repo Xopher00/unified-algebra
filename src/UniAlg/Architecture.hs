@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -77,7 +76,7 @@ import Hydra.Kernel
   , TypeScheme(..)
   )
 
-import UniAlg.Core.Reduce (reduceTerm)
+import UniAlg.Reduce (reduceTerm)
 import UniAlg.Shape.Encode
   ( Exp(..)
   , Shape(..)

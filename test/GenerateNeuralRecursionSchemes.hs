@@ -8,7 +8,6 @@ import qualified Prelude as P
 
 import UniAlg hiding ((++))
 import SeqRnn (SeqF)
-import StreamRnn (StreamLazyF)
 import TreeRnn (RTreeF)
 
 
@@ -84,6 +83,8 @@ treeRNNTerm =
 
 -- ── Unfolding RNN / Stream ────────────────────────────────────────────────────
 -- F(X) = o × X   =   StreamF o
+
+type StreamF o = Product (Const (TTerm o)) Identity
 
 type Stream' o = Fix (StreamF o)
 

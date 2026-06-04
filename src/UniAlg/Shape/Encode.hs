@@ -54,7 +54,7 @@ instance Shape (Const (TTerm k)) where
 
 instance Shape (Const (TTerm i -> TTerm o)) where
   matchLayer alg x =
-    alg (Const (\inp -> coerce (tApply (coerce x :: TTerm i) inp)))
+    alg (Const (coerce . tApply (coerce x :: TTerm i)))
   buildLayer (Const f) =
     coerce (tLam "inp" (f (tVar "inp")))
 
@@ -71,7 +71,7 @@ instance (Shape f, Shape g) => Shape (Sum f g) where
 instance (Shape f, Shape g) => Shape (Product f g) where
   matchLayer alg x =
     matchLayer @f
-      (\fl -> matchLayer @g (\gr -> alg (Pair fl gr)) (tSnd x))
+      (\fl -> matchLayer @g (alg . Pair fl) (tSnd x))
       (tFst x)
 
   buildLayer (Pair l r) = tPair (buildLayer @f l) (buildLayer @g r)
@@ -83,7 +83,7 @@ instance Functor (Exp r) where
 
 instance Shape (Exp (TTerm i)) where
   matchLayer alg x =
-    alg (Exp (\inp -> coerce (tApply (coerce x :: TTerm i) inp)))
+    alg (Exp (coerce . tApply (coerce x :: TTerm i)))
 
   buildLayer (Exp g) =
     tLam "inp" (g (tVar "inp"))
@@ -98,7 +98,7 @@ instance Functor (ConstFn i o) where
 
 instance Shape (ConstFn (TTerm i) (TTerm o)) where
   matchLayer alg x =
-    alg (ConstFn (\inp -> coerce (tApply (coerce x :: TTerm i) inp)))
+    alg (ConstFn (coerce . tApply (coerce x :: TTerm i)))
 
   buildLayer (ConstFn f) =
     tLam "inp" (coerce (f (tVar "inp")))
@@ -137,7 +137,7 @@ instance TCoElim (Const ()) where
   coElimToTerm () = TTerm Terms.unit
 
 instance TCoElim (Const (TTerm k)) where
-  coElimToTerm k = coerce k
+  coElimToTerm = coerce
 
 instance TCoElim Identity where
   coElimToTerm x = x

@@ -16,7 +16,7 @@ These simplifications prevent the Python coder from emitting gratuitous
 @(lambda x: x)@ wrappers and redundant pair-then-project patterns that
 originate in 'Shape' instances.
 -}
-module UniAlg.Core.Reduce
+module UniAlg.Reduce
   ( reduceTerm
   ) where
 
@@ -136,8 +136,7 @@ applyTerm f x = TermApplication (Application f x)
 
 
 applyEither :: Term -> Term -> Term -> Term
-applyEither f g x =
-  applyTerm (applyTerm (applyTerm (TermVariable eitherPrim) f) g) x
+applyEither f g = applyTerm (applyTerm (applyTerm (TermVariable eitherPrim) f) g)
 
 
 subst :: Name -> Term -> Term -> Term

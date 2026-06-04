@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
 
@@ -58,7 +57,7 @@ testListCata = do
 
       mod_ = cataModule @(ListF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
                ( s0
-               , \a acc -> add a acc
+               , add
                )
 
   putStrLn "=== cataT with ListF ==="
@@ -82,8 +81,8 @@ testTreeCata = do
       defName = "sum_tree"
 
       mod_ = cataModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
-               ( \a -> multiply w a
-               , \l r -> add l r
+               ( multiply w
+               , add
                )
 
   putStrLn "\n=== cataT with RTreeF ==="
@@ -108,8 +107,8 @@ testAnaT = do
   let ns      = "test_rec.ana"
       defName = "copy_list"
 
-      mod_ = anaModule @(SeqF Tensor) ns defName [Namespace "numpy"] [] $ \[] ->
-               \s -> Right (s, s)
+      mod_ = anaModule @(SeqF Tensor) ns defName [Namespace "numpy"] [] $ \[] s ->
+               Right (s, s)
 
   putStrLn "\n=== anaT with SeqF (natural coalg, alg=buildLayer) ==="
   py <- generateFor mod_
@@ -131,7 +130,7 @@ testHylo = do
 
       mod_ = cataModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
                ( s0
-               , \a acc -> add a acc
+               , add
                )
 
   putStrLn "\n=== cataT with SeqF ==="
@@ -155,7 +154,7 @@ testFoldRNN = do
 
       mod_ = cataModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
                ( s0
-               , \a s -> add (multiply w a) s
+               , add . multiply w
                )
 
   putStrLn "\n=== FoldRNN cataT ==="
@@ -180,8 +179,8 @@ testTreeRNN = do
       defName = "tree_rnn"
 
       mod_ = cataModule @(RTreeF Tensor) ns defName [Namespace "numpy"] ["w"] $ \[w] ->
-               ( \a -> multiply w a
-               , \l r -> add l r
+               ( multiply w
+               , add
                )
 
   putStrLn "\n=== TreeRNN cataT ==="
@@ -208,7 +207,7 @@ testHyloRNN = do
 
       mod_ = cataModule @(SeqF Tensor) ns defName [Namespace "numpy"] ["s0"] $ \[s0] ->
                ( s0
-               , \a s -> add a s
+               , add
                )
 
   putStrLn "\n=== HyloRNN cataT ==="
@@ -236,12 +235,12 @@ main = do
   let foldMod = cataModule @(SeqF Tensor)
                   "neural.fold_rnn" "fold_rnn" [Namespace "numpy"] ["w", "s0"] $ \[w, s0] ->
                   ( s0
-                  , \a s -> add (multiply w a) s
+                  , add . multiply w
                   )
       treeMod = cataModule @(RTreeF Tensor)
                   "neural.tree_rnn" "tree_rnn" [Namespace "numpy"] ["w"] $ \[w] ->
-                  ( \a -> multiply w a
-                  , \l r -> add l r
+                  ( multiply w
+                  , add
                   )
   writeModuleToDisk "/tmp/unialg-neural-fold" foldMod
   writeModuleToDisk "/tmp/unialg-neural-tree" treeMod

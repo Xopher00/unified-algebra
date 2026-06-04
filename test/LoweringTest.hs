@@ -16,13 +16,10 @@ import qualified Hydra.Dsl.Terms as Terms
 import UniAlg.Backend
   ( lowerDefinition
   , lowerDefinitions
+  , loadBackendSpec
   , lowerModule
   , lowerName
   , lowerTerm
-  )
-
-import UniAlg.Backend
-  ( loadBackendSpec
   )
 
 import TestUtils

@@ -186,7 +186,7 @@ definitionFromTTerm moduleName (localName, term) =
 -- Returns the same @(relative path, source)@ pairs that
 -- @generateSources@ would write.  Useful for testing generated output
 -- without touching the filesystem.  Fails in 'IO' on a codegen error.
-generatePythonString :: [Module] -> Module -> IO ([(FilePath, String)])
+generatePythonString :: [Module] -> Module -> IO [(FilePath, String)]
 generatePythonString universe target =
   let cx = Context.Context [] [] M.empty
   in case CodeGeneration.generateSourceFiles

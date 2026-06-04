@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {-|
 Einstein-notation tensor contractions over semirings, compiled to Hydra IR.
@@ -6,20 +7,7 @@ Einstein-notation tensor contractions over semirings, compiled to Hydra IR.
 Parse an equation string with 'parseEquation' (any arity), then compile to
 a 'TTerm' with 'applyEquation' or to a codegen 'Module' with 'equationModule'.
 -}
-module UniAlg.Tensor
-  ( Tensor
-  , Index(..)
-  , Orientation(..)
-  , Semiring(..)
-  , Equation(..)
-  , parseEquation
-  , contract
-  , adjointContract
-  , compileEquation
-  , applyEquation
-  , contractModule
-  , equationModule
-  ) where
+module UniAlg.Tensor where
 
 import Control.Monad (foldM)
 import qualified Data.List.Split as Split
@@ -34,8 +22,13 @@ import UniAlg.Term (reify2)
 
 import qualified Hydra.Dsl.Terms as Terms
 
-import UniAlg.Core.Reduce (reduceTerm)
-import UniAlg.Core.Ops (op)
+import UniAlg.Reduce (reduceTerm)
+import UniAlg.Backend (genBackendOps, lookupOp)
+
+$(genBackendOps "backends/numpy.json")
+
+op :: String -> TTerm a
+op = lookupOp opRegistry
 
 
 -- | Phantom type tag for tensor-typed 'TTerm' values.
@@ -118,7 +111,7 @@ parseEquation raw = do
   check (all (\c -> c /= '-' && c /= '>') (lhs <> rhs))
     "index labels cannot contain arrow characters"
   let inputParts = Split.splitOn "," lhs
-  check (all (not . null) inputParts) "equation operands must not be empty"
+  check (not (any null inputParts)) "equation operands must not be empty"
   mkEquation
     (fmap (fmap Index) inputParts)
     (fmap Index rhs)

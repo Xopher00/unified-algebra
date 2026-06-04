@@ -3,28 +3,24 @@
 {-|
 Template Haskell generator for backend op bindings.
 
-Provides the primitive op constructors ('opBase', 'op1', 'op2', 'op3')
-and 'genBackendOps', which reads a backend JSON spec at compile time and
-emits:
+Reads a backend JSON spec at compile time and emits:
 
-* A typed binding for every op with a known arity (1–3).
+* A typed binding for every op with a known arity (1 or more).
+  The binding is eta-expanded to the required arity.
 * An @opRegistry :: Map String Term@ of bare, unapplied base terms keyed by
   the raw spec key, for use by the tensor contraction compiler.
 
 === Stage restriction
 
-This module must be compiled before the splice site.  'op1'\/'op2'\/'op3'
-are generated as @fun "key" arg1 arg2@ style by the splice; the splice site
-module imports them from here.
+This module must be compiled before the splice site.
 -}
-module UniAlg.Core.Ops.Generate
+module UniAlg.Backend.Generate
   ( opBase
-  , op1
-  , op2
-  , op3
   , genBackendOps
+  , lookupOp
   ) where
 
+import Control.Monad (replicateM)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (toUpper)
 import Data.List (foldl')
@@ -42,7 +38,7 @@ import Hydra.Kernel (Name(..), Term(..))
 import Hydra.Phantoms (TTerm(..))
 import Hydra.Dsl.Meta.Phantoms ((@@), var)
 
-import UniAlg.Core.BackendSpec
+import UniAlg.Backend.Schema
 
 
 -- | Build a base symbolic 'TTerm' for a backend op.
@@ -51,27 +47,14 @@ import UniAlg.Core.BackendSpec
 opBase :: String -> TTerm a
 opBase key = var ("unialg.backend." <> key)
 
--- | Apply a named backend op to one argument.
-op1 :: String -> TTerm a -> TTerm a
-op1 key a = opBase key @@ a
-
--- | Apply a named backend op to two arguments.
-op2 :: String -> TTerm a -> TTerm a -> TTerm a
-op2 key a b = opBase key @@ a @@ b
-
--- | Apply a named backend op to three arguments.
-op3 :: String -> TTerm a -> TTerm a -> TTerm a -> TTerm a
-op3 key a b c = opBase key @@ a @@ b @@ c
-
-
 -- | Generate arity-typed op bindings and an @opRegistry@ from a backend JSON spec.
 --
 -- Reads @jsonPath@ at compile time, tracks it as a dependency (so changing
 -- the JSON triggers recompilation), and emits:
 --
--- * @name :: TTerm a -> … -> TTerm a@ + @name = op1/2/3 "key"@ for each
---   op with arity 1–3.  Dotted keys (e.g. @reduce.*@, @structural.*@) are
---   mangled to camelCase.  Reserved words and common Prelude clashes get a
+-- * @name :: TTerm a -> … -> TTerm a@ + @name = opBase "key" @@ arg1 @@ ... @@ argN@
+--   for each op with arity 1 or more. Dotted keys (e.g. @reduce.*@, @structural.*@)
+--   are mangled to camelCase.  Reserved words and common Prelude clashes get a
 --   trailing @_@.
 --
 -- * @opRegistry :: Map String Term@ mapping every raw key to its bare
@@ -92,22 +75,22 @@ genBackendOps jsonPath = do
 genBinding :: (Text, OpSpec) -> Q [Dec]
 genBinding (rawKey, opSpec) =
   case arity opSpec of
-    Just n | n `elem` [1,2,3] -> do
+    Just n | n >= 1 -> do
       let key    = T.unpack rawKey
           ident  = mangleKey key
           nm     = mkName ident
           keyLit = litE (stringL key)
-          body   = case n of
-                     1 -> [| op1 $(keyLit) |]
-                     2 -> [| op2 $(keyLit) |]
-                     _ -> [| op3 $(keyLit) |]
+      argNames <- replicateM n (newName "x")
+      let body = foldl (\e arg -> [| $e @@ $arg |])
+                       [| opBase $(keyLit) |]
+                       (map varE argNames)
       sig <- sigD nm (buildArrowType n)
-      def <- funD nm [clause [] (normalB body) []]
+      def <- funD nm [clause (map varP argNames) (normalB body) []]
       return [sig, def]
     _ -> do
       reportWarning
         ("genBackendOps: skipping '" <> T.unpack rawKey
-         <> "' (arity missing or not 1–3)")
+         <> "' (arity missing or 0)")
       return []
 
 
@@ -117,7 +100,7 @@ buildArrowType n = do
   a <- newName "a"
   let ttermA  = AppT (ConT ''TTerm) (VarT a)
       tterms  = replicate (n + 1) ttermA
-      body    = foldr1 (\x acc -> AppT (AppT ArrowT x) acc) tterms
+      body    = foldr1 (AppT . AppT ArrowT) tterms
   return $ ForallT [PlainTV a SpecifiedSpec] [] body
 
 
@@ -171,3 +154,13 @@ splitOnAny seps str =
   case break (`elem` seps) str of
     (chunk, [])     -> [chunk]
     (chunk, _:rest) -> chunk : splitOnAny seps rest
+
+
+-- | Resolve a raw backend op key against a registry produced by a
+-- 'genBackendOps' splice. Errors at construction time on unknown keys.
+lookupOp :: Map String Term -> String -> TTerm a
+lookupOp registry key =
+  TTerm $ Map.findWithDefault
+    (error ("lookupOp: unknown backend op key " <> show key))
+    key
+    registry
